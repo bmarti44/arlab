@@ -115,7 +115,7 @@ Runner code target: ≈1,500 lines of Python plus tests. Anything not in this pl
 3. **GPU jobs:** let running GPU jobs finish, or accept that arlab waits for them.
 4. **arlab's own Codex login**, so its token refreshes never interfere with yours:
    `mkdir -p ~/.cache/arlab/codex-home && CODEX_HOME=~/.cache/arlab/codex-home codex login --device-auth`
-   Then check that `CODEX_HOME=~/.cache/arlab/codex-home codex exec -m gpt-6-sol "say ok"` answers, and confirm the ChatGPT plan quota can sustain ~10 calls/hour for days.
+   Then check that `CODEX_HOME=~/.cache/arlab/codex-home codex exec --skip-git-repo-check -m gpt-6-sol "say ok"` answers, and confirm the ChatGPT plan quota can sustain ~10 calls/hour for days.
 5. **Start the executor** in tmux: `cd ~/arlab && env -u ANTHROPIC_API_KEY claude --permission-mode auto`.
    Paste the Appendix C kickoff, then run `/loop Continue per STATUS.md; stop looping when STATUS.md starts with DONE or INCOMPLETE`.
    After a restart or a subscription usage-limit reset, type "Continue per STATUS.md". Detached campaigns keep running meanwhile.
