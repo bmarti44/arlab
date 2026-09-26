@@ -1,0 +1,3 @@
+# Scenario E: deterministic pack (confirm: [])
+- {description: "raise lr to 0.1", hypothesis_tag: lr, replace: {model.py: [['"lr": 0.002', '"lr": 0.1']]}}
+- {description: "comment 1", hypothesis_tag: noise, replace: {model.py: [["import numpy as np\n", "import numpy as np\n# note 1\n"]]}}

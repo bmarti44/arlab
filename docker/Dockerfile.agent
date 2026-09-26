@@ -1,0 +1,3 @@
+FROM node:22-bookworm
+RUN npm i -g @openai/codex@0.157.1 && npm cache clean --force
+RUN apt-get update && apt-get install -y --no-install-recommends python3 git ripgrep && rm -rf /var/lib/apt/lists/*

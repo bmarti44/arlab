@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "action": {"type": "string", "enum": ["edit", "skip"]},
+    "description": {"type": "string", "maxLength": 120},
+    "hypothesis_tag": {"type": "string", "pattern": "^[a-z0-9][a-z0-9_-]{0,47}$"},
+    "constraint_learned": {"type": ["string", "null"]}
+  },
+  "required": ["action", "description", "hypothesis_tag", "constraint_learned"],
+  "additionalProperties": false
+}

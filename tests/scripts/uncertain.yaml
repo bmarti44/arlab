@@ -1,0 +1,11 @@
+# Scenario D: a small real gain near MES, then 9 null edits -> holdout_uncertain
+- {description: "lr 0.0025", hypothesis_tag: lr, replace: {model.py: [['"lr": 0.002', '"lr": 0.0025']]}}
+- {description: "comment 1", hypothesis_tag: noise, replace: {model.py: [["import numpy as np\n", "import numpy as np\n# note 1\n"]]}}
+- {description: "comment 2", hypothesis_tag: noise, replace: {model.py: [["import numpy as np\n", "import numpy as np\n# note 2\n"]]}}
+- {description: "comment 3", hypothesis_tag: noise, replace: {model.py: [["import numpy as np\n", "import numpy as np\n# note 3\n"]]}}
+- {description: "comment 4", hypothesis_tag: noise, replace: {model.py: [["import numpy as np\n", "import numpy as np\n# note 4\n"]]}}
+- {description: "comment 5", hypothesis_tag: noise, replace: {model.py: [["import numpy as np\n", "import numpy as np\n# note 5\n"]]}}
+- {description: "comment 6", hypothesis_tag: noise, replace: {model.py: [["import numpy as np\n", "import numpy as np\n# note 6\n"]]}}
+- {description: "comment 7", hypothesis_tag: noise, replace: {model.py: [["import numpy as np\n", "import numpy as np\n# note 7\n"]]}}
+- {description: "comment 8", hypothesis_tag: noise, replace: {model.py: [["import numpy as np\n", "import numpy as np\n# note 8\n"]]}}
+- {description: "comment 9", hypothesis_tag: noise, replace: {model.py: [["import numpy as np\n", "import numpy as np\n# note 9\n"]]}}
