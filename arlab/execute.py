@@ -155,7 +155,8 @@ def run_step(s: Step, own_cids: set[str], tick=None) -> StepResult:
                     res.oom, killed = True, True
                     kill_cid(cid)
         res.rc = p.returncode
-    res.launch_failed = res.rc != 0 and (_cid(s.cidfile) is None or res.rc == 125)
+    res.launch_failed = res.rc != 0 and (_cid(s.cidfile) is None or (res.rc == 125 and "docker: Error response from daemon"
+                                                                     in Path(s.log).read_bytes()[-4000:].decode(errors="replace")))
     s.cidfile.unlink(missing_ok=True)  # the container is gone (--rm); keeps resume/foreign scans cheap
     res.wall_s = time.monotonic() - t0
     res.gpu_temp_max = max(temps) if temps else None
@@ -176,6 +177,8 @@ def kill_leftovers(campaign: Path, prefix: str):
     """Kill containers left by a dead runner: only those whose name shows this campaign started them (cidfiles are
     not trusted on their own; the agent can write files in its view/out dirs)."""
     for cf in list(campaign.glob("**/*.cid")):
+        if {"view", "agent"} & set(cf.relative_to(campaign).parts[:-1]):
+            continue  # agent-writable dirs
         cid = _cid(cf)
         r = sh("docker", "inspect", "-f", "{{.Name}}", cid, check=False) if cid else None
         if r is not None and r.returncode == 0 and r.stdout.strip().startswith(f"/{prefix}-"):

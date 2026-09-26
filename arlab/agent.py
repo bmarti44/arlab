@@ -76,7 +76,7 @@ class CodexBackend:
     def _call(self, view: Path, out: Path, name: str, model: str, effort: str) -> Proposal:
         out.mkdir(parents=True, exist_ok=True)
         (out / "proposal.json").unlink(missing_ok=True)
-        cidfile = out / "agent.cid"
+        cidfile = out.parent / f"{out.name}.cid"  # outside the agent-writable /out mount
         cidfile.unlink(missing_ok=True)
         cmd = ["docker", "run", "--rm", "-i", "--cidfile", str(cidfile), "--name", name, "--user", "1000:1000", "-e", "HOME=/tmp",
                "-v", f"{CODEX_HOME}:/codex", "-e", "CODEX_HOME=/codex",

@@ -188,6 +188,9 @@ def validate_dir(pack_dir: Path) -> list[str]:
     for v in pack.agent.visible:
         if not (pack_dir / v).is_file():
             errs.append(f"agent.visible {v} does not exist")
+    links = [p.relative_to(pack_dir).as_posix() for p in pack_dir.rglob("*") if p.is_symlink()]
+    if links:
+        errs.append(f"symlinks are not allowed in a pack (sealing would copy their targets): {links[:5]}")
     return errs
 
 

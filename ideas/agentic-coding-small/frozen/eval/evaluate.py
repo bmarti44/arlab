@@ -33,7 +33,7 @@ except (OSError, ValueError, KeyError) as e:
 
 def score(t):
     ws = run / "ws" / t["id"]
-    if not ws.is_dir():
+    if not ws.is_dir() or status.get(t["id"]) == "budget_exceeded":  # over the per-task cap scores 0
         return t["id"], 0.0
     return t["id"], run_hidden_tests(ws, t["sources"], priv / "tests" / t["id"], t["expected"], timeout_s=120)["score"]
 

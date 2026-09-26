@@ -86,6 +86,7 @@ def cmd_check(a):
 def cmd_run(a):
     pack_dir = Path(a.pack).resolve()
     name = pack_dir.name
+    Campaign(pack_dir, a.tag)  # validates the tag before anything is created
     if a.detach:
         camp = RUNS / name / a.tag
         camp.mkdir(parents=True, exist_ok=True)

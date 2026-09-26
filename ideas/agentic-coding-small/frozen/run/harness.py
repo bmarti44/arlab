@@ -60,6 +60,8 @@ def one(t):
     secs = time.monotonic() - t0
     if secs > TASK_SECONDS:
         status = "time_limit"
+    if client.used(t["id"]) > PER_TASK_TOKENS:  # the surface may have swallowed BudgetExceeded
+        status = "budget_exceeded"
     return {"id": t["id"], "status": status, "steps": tools.steps, "seconds": round(secs, 1), "tokens": client.used(t["id"])}
 
 

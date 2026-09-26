@@ -37,6 +37,8 @@ def one(q):
         status = "ok"
     except BudgetExceeded:
         ans, status = "", "budget_exceeded"
+    if client.used(q["id"]) > PER_QUESTION_TOKENS:  # the surface may have swallowed BudgetExceeded
+        ans, status = "", "budget_exceeded"
     return {"id": q["id"], "answer": " ".join(str(ans).split()[:ANSWER_WORDS]), "status": status, "tokens": client.used(q["id"])}
 
 

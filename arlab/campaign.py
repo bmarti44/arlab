@@ -440,7 +440,7 @@ class Campaign:
             if r["status"] != "infra_error":
                 break
             infra += 1
-        active_h = (sum(sum(r.get("timings", {}).get(k, 0) for k in ("propose_s", "run_s", "eval_s")) for r in records)
+        active_h = (sum(sum(r.get("timings", {}).get(k, 0) for k in ("propose_s", "run_s", "eval_s")) for r in c)
                     + sum(v["run_s"] + v["eval_s"] for v in self.baseline_vals().values() if v)) / 3600
         need_disk = DISK_FLOOR_GB + 2 * self.state.get("probe", {}).get("out_gb", 0)
         checks = [(len(c) >= cfg.max_experiments, "max_experiments"), (active_h >= cfg.max_hours, "max_hours"),
