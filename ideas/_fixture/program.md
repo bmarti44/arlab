@@ -7,7 +7,7 @@ seed and then clearly (by more than 2·SE) on fresh seeds.
 ## What you may change
 model.py. Nothing else has any effect. The surface must not read files, the environment or the network.
 ## What the code does
-The frozen harness calls build(), then train_step() for exactly 1500 steps of batch 1024, then predict().
+The frozen harness calls build(), then train_step() for exactly 1500 steps of batch 2048, then predict().
 ## Rules
 - One change, one hypothesis_tag. Read history.md; respect constraints.md. Prefer simple changes.
 - Finish with the JSON object required by the output schema and nothing after it.

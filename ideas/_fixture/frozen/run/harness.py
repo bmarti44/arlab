@@ -4,7 +4,7 @@ os.environ.update(OMP_NUM_THREADS="1", OPENBLAS_NUM_THREADS="1", MKL_NUM_THREADS
 import argparse, json, sys, time
 import numpy as np
 
-STEPS, BATCH = 1500, 1024
+STEPS, BATCH = 1500, 2048
 ap = argparse.ArgumentParser()
 ap.add_argument("--out", required=True); ap.add_argument("--seed", type=int, required=True); ap.add_argument("--split", required=True)
 a = ap.parse_args()

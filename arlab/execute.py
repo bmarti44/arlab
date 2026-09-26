@@ -60,6 +60,7 @@ class Step:
     gpu: bool = False
     env: dict[str, str] = field(default_factory=dict)
     telemetry: Path | None = None
+    cpus: str | None = None                # docker --cpuset-cpus
 
 
 @dataclass
@@ -84,6 +85,8 @@ def docker_cmd(s: Step) -> list[str]:
            "--network", s.network, "--shm-size", "8g", "-w", "/tmp"]
     if s.gpu:
         cmd += ["--gpus", "all"]
+    if s.cpus:
+        cmd += ["--cpuset-cpus", s.cpus]
     for host, cont, rw in s.mounts:
         cmd += ["-v", f"{host}:{cont}:{'rw' if rw else 'ro'}"]
     for k, v in {**BASE_ENV, **s.env}.items():
@@ -151,6 +154,7 @@ def run_step(s: Step, own_cids: set[str], tick=None) -> StepResult:
                     res.oom, killed = True, True
                     kill_cid(cid)
         res.rc = p.returncode
+    s.cidfile.unlink(missing_ok=True)  # the container is gone (--rm); keeps resume/foreign scans cheap
     res.wall_s = time.monotonic() - t0
     res.gpu_temp_max = max(temps) if temps else None
     if res.rc != 0 and not res.timed_out:

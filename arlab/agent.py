@@ -15,7 +15,8 @@ from .execute import kill_cid
 AGENT_IMAGE = "arlab-agent:0.157.1"
 CODEX_HOME = Path.home() / ".cache" / "arlab" / "codex-home"
 SCHEMA = Path(__file__).resolve().parent / "proposal.schema.json"
-AUTH_MARKERS = ("401", "unauthorized", "not logged in", "login required", "please log in", "refresh token")
+AUTH_MARKERS = ("401 unauthorized", "status 401", "unauthorized:", "not logged in", "login required", "please log in",
+                "refresh token", "token expired", "codex login")
 
 
 class InfraError(Exception):
@@ -93,11 +94,12 @@ class CodexBackend:
                 p.wait()
                 raise InfraError(f"agent timeout after {self.timeout_s}s")
         secs = time.monotonic() - t0
-        text = ((out / "stderr.log").read_text(errors="replace") + (out / "events.jsonl").read_text(errors="replace")).lower()
+        cidfile.unlink(missing_ok=True)
         if p.returncode != 0:
-            if any(m in text for m in AUTH_MARKERS):
-                raise AuthError(text[-500:])
-            raise InfraError(f"codex exit {p.returncode}: {text[-500:]}")
+            err = (out / "stderr.log").read_text(errors="replace")[-4000:].lower()
+            if any(m in err for m in AUTH_MARKERS):
+                raise AuthError(err[-500:])
+            raise InfraError(f"codex exit {p.returncode}: {err[-500:]}")
         try:
             prop = parse_proposal(json.loads((out / "proposal.json").read_text()))
         except (OSError, ValueError) as e:
@@ -153,7 +155,8 @@ class ScriptedBackend:
 
     def propose(self, view, run_dir, name):
         i = self.index_fn()
-        if i >= len(self.entries):
+        if i >= len(self.entries):  # end the campaign like `arlab stop`
+            (Path(run_dir).parent.parent / "STOP").touch()
             return Proposal("skip", "script exhausted", "exhausted", None, model="scripted")
         e = self.entries[i]
         if self.failures.get(i, 0) < e.get("infra_errors", 0):

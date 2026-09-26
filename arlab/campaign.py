@@ -282,7 +282,7 @@ class Campaign:
         r = execute.run_step(execute.Step(
             name=f"{self.prefix}-run-{label}", image=self.state["image"], command=self.pack.run.command.format(seed=seed, split=split),
             cidfile=tdir / "run.cid", log=tdir / "run.log", timeout_s=self.pack.run.timeout_s, mounts=run_m, network=net, gpu=gpu,
-            telemetry=tdir / "telemetry.jsonl"), self.own_cids(), tick)
+            telemetry=tdir / "telemetry.jsonl", cpus=guards.fast_cpus()), self.own_cids(), tick)
         tokens = None if tok0 is None else self.svc_tokens() - tok0
         res.update(run_s=r.wall_s, peak_mem_gb=r.peak_mem_gb, gpu_temp_max=r.gpu_temp_max, foreign=r.foreign)
         if r.contended:
@@ -326,7 +326,8 @@ class Campaign:
             name=f"{self.prefix}-eval-{label}", image=self.state["image"], user="0:0",
             command=f"{self.pack.evaluate.command}; rc=$?; chown -R 1000:1000 /result; exit $rc",
             cidfile=tdir / "eval.cid", log=tdir / "eval.log", timeout_s=self.pack.evaluate.timeout_s, mounts=m,
-            network=self.network or "none", gpu=self.pack.run.gpu, telemetry=tdir / "telemetry.jsonl"), self.own_cids())
+            network=self.network or "none", gpu=self.pack.run.gpu, telemetry=tdir / "telemetry.jsonl", cpus=guards.fast_cpus()),
+            self.own_cids())
 
     def clean_trial(self, res: dict, tdir: Path, keep_out: bool = False):
         if not keep_out:
@@ -538,10 +539,10 @@ class Campaign:
                     self.save(waiting=None)
                 self.start_services()
                 self.calibrate()
-                if not (self.state.get("underpowered") and not self.pack.acceptance.allow_underpowered):
-                    self.loop()
-                else:
+                if self.state.get("underpowered") and not self.pack.acceptance.allow_underpowered:
                     self.save(stop_reason="underpowered")
+                elif not self.state.get("stop_reason"):  # once the LOOP has stopped it never restarts (FINALIZE resumes)
+                    self.loop()
                 self.finalize()
             finally:
                 self.stop_services()

@@ -14,7 +14,7 @@ from arlab.pack import load_pack  # noqa: E402
 from arlab.record import load_records  # noqa: E402
 
 PACK = ROOT / "ideas" / "nanochat-lite"
-EXPECTED = ["keep", "crash", "oom", "invalid", "crash", "crash", "guard_fail"]  # tests/scripts/nanochat_m2.yaml
+EXPECTED = ["keep", "crash", "oom", "invalid", "crash", "crash", "guard_fail", "skip"]  # tests/scripts/nanochat_m2.yaml + exhausted
 fails = []
 
 

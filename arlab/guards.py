@@ -31,6 +31,18 @@ def disk_free_gb(path: Path = Path.home()) -> float:
     return shutil.disk_usage(path).free / 1e9
 
 
+def fast_cpus() -> str | None:
+    """The fastest cores (GB10: 10× Cortex-X925 @3.9 GHz of 20) as a cpuset, so wall-clock guards like train_s don't
+    depend on whether a run landed on an X925 or an A725 core. None if all cores are equal or unknown."""
+    freqs = {}
+    for f in Path("/sys/devices/system/cpu").glob("cpu[0-9]*/cpufreq/cpuinfo_max_freq"):
+        freqs[int(f.parent.parent.name[3:])] = int(f.read_text())
+    if not freqs or len(set(freqs.values())) == 1:
+        return None
+    top = max(freqs.values())
+    return ",".join(str(c) for c in sorted(freqs) if freqs[c] == top)
+
+
 def gpu_procs() -> list[dict]:
     """[{pid, name, used_gb}] from nvidia-smi; [] if nvidia-smi fails."""
     try:

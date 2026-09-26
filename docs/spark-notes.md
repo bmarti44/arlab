@@ -20,3 +20,6 @@
   arlab's `peak_mem_gb` = max over 5 s samples of (memcg `memory.current` + nvidia-smi `used_memory` of the container's PIDs).
 - `nvidia-smi --query-gpu=memory.*` is `[N/A]`; `utilization.gpu` is unreliable — never used.
 - arlab-agent:0.157.1 builds from node:22-bookworm (+python3, git, ripgrep) in < 1 min.
+- **Heterogeneous CPU:** cpus 5-9,15-19 = Cortex-X925 @3.9 GHz, cpus 0-4,10-14 = Cortex-A725 @2.8 GHz. Single-threaded
+  wall time differs by up to ~40% depending on placement; arlab pins RUN/EVALUATE to the X925 cores (`--cpuset-cpus`).
+- nanochat-lite baseline (62.9M tokens): RUN 228–229 s across seeds (GPU-bound, ~285k tok/s), EVAL 12 s, peak ~9.5 GB, GPU 82–83 °C.
