@@ -133,7 +133,8 @@ class Campaign:
     # ------------------------------------------------------------ setup: CHECK / PREPARE / TESTS / SEAL
     def data_hash(self, root: Path, image_id: str) -> str:
         from .pack import hash_paths
-        return hash_paths([root / "frozen" / "run", root / "requirements.txt"], extra=self.pack.prepare.command + "\n" + image_id)
+        extra_src = [root / "frozen" / "prepare"] if (root / "frozen" / "prepare").exists() else []  # keeps older hashes stable
+        return hash_paths([root / "frozen" / "run", root / "requirements.txt"] + extra_src, extra=self.pack.prepare.command + "\n" + image_id)
 
     def prepare_data(self, root: Path, image: str, image_id: str) -> tuple[str, Path]:
         dh = self.data_hash(root, image_id)
@@ -149,7 +150,8 @@ class Campaign:
         self.log(f"PREPARE into {ddir}")
         step = execute.Step(name=f"{self.prefix}-prepare", image=image, command=self.pack.prepare.command,
                             cidfile=self.dir / "prepare.cid", log=self.dir / "prepare.log", timeout_s=self.pack.prepare.timeout_s,
-                            mounts=[(root / "frozen" / "run", "/frozen", False), (tmp, "/data", True), (HF, "/hf", True)],
+                            mounts=[(root / "frozen" / "run", "/frozen", False), (tmp, "/data", True), (HF, "/hf", True)]
+                            + ([(root / "frozen" / "prepare", "/prepare", False)] if (root / "frozen" / "prepare").exists() else []),
                             network="bridge", env={"HF_HUB_OFFLINE": "0", "TRANSFORMERS_OFFLINE": "0"})
         r = execute.run_step(step, set())
         if r.rc != 0:

@@ -16,6 +16,7 @@ Working examples: `ideas/_fixture` (CPU, seconds), `ideas/nanochat-lite` (GPU tr
 | `surface/` | the editable files — the only thing the agent changes. Keep it to 1–2 files. |
 | `frozen/run/` | `prepare.py`, `harness.py` (RUN entry point), loaders, clients. Part of `data_hash`. |
 | `frozen/eval/` | `evaluate.py` and scorers — mounted only into EVALUATE; the agent never sees it. |
+| `frozen/prepare/` | optional: local source files (e.g. tasks with hidden tests) mounted only into PREPARE at `/prepare`. Part of `data_hash`. |
 | `requirements.txt` | extra pip deps, installed on top of the base image with its `pip list` as constraints. |
 | `tests/test_*.py` | deterministic CPU checks, run by `arlab check` as root with the data at `/data`. |
 
@@ -37,7 +38,7 @@ The surface never reads argv, environment variables or data paths; the harness h
 
 | Step | uid | Network | Mounts |
 |---|---|---|---|
-| PREPARE | 1000 | yes | `/frozen`, `/data` **RW** (new dir), `/hf` **RW** (HF cache, `HF_HOME=/hf`) |
+| PREPARE | 1000 | yes | `/frozen`, `/prepare` (if `frozen/prepare/` exists), `/data` **RW** (new dir), `/hf` **RW** (HF cache, `HF_HOME=/hf`) |
 | TESTS | 0 | none | `/pack`, `/frozen`, `/eval`, `/arlab_lib`, `/work`, `/data` (whole data dir), `/hf` — no GPU |
 | RUN | 1000 | none / campaign net | `/work`, `/frozen`, `/arlab_lib`, `/data/train`, `/data/public` (this split), `/out` **RW**, `/hf`, `/cache` **RW** |
 | EVALUATE | 0 | same | `/frozen`, `/eval`, `/arlab_lib`, `/work`, `/run_out`, `/data/public`, `/data/private`, `/result` **RW**, `/hf`, `/cache` **RW** (separate) |
