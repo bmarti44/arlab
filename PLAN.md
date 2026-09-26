@@ -104,6 +104,7 @@ Runner code target: ≈1,500 lines of Python plus tests. Anything not in this pl
 - **Memory on GB10:** `nvidia-smi --query-gpu=memory.*` returns `[N/A]`. Use:
   - free memory: `MemAvailable` from `/proc/meminfo` (it includes page cache, which is often large here);
   - other GPU users: `nvidia-smi --query-compute-apps=pid,process_name,used_memory --format=csv`.
+  - `utilization.gpu` can stay stuck (e.g. 96% at 20 W with no processes). Never use it to decide whether the GPU is busy.
 - **Docker cgroups** name containers by **ID** (`docker-<id>.scope`), not by name.
 - **GPU reservations:** the GPU is shared with the owner's work. `~/stencil-llm/tools/gpu_reserve.sh` keeps a machine-wide file, `~/.gb10-gpu.reservations` (JSON lines `{"name","pid","started","eta_min","peak_gb"}`). arlab reads it to respect others' reserved memory. arlab never writes to it.
 - **Claude auth:** `ANTHROPIC_API_KEY` is set in the environment with no credit. Start Claude Code with it unset so the subscription is used.
