@@ -1,0 +1,25 @@
+name: memory-longmemeval
+image: {base: "nvcr.io/nvidia/pytorch:25.10-py3"}
+prepare: {command: "python /frozen/prepare.py --out /data", timeout_s: 1800}
+run:
+  command: "python /frozen/harness.py --out /out --seed {seed} --split {split}"
+  timeout_s: 3000
+  gpu: false
+  mem_gb: 8
+evaluate: {command: "python /eval/evaluate.py --run /run_out --out /result/metrics.json", timeout_s: 300}
+budget: {unit: service_tokens, limit: 33120000}     # 160,000 tokens per question × 207 questions
+metric: {name: accuracy, direction: maximize, mes: 0.08}
+guards: []                                         # the absolute token budget is the limit (invalid if exceeded)
+seeds: {calibration: [1, 2], screen: 1, confirm: [], holdout: [101]}
+services:
+  - name: llm
+    image: "nvcr.io/nvidia/vllm:26.04-py3"
+    command: "vllm serve Qwen/Qwen3.5-2B --served-model-name llm --port 8000 --max-num-seqs 16"
+    port: 8000
+    health_url: /health
+    mem_gb: 30
+    max_model_len: 32768
+    gpu: true
+agent: {model: gpt-6-sol, effort: high, visible: [program.md, IDEA.md, frozen/run/memtools.py], timeout_s: 900}
+campaign: {max_experiments: 200, max_hours: 6, max_agent_calls: 400, stop_after_no_keep: 25, rescue_after: 8}
+acceptance: {allow_underpowered: false}

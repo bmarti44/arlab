@@ -6,7 +6,7 @@ run:
   timeout_s: 20
   gpu: false
   mem_gb: 2
-evaluate: {command: "python /eval/evaluate.py --run /run --out /result/metrics.json", timeout_s: 60}
+evaluate: {command: "python /eval/evaluate.py --run /run_out --out /result/metrics.json", timeout_s: 60}
 budget: {unit: steps, limit: 1500}
 metric: {name: accuracy, direction: maximize, mes: 0.03}
 guards:

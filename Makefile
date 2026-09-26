@@ -17,7 +17,7 @@ accept-M1:
 	$(PY) -m pytest -q tests -m "not spark"
 
 accept-M2:
-	scripts/accept_m2.sh
+	$(PY) scripts/accept_m2.py
 
 accept-M3:
 	$(PY) scripts/accept_campaign.py m3

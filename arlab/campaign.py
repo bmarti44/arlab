@@ -136,8 +136,11 @@ class Campaign:
         ddir = DATA / self.name / dh[:16]
         if (ddir / "MANIFEST.json").exists():
             return dh, ddir
+        for stale in ddir.parent.glob(ddir.name + ".tmp*"):  # left by a killed PREPARE whose runner is gone
+            if not Path(f"/proc/{stale.name.rsplit('.tmp', 1)[1]}").exists():
+                subprocess.run(["chmod", "-R", "u+w", str(stale)], check=False)
+                shutil.rmtree(stale, ignore_errors=True)
         tmp = ddir.with_name(ddir.name + f".tmp{os.getpid()}")
-        shutil.rmtree(tmp, ignore_errors=True)
         tmp.mkdir(parents=True)
         self.log(f"PREPARE into {ddir}")
         step = execute.Step(name=f"{self.prefix}-prepare", image=image, command=self.pack.prepare.command,
@@ -290,15 +293,7 @@ class Campaign:
 
         res["wait_s"] += guards.wait_for_free(self.need_gb(), self.own_cids(), self.pack.needs_gpu, self._on_wait)
         self.save(waiting=None)
-        eval_m = common + [(self.sealed / "frozen" / "eval", "/eval", False), (out, "/run", False), (result, "/result", True),
-                           (cache / "eval-cache", "/cache", True)]
-        if (sp / "private").exists():
-            eval_m.append((sp / "private", "/data/private", False))
-        e = execute.run_step(execute.Step(
-            name=f"{self.prefix}-eval-{label}", image=self.state["image"], user="0:0",
-            command=f"{self.pack.evaluate.command}; rc=$?; chown -R 1000:1000 /result; exit $rc",
-            cidfile=tdir / "eval.cid", log=tdir / "eval.log", timeout_s=self.pack.evaluate.timeout_s, mounts=eval_m, network=net,
-            gpu=gpu, telemetry=tdir / "telemetry.jsonl"), self.own_cids())
+        e = self.evaluate_step(surface, out, split, tdir)
         res.update(eval_s=e.wall_s, peak_mem_gb=max(r.peak_mem_gb, e.peak_mem_gb),
                    gpu_temp_max=max([t for t in (r.gpu_temp_max, e.gpu_temp_max) if t is not None], default=None))
         if e.contended:
@@ -317,6 +312,21 @@ class Campaign:
                    "gpu_temp_max": res["gpu_temp_max"], "service_tokens": tokens, "budget_used": used}
         return {**res, "status": "ok", "primary": float(m["primary"]), "metrics": metrics, "items": m.get("items"),
                 "out_gb": dir_gb(out)}
+
+    def evaluate_step(self, surface: Path, out: Path, split: str, tdir: Path) -> execute.StepResult:
+        """EVALUATE a RUN output dir; writes tdir/result/metrics.json."""
+        label = tdir.relative_to(self.dir).as_posix().replace("/", "-")
+        sp, cache = self.data / split, guards.CACHE / self.name
+        (tdir / "result").mkdir(parents=True, exist_ok=True)
+        m = [(self.sealed / "frozen" / "run", "/frozen", False), (self.sealed / "arlab_lib", "/arlab_lib", False),
+             (surface, "/work", False), (HF, "/hf", False), (self.sealed / "frozen" / "eval", "/eval", False), (out, "/run_out", False),
+             (tdir / "result", "/result", True), (cache / "eval-cache", "/cache", True)]
+        m += [(sp / d, f"/data/{d}", False) for d in ("public", "private") if (sp / d).exists()]
+        return execute.run_step(execute.Step(
+            name=f"{self.prefix}-eval-{label}", image=self.state["image"], user="0:0",
+            command=f"{self.pack.evaluate.command}; rc=$?; chown -R 1000:1000 /result; exit $rc",
+            cidfile=tdir / "eval.cid", log=tdir / "eval.log", timeout_s=self.pack.evaluate.timeout_s, mounts=m,
+            network=self.network or "none", gpu=self.pack.run.gpu, telemetry=tdir / "telemetry.jsonl"), self.own_cids())
 
     def clean_trial(self, res: dict, tdir: Path, keep_out: bool = False):
         if not keep_out:

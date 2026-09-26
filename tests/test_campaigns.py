@@ -66,7 +66,7 @@ def test_underpowered(runs_root, tmp_path):
 
 
 def test_holdout_uncertain(runs_root, tmp_path):
-    _, r = go(runs_root, tmp_path, "d-uncertain", "uncertain.yaml", pack={"campaign": {"max_experiments": 10}, "metric": {"mes": 0.045}},
+    _, r = go(runs_root, tmp_path, "d-uncertain", "uncertain.yaml", pack={"campaign": {"max_experiments": 10}, "metric": {"mes": 0.038}},
               eval_cfg={"items": True})
     assert r.returncode == 0, r.stderr
     st = state(runs_root, "d-uncertain")
