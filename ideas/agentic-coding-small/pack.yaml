@@ -1,0 +1,26 @@
+name: agentic-coding-small
+image: {base: "nvcr.io/nvidia/pytorch:25.10-py3"}
+prepare: {command: "python /frozen/prepare.py --out /data", timeout_s: 600}
+run:
+  command: "python /frozen/harness.py --out /out --seed {seed} --split {split}"
+  timeout_s: 3600
+  gpu: false
+  mem_gb: 12
+evaluate: {command: "python /eval/evaluate.py --run /run_out --out /result/metrics.json", timeout_s: 1800}
+budget: {unit: service_tokens, limit: 24000000}    # 400,000 tokens per task × 60 tasks
+metric: {name: pass_rate, direction: maximize, mes: 0.15}
+guards:
+  - {name: timeout_rate, max: 0.10}
+seeds: {calibration: [1, 2], screen: 1, confirm: [], holdout: [101]}
+services:
+  - name: llm
+    image: "nvcr.io/nvidia/vllm:26.04-py3"
+    command: "vllm serve Qwen/Qwen3.5-4B --served-model-name llm --port 8000 --max-num-seqs 8"
+    port: 8000
+    health_url: /health
+    mem_gb: 36
+    max_model_len: 32768
+    gpu: true
+agent: {model: gpt-6-sol, effort: high, visible: [program.md, IDEA.md, frozen/run/codetools.py, frozen/run/harness.py], timeout_s: 900}
+campaign: {max_experiments: 200, max_hours: 6, max_agent_calls: 400, stop_after_no_keep: 25, rescue_after: 8}
+acceptance: {allow_underpowered: false}
