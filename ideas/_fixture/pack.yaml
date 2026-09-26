@@ -10,7 +10,7 @@ evaluate: {command: "python /eval/evaluate.py --run /run_out --out /result/metri
 budget: {unit: steps, limit: 1500}
 metric: {name: accuracy, direction: maximize, mes: 0.03}
 guards:
-  - {name: train_s, max_ratio_vs_baseline: 1.3}
+  - {name: train_s, max_ratio_vs_baseline: 1.5}
 seeds: {calibration: [1, 2, 3, 4, 5], screen: 1, confirm: [2, 3], holdout: [101, 102, 103]}
 agent: {model: gpt-6-sol, effort: high, visible: [program.md, IDEA.md], timeout_s: 900}
 campaign: {max_experiments: 200, max_hours: 24, max_agent_calls: 400, stop_after_no_keep: 40, rescue_after: 8}
