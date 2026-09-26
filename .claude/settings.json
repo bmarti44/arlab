@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker:*)",
+      "Bash(systemd-run:*)",
+      "Bash(systemctl --user:*)",
+      "Bash(/home/bmarti44/arlab/.venv/bin/arlab:*)",
+      "Bash(make:*)",
+      "Bash(uv:*)",
+      "Bash(git:*)",
+      "Bash(nvidia-smi:*)"
+    ]
+  }
+}
