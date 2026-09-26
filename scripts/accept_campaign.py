@@ -15,6 +15,7 @@ from arlab.record import counted, load_records, read_json  # noqa: E402
 from arlab.report import speed  # noqa: E402
 
 fails = []
+OWN_RULES = ("max_experiments", "max_hours", "max_agent_calls", "no_keep", "underpowered")
 AGENT_EDIT = ("keep", "discard", "crash", "oom", "timeout", "invalid", "guard_fail", "contended")
 
 
@@ -35,7 +36,7 @@ def campaign_checks(name, tag, min_exp=1, min_active_h=0.0, own_rules=True):
     check(st.get("phase") == "finalized" and st.get("verdict") in ("supported", "not_found_at_this_scale", "inconclusive"),
           f"{name}/{tag}: finalized with verdict {st.get('verdict')} ({st.get('verdict_reason')})")
     if own_rules:
-        check(st.get("stop_reason") in ("max_experiments", "max_hours", "max_agent_calls", "no_keep", "underpowered"),
+        check(st.get("stop_reason") in OWN_RULES,
               f"{name}/{tag}: ended by its own rules (stop_reason={st.get('stop_reason')})")
     check(len(cnt) >= min_exp, f"{name}/{tag}: {len(cnt)} experiments >= {min_exp}")
     sp = speed(recs)
@@ -102,6 +103,7 @@ elif mode == "m6":
         log = (d / "runner.log").read_text(errors="replace") if (d / "runner.log").exists() else ""
         check(d.exists() and "Traceback" not in log, f"{name}/{tag}: runner.log has zero tracebacks")
         check(st.get("phase") == "finalized" and st.get("verdict") is not None, f"{name}/{tag}: finalized, verdict {st.get('verdict')}")
+        check(st.get("stop_reason") in OWN_RULES, f"{name}/{tag}: ended by its own rules (stop_reason={st.get('stop_reason')})")
         total += speed(load_records(d))["active_h"]
     print(f"   total active hours (M3 + M5): {total:.2f}")
 else:

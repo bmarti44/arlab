@@ -46,14 +46,21 @@ got = [x["status"] for x in recs]
 check(got == EXPECTED, f"scripted statuses {got}")
 check(m2.state.get("phase") == "finalized" and m2.state.get("verdict") is not None, f"m2 finalized with verdict {m2.state.get('verdict')}")
 by_tag = {x["hypothesis_tag"]: x for x in recs}
-if "anticheat-f" in by_tag:
-    check("non-causal" in by_tag["anticheat-f"].get("reason", ""), f"(f) non-causal → invalid: {by_tag['anticheat-f'].get('reason', '')[:80]}")
-if "anticheat-b" in by_tag:
-    log = (m2.dir / "runs" / by_tag["anticheat-b"]["id"] / "s1" / "run.log").read_text()
-    check("FileNotFoundError" in log and "LEAK" not in log, "(b) private/holdout/eval not mounted in RUN")
-if "anticheat-c" in by_tag:
-    log = (m2.dir / "runs" / by_tag["anticheat-c"]["id"] / "s1" / "run.log").read_text()
-    check("Read-only file system" in log or "Permission denied" in log, "(c) /frozen is read-only")
+for t, st in (("anticheat-b", "crash"), ("anticheat-c", "crash"), ("anticheat-e", "guard_fail"), ("anticheat-f", "invalid")):
+    check(by_tag.get(t, {}).get("status") == st, f"({t[-1]}) {t} ran and ended {st}: {by_tag.get(t, {}).get('status')}")
+f = by_tag.get("anticheat-f", {})
+check("non-causal" in f.get("reason", ""), f"(f) non-causal → invalid: {f.get('reason', '')[:80]}")
+e = by_tag.get("anticheat-e", {})
+check("train_s" in e.get("reason", ""), f"(e) 2x compute per step caught by the train_s guard: {e.get('reason', '')[:80]}")
+
+
+def run_log(t):
+    p = m2.dir / "runs" / by_tag[t]["id"] / "s1" / "run.log" if t in by_tag else None
+    return p.read_text() if p and p.exists() else ""
+
+
+check("FileNotFoundError" in run_log("anticheat-b") and "LEAK" not in run_log("anticheat-b"), "(b) private/holdout/eval not mounted in RUN")
+check(any(m in run_log("anticheat-c") for m in ("Read-only file system", "Permission denied")), "(c) /frozen is read-only")
 
 # 4. (g): same checkpoint, surface loss scaled by 0.5 → bit-identical val_bpb
 keeps = [x for x in recs if x["status"] == "keep"]

@@ -25,11 +25,10 @@ q = torch.randn(2, 4, 256, 64, device='cuda', dtype=torch.bfloat16, requires_gra
 F.scaled_dot_product_attention(q, q, q, is_causal=True).sum().backward(); torch.cuda.synchronize(); print('gpu-ok')
 " 2>/dev/null | grep -q gpu-ok || fail "pytorch GPU check"
   ok "pytorch uid 1000: sm_121, bf16 matmul, SDPA fwd/bwd"
-  docker rm -f arlab-m0-accept-vllm >/dev/null 2>&1 || true
-  docker run -d --name arlab-m0-accept-vllm --gpus all --ipc=host -p 127.0.0.1:18001:8000 \
+  vcid=$(docker run -d --name arlab-m0-accept-vllm --gpus all --ipc=host -p 127.0.0.1:18001:8000 \
     -v "$HOME/.cache/huggingface:/hf:ro" -e HF_HOME=/hf -e HF_HUB_OFFLINE=1 nvcr.io/nvidia/vllm:26.04-py3 \
-    vllm serve Qwen/Qwen3.5-4B --gpu-memory-utilization 0.35 --max-model-len 4096 --port 8000 >/dev/null
-  trap 'docker rm -f arlab-m0-accept-vllm >/dev/null 2>&1 || true' EXIT
+    vllm serve Qwen/Qwen3.5-4B --gpu-memory-utilization 0.35 --max-model-len 4096 --port 8000) || fail "vLLM start"
+  trap 'docker rm -f "$vcid" >/dev/null 2>&1 || true' EXIT   # only the container this script started
   for i in $(seq 1 60); do curl -sf -m 3 localhost:18001/health >/dev/null && break; sleep 10; done
   out=$(curl -sf localhost:18001/v1/chat/completions -H 'Content-Type: application/json' -d '{"model":"Qwen/Qwen3.5-4B","messages":[{"role":"user","content":"What is 2+3? Answer with just the number."}],"max_tokens":8,"temperature":0,"chat_template_kwargs":{"enable_thinking":false}}') || fail "vLLM completion"
   [[ "$out" == *5* ]] || fail "vLLM answer: $out"
@@ -37,7 +36,7 @@ F.scaled_dot_product_attention(q, q, q, is_causal=True).sum().backward(); torch.
 fi
 
 # three containerized codex calls with the exact §3.6 command must return schema-valid JSON
-owner_before=$(codex login status 2>&1 || true)
+owner_before=$(codex login status 2>&1 | grep -i "logged in" || true)   # ignore update notices etc.
 for n in 1 2 3; do
   R=$(mktemp -d /tmp/arlab-m0-codex-XXXX); mkdir -p "$R/view" "$R/agent"
   printf 'LR = 0.1\n' > "$R/view/train.py"
@@ -55,6 +54,7 @@ p = parse_proposal(json.load(open('$R/agent/proposal.json'))); assert p.action =
 assert '0.0$n' in open('$R/view/train.py').read()" || fail "codex call $n: proposal not schema-valid / no edit"
   ok "codex call $n schema-valid"
 done
-[[ "$(codex login status 2>&1 || true)" == "$owner_before" ]] || fail "owner's codex login status changed"
+owner_after=$(codex login status 2>&1 | grep -i "logged in" || true)
+[[ "$owner_after" == "$owner_before" ]] || fail "owner's codex login status changed: '$owner_before' -> '$owner_after'"
 ok "owner's codex login unaffected"
 echo "accept-M0: PASS$([[ $CPU_ONLY == 1 ]] && echo ' (cpu-only)')"

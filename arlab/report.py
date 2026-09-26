@@ -35,7 +35,7 @@ def write_report(c) -> Path:
         L += [f"The search found no effect ≥ MES ({p.metric.mes}) in {len(cnt)} experiments. This is not proof that no effect exists.", ""]
     h = st.get("holdout")
     if h:
-        L += [f"Holdout ({p.verdict.compare_to} vs incumbent {st.get('incumbent')}): d = {fmt(h['d'])} ± {fmt(2 * h['se'])} (2·SE)"
+        L += [f"Holdout (incumbent {st.get('incumbent')} vs {p.verdict.compare_to}; d > 0 = incumbent better): d = {fmt(h['d'])} ± {fmt(2 * h['se'])} (2·SE)"
               + (f"; per seed {[round(x, 5) for x in h['per_seed']]}" if h.get("per_seed") else "") + (f"; {h['skipped']}" if h.get("skipped") else ""), ""]
     L += [f"Stop reason: {st.get('stop_reason', '—')}", "", "## Calibration and power", "",
           f"- metric: {p.metric.name} ({p.metric.direction}), MES = {p.metric.mes} (fixed before calibration)",

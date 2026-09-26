@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import math
 import os
 import shutil
@@ -74,6 +75,8 @@ class Campaign:
     def __init__(self, pack_dir: Path, tag: str, script: Path | None = None, runs_root: Path | None = None):
         self.pack_dir = Path(pack_dir).resolve()
         self.name, self.tag = self.pack_dir.name, tag
+        if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9_-]{0,63}", tag):
+            raise ValueError(f"tag {tag!r}: use letters, digits, '-' or '_' (one path component)")
         self.dir = (runs_root or RUNS) / self.name / tag
         self.sealed, self.work = self.dir / "sealed", self.dir / "work"
         self.prefix = f"arlab-{self.name}-{tag}"
@@ -113,7 +116,8 @@ class Campaign:
         return dest
 
     def own_cids(self) -> set[str]:
-        return {c for c in (p.read_text().strip() for p in self.dir.glob("**/*.cid") if p.is_file()) if c}
+        return {c for c in (p.read_text().strip() for p in self.dir.glob("**/*.cid")
+                            if p.is_file() and not {"view", "agent"} & set(p.relative_to(self.dir).parts)) if c}
 
     @property
     def data(self) -> Path:
@@ -285,6 +289,8 @@ class Campaign:
             telemetry=tdir / "telemetry.jsonl", cpus=guards.fast_cpus()), self.own_cids(), tick)
         tokens = None if tok0 is None else self.svc_tokens() - tok0
         res.update(run_s=r.wall_s, peak_mem_gb=r.peak_mem_gb, gpu_temp_max=r.gpu_temp_max, foreign=r.foreign)
+        if r.launch_failed:
+            return {**res, "status": "infra_error", "reason": f"docker failed to start RUN (rc={r.rc}): {tail(tdir / 'run.log')[-300:]}"}
         if r.contended:
             return {**res, "status": "contended", "reason": f"foreign GPU process during RUN: {r.foreign}"}
         bad = "timeout" if r.timed_out else "oom" if r.oom else "crash" if r.rc != 0 else None
@@ -296,6 +302,8 @@ class Campaign:
         e = self.evaluate_step(surface, out, split, tdir)
         res.update(eval_s=e.wall_s, peak_mem_gb=max(r.peak_mem_gb, e.peak_mem_gb),
                    gpu_temp_max=max([t for t in (r.gpu_temp_max, e.gpu_temp_max) if t is not None], default=None))
+        if e.launch_failed:
+            return {**res, "status": "infra_error", "reason": f"docker failed to start EVALUATE (rc={e.rc}): {tail(tdir / 'eval.log')[-300:]}"}
         if e.contended:
             return {**res, "status": "contended", "reason": f"foreign GPU process during EVALUATE: {e.foreign}"}
         if e.timed_out or e.oom:
@@ -336,8 +344,15 @@ class Campaign:
 
     def settled(self, fn) -> dict:
         """CALIBRATE/FINALIZE: never use a contended run; wait and retry until clean."""
+        infra = 0
         while True:
             res = fn()
+            if res["status"] == "infra_error" and infra < 3:
+                infra += 1
+                wait = float(os.environ.get("ARLAB_BACKOFF_S", "60"))
+                self.log(f"infra_error ({res['reason']}); retry {infra}/3 in {wait:.0f}s")
+                time.sleep(wait)
+                continue
             if res["status"] != "contended":
                 return res
             self.log(f"contended ({res['reason']}); waiting and retrying")
@@ -527,7 +542,7 @@ class Campaign:
                 self.pack = load_pack(self.sealed)
                 write_report(self)
                 return 0
-            execute.kill_leftovers(self.dir)
+            execute.kill_leftovers(self.dir, self.prefix)
             self.setup()
             self.init_work()
             self.resume_records()
@@ -559,8 +574,10 @@ class Campaign:
         """Run dirs without record.json become `interrupted`; work/ is hard-reset to the incumbent."""
         for rd in sorted((self.dir / "runs").glob("*")) if (self.dir / "runs").exists() else []:
             if rd.is_dir() and not (rd / "record.json").exists():
+                calls = read_json(rd / "calls.json", {}) or {}
                 write_json(rd / "record.json", {"id": rd.name, "status": "interrupted", "reason": "runner died mid-experiment",
-                                                "description": "", "hypothesis_tag": "", "agent_calls": 0, "timings": {}})
+                                                "description": "", "hypothesis_tag": "", "agent_calls": calls.get("agent_calls", 0),
+                                                "tokens": calls.get("tokens", {}), "timings": calls.get("timings", {})})
                 for sub in rd.glob("*/out"):
                     shutil.rmtree(sub, ignore_errors=True)
         if self.state.get("baseline_commit"):

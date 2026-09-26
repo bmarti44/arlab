@@ -49,6 +49,9 @@ class BudgetedClient:
         with self._lock:
             self._used[scope] = self._used.get(scope, 0) + int(u.get("prompt_tokens", 0)) + int(u.get("completion_tokens", 0))
             self.calls += 1
+            over = self._used[scope] > self.scope_cap
+        if over:  # the call that crossed the cap is spent but its answer is withheld
+            raise BudgetExceeded(f"{scope}: token cap {self.scope_cap} exceeded")
         return out["choices"][0]["message"]["content"] or ""
 
     def _post(self, path: str, body: dict) -> dict:

@@ -73,6 +73,7 @@ class StepResult:
     peak_mem_gb: float = 0.0
     gpu_temp_max: float | None = None
     foreign: list[str] = field(default_factory=list)
+    launch_failed: bool = False  # docker itself failed (no container, or rc 125): infra, not the candidate's fault
 
 
 BASE_ENV = {"PYTHONDONTWRITEBYTECODE": "1", "PYTHONUNBUFFERED": "1", "PYTHONPATH": "/frozen:/arlab_lib",
@@ -154,6 +155,7 @@ def run_step(s: Step, own_cids: set[str], tick=None) -> StepResult:
                     res.oom, killed = True, True
                     kill_cid(cid)
         res.rc = p.returncode
+    res.launch_failed = res.rc != 0 and (_cid(s.cidfile) is None or res.rc == 125)
     s.cidfile.unlink(missing_ok=True)  # the container is gone (--rm); keeps resume/foreign scans cheap
     res.wall_s = time.monotonic() - t0
     res.gpu_temp_max = max(temps) if temps else None
@@ -170,10 +172,13 @@ def kill_cid(cid: str | None):
         sh("docker", "kill", cid, check=False, timeout=60)
 
 
-def kill_leftovers(campaign: Path):
+def kill_leftovers(campaign: Path, prefix: str):
+    """Kill containers left by a dead runner: only those whose name shows this campaign started them (cidfiles are
+    not trusted on their own; the agent can write files in its view/out dirs)."""
     for cf in list(campaign.glob("**/*.cid")):
         cid = _cid(cf)
-        if cid and sh("docker", "inspect", cid, check=False).returncode == 0:
+        r = sh("docker", "inspect", "-f", "{{.Name}}", cid, check=False) if cid else None
+        if r is not None and r.returncode == 0 and r.stdout.strip().startswith(f"/{prefix}-"):
             kill_cid(cid)
             sh("docker", "rm", "-f", cid, check=False, timeout=60)
 
@@ -187,8 +192,7 @@ def start_service(svc, prefix: str, network: str, cidfile: Path, log: Path, hf: 
     """Start a pack service on the campaign network; returns container id once healthy."""
     if sh("docker", "network", "inspect", network, check=False).returncode != 0:
         sh("docker", "network", "create", network)
-    name = service_name(prefix, svc)
-    sh("docker", "rm", "-f", name, check=False)
+    name = service_name(prefix, svc)  # a stale one from a dead runner was removed by kill_leftovers (via its cidfile)
     command = svc.command
     if "vllm" in (svc.image + command):
         command += f" --gpu-memory-utilization {svc.mem_gb / TOTAL_MEM_GB:.2f}"

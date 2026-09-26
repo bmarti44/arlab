@@ -152,7 +152,7 @@ class Pack(_M):
             if not r.path.startswith("frozen/run/"):
                 raise ValueError(f"reference {r.name}: path must be under frozen/run/")
         for v in self.agent.visible:
-            if v not in ("program.md", "IDEA.md") and not v.startswith("frozen/run/"):
+            if v not in ("program.md", "IDEA.md") and (not v.startswith("frozen/run/") or ".." in v.split("/")):
                 raise ValueError(f"agent.visible {v!r}: only program.md, IDEA.md or files under frozen/run/")
         return self
 

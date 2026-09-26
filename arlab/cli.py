@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -22,6 +23,8 @@ def unit_name(name: str, tag: str) -> str:
 
 
 def cmd_new(a):
+    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{0,63}", a.name):
+        sys.exit(f"pack name {a.name!r}: use lowercase letters, digits, '-' or '_'")
     dest = ARLAB_ROOT / "ideas" / a.name
     if dest.exists():
         sys.exit(f"{dest} already exists")

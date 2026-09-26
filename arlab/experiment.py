@@ -10,7 +10,7 @@ from . import stats
 from .agent import InfraError, Proposal
 from .campaign import Campaign, debug_kill, now, tail
 from .pack import compile_error, surface_files
-from .record import add_constraints, counted, read_json
+from .record import add_constraints, counted, read_json, write_json
 
 NOTES_MAX = 8192
 
@@ -154,6 +154,7 @@ def run_experiment(c: Campaign, eid: str, records: list[dict]) -> dict:
         rec["agent_calls"] += 1
         for k in rec["tokens"]:
             rec["tokens"][k] += prop.tokens.get(k, 0)
+        write_json(rdir / "calls.json", {k: rec[k] for k in ("agent_calls", "tokens", "timings")})  # survives kill -9
         return prop
 
     def done(status, reason="", **kw):
