@@ -5,3 +5,4 @@
 - **Evidence:** the exact PLAN §3.6 `docker run … arlab-agent:0.157.1 codex exec … --dangerously-bypass-approvals-and-sandbox …` was refused by the auto-mode classifier ("Create Unsafe Agents"). The `.claude/settings.json` allow rule `Bash(docker:*)` did not override it.
 - **Attempts:** none. The denial says not to work around it, so none were made; launching the runner with the Codex backend would be the same outcome and is also on hold.
 - **Owner decision needed:** allow Claude Code to launch the containerized Codex agent (and the arlab runner that launches it). For example, approve it interactively, or add a permission rule you're comfortable with. Everything that doesn't need Codex (M0 GPU/vLLM parts, M1, M2) continues meanwhile.
+- **Resolved 2026-09-26 23:35Z:** the owner approved running Codex without the sandbox. A test `codex exec` call (gpt-6-sol) returned a schema-valid proposal and made the edit.

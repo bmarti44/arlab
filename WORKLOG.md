@@ -13,3 +13,4 @@
 - M2: pilot calibration running (tag pilot). Scripted M2 campaign + (g) re-score check in scripts/accept_m2.py.
 - M4 prep: templates/pack, docs/PACK-AUTHORING.md, docs/ORCHESTRATOR.md, README.md. M5 prep: arlab/lib/{client,cleanroom}.py; memory-longmemeval pack (static check PASS: 415 short-span questions → 207/207).
 - M2: pilot done (sigma 0.00268, MES 0.01 kept). Scripted campaign m2: 0001 keep d=0.0102, 0002 crash, 0003 oom (200 GB alloc fails immediately, no memory pressure from it). Orchestrator wait shell reaped by Claude Code for low memory at 19:31Z; not restarted.
+- M2: accept-M2 PASS (2026-09-26T23:37:30Z). m2 scripted campaign: 8 expected statuses, (b)(c)(e)(f)(g) ok, verdict inconclusive: stopped_early:stop (script exhausted, as designed).
