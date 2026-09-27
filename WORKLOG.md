@@ -15,3 +15,4 @@
 - M2: pilot done (sigma 0.00268, MES 0.01 kept). Scripted campaign m2: 0001 keep d=0.0102, 0002 crash, 0003 oom (200 GB alloc fails immediately, no memory pressure from it). Orchestrator wait shell reaped by Claude Code for low memory at 19:31Z; not restarted.
 - M2: accept-M2 PASS (2026-09-26T23:37:30Z). m2 scripted campaign: 8 expected statuses, (b)(c)(e)(f)(g) ok, verdict inconclusive: stopped_early:stop (script exhausted, as designed).
 - M0: accept-M0 PASS after B1 resolved. Sol review round 1: 10 findings fixed. agentic-coding-small pack written; frozen/prepare added (PREPARE-only mount); astra pilot generation p01 started.
+- M1: accept-M1 PASS (31 passed, 11m43s) after sol review fixes; clean-room forged_report case passes. agentic pilot: 10 astra tasks p01, 10/10 validated; full check (pilot probe) running.

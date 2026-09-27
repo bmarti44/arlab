@@ -1,0 +1,18 @@
+{
+  "id": "p01-01",
+  "title": "INI configuration with typed getters",
+  "difficulty": "easy",
+  "instructions": "Implement `config.py`, a small INI parser. Export `parse(text: str) -> Config` and class `Config` with `__init__()` (initially empty), `get(section: str, key: str, default=None) -> str | object`, `get_int(section: str, key: str, default=None) -> int | object`, and `get_bool(section: str, key: str, default=None) -> bool | object`.\n\nProcess lines in order. Strip outer whitespace; ignore empty lines and lines starting with `#` or `;`. A section line starts with `[` and must end with `]`; strip the inside and reject an empty name or any interior `[`/`]`. All other non-comment lines must contain `=`: split at the first `=`, strip key and value, and reject an empty key. A malformed section or assignment raises `ValueError`. Assignments before a section belong to section `\"\"`. Section/key names are case sensitive. Repeated sections merge; later duplicate keys replace earlier ones. An empty value is valid. Comment markers inside a value are literal (no inline comments or interpolation).\n\n`get` returns the stored string, or exactly the supplied default object when the section or key is missing (default is `None`). Typed getters use the same missing-value behavior without converting the default. For a present value, `get_int` accepts only an optional ASCII `+`/`-` followed by one or more ASCII digits, returning a base-10 integer; otherwise raise `ValueError`. `get_bool` accepts case-insensitive `true/yes/on/1` and `false/no/off/0`; otherwise raise `ValueError`. The parser already strips values. Each parsed Config is independent. Implement parsing and all three getter methods. Inputs to parse and section/key arguments are strings.\n\n## Files\n- `config.py`\n",
+  "sources": [
+    "config.py"
+  ],
+  "expected": [
+    "test_p01_01.py::test_parse_sections_and_literals",
+    "test_p01_01.py::test_repeated_sections_and_case",
+    "test_p01_01.py::test_missing_defaults_and_empty_config",
+    "test_p01_01.py::test_integer_getter",
+    "test_p01_01.py::test_boolean_getter",
+    "test_p01_01.py::test_reject_malformed_lines",
+    "test_p01_01.py::test_independent_parses_and_blank_input"
+  ]
+}

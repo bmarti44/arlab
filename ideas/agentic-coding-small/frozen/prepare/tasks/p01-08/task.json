@@ -1,0 +1,18 @@
+{
+  "id": "p01-08",
+  "title": "CSV sales aggregation by region or product",
+  "difficulty": "easy",
+  "instructions": "Implement `sales.py` with two functions. Use only standard-library CSV/text processing and integer money arithmetic.\n\n`parse_sales(text: str) -> list[dict]`: read CSV using comma delimiter, double-quote quoting, and doubled quotes for literal quotes. Skip empty CSV records (`[]`, as produced by blank lines). The first remaining record must contain exactly `region`, `product`, `quantity`, `unit_price`, in any order, each exactly once. Strip whitespace around header names and all field values. Data records must contain exactly four fields. Region and product must be nonempty after stripping (case is preserved). Quantity must match `[1-9][0-9]*`. Unit price must match `[0-9]+(\\.[0-9]{1,2})?`, representing nonnegative dollars; convert exactly to cents using integer arithmetic (`2`, `2.5`, `2.50` all mean 250). Reject missing/extra/duplicate headers, incorrect field counts, blank required text, invalid numeric text, and malformed CSV detected by `csv.reader(..., strict=True)` with `ValueError`. Empty/blank-only text is invalid; header-only text is valid and returns []. Return records in input order, each exactly `{'region': str, 'product': str, 'quantity': int, 'unit_price_cents': int}`. Quoted fields may contain commas, quotes, or LF. No file I/O.\n\n`aggregate_sales(sales: list[dict], group_by: str = 'region', sort_by: str = 'revenue') -> list[dict]`: input records have the valid shape returned by parse_sales. Accept only group_by `region` or `product`, and sort_by `group`, `quantity`, or `revenue`; otherwise raise `ValueError`, even for empty input. For each distinct exact group string, return a dictionary with exactly `group` (str), `quantity` (sum of quantities, int), `revenue_cents` (sum of quantity * unit_price_cents, int), and `orders` (number of input records in group, int). For `group` sorting, sort ascending by group string using Python ordering. For `quantity` or `revenue`, sort descending by that aggregate, breaking ties by group ascending. Empty input returns []. Do not mutate input records or their list.\n\n## Files\n- `sales.py`\n",
+  "sources": [
+    "sales.py"
+  ],
+  "expected": [
+    "test_p01_08.py::test_parse_reordered_headers_and_exact_prices",
+    "test_p01_08.py::test_csv_quoted_fields_blank_records_and_header_only",
+    "test_p01_08.py::test_invalid_headers_and_record_shapes",
+    "test_p01_08.py::test_invalid_required_fields_and_numbers",
+    "test_p01_08.py::test_region_aggregation_and_revenue_ties",
+    "test_p01_08.py::test_product_grouping_sorting_and_input_immutability",
+    "test_p01_08.py::test_empty_aggregation_and_option_validation"
+  ]
+}

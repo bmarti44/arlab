@@ -1,0 +1,19 @@
+{
+  "id": "p01-02",
+  "title": "Repair bank transfers and overdraft accounting",
+  "difficulty": "medium",
+  "instructions": "Fix the existing implementation in `accounts.py` and `ledger.py`. It has interacting validation, balance, transfer, and history bugs. All monetary values are integer cents; booleans are not valid integers here. No persistence is needed.\n\n`accounts.Account` is a dataclass with public fields `account_id: str`, `balance: int = 0`, `overdraft: int = 0`. The bank constructs it; direct Account construction need not validate. `Account.can_withdraw(amount: int) -> bool` returns whether a positive, non-boolean integer amount would leave balance at least `-overdraft`; invalid amounts return False.\n\n`ledger.Bank()` starts empty. Implement:\n- `open(account_id: str, balance: int = 0, overdraft: int = 0) -> None`: require a nonempty string ID, a non-boolean integer balance, and a nonnegative non-boolean integer overdraft, with balance >= -overdraft; invalid fields raise `ValueError`. An existing ID raises `ValueError`. Failures leave the bank unchanged.\n- `balance(account_id: str) -> int`: return its balance, or raise `KeyError` for an unknown ID.\n- `deposit(account_id: str, amount: int) -> int` and `withdraw(account_id: str, amount: int) -> int`: return the new balance. Unknown IDs raise `KeyError`. Otherwise an amount that is not a positive non-boolean integer raises `ValueError`. A withdrawal past the overdraft boundary raises `ValueError`.\n- `transfer(source: str, target: str, amount: int) -> None`: first require both IDs to exist (`KeyError`), then reject identical IDs or invalid amounts (`ValueError`). Apply the source overdraft rule (`ValueError` if insufficient). On success debit source and credit target by exactly amount. A failed transfer changes neither balance nor history.\n- `history(account_id: str) -> list[tuple[str, int, str | None]]`: raise `KeyError` if unknown; otherwise return an independent list copy in operation order. Opening adds no entry. A successful deposit appends `('deposit', amount, None)`; withdrawal appends `('withdraw', -amount, None)`. A successful transfer adds only `('transfer_out', -amount, target)` at source and `('transfer_in', amount, source)` at target. All failed operations leave histories and balances unchanged.\n\nFor deposit/withdraw, resolve the account before amount validation. Error messages are unrestricted. IDs passed to methods other than open are strings. Implement the fixes without changing the public API.\n\n## Files\n- `accounts.py`\n- `ledger.py`\n",
+  "sources": [
+    "accounts.py",
+    "ledger.py"
+  ],
+  "expected": [
+    "test_p01_02.py::test_account_boundary_and_amounts",
+    "test_p01_02.py::test_open_validation_and_duplicates",
+    "test_p01_02.py::test_deposit_and_withdraw_history",
+    "test_p01_02.py::test_transfer_conserves_money_and_records_once",
+    "test_p01_02.py::test_failed_transfers_are_atomic",
+    "test_p01_02.py::test_invalid_amounts_and_lookup_precedence",
+    "test_p01_02.py::test_history_copies_and_bank_isolation"
+  ]
+}

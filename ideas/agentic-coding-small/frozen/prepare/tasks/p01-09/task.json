@@ -1,0 +1,20 @@
+{
+  "id": "p01-09",
+  "title": "Semantic versions and dependency ranges",
+  "difficulty": "hard",
+  "instructions": "Implement `semver.py` and `version_ranges.py` for the precise subset below. Do not use external packages.\n\n`semver.Version` is a frozen dataclass with fields `major: int`, `minor: int`, `patch: int`, `prerelease: tuple[str, ...] = ()`, `build: tuple[str, ...] = ()`. Direct construction is used only with valid field values. Provide `Version.parse(text: str) -> Version` as a classmethod and `str(version) -> str`. Accepted strings are exactly `MAJOR.MINOR.PATCH[-PRERELEASE][+BUILD]`, with no surrounding whitespace or `v` prefix. Core components are ASCII digits with no leading zeros except `0`. Prerelease and build are nonempty dot-separated identifiers matching `[0-9A-Za-z-]+`. Purely numeric prerelease identifiers cannot have leading zeros except `0`; build identifiers may. Invalid strings raise `ValueError`. Parsing stores identifiers as strings and str() recreates the exact valid input.\n\nImplement ==, !=, <, <=, >, >= and hash for Versions. First compare the numeric core. With equal core, a release (no prerelease) is higher than any prerelease. Compare prerelease identifiers left to right: two numeric identifiers by integer value; numeric is below nonnumeric; two nonnumeric identifiers by case-sensitive ASCII lexical order. If all compared identifiers are equal, the shorter tuple is lower. Build metadata is ignored for equality, ordering, and hashing; equal Versions must have equal hashes. Comparisons in tests are only between Versions.\n\n`version_ranges.VersionRange(spec: str)` parses and validates a range at construction (`ValueError` for invalid syntax). `contains(version: str | Version) -> bool` accepts a parsed Version or parses a version string (invalid version string raises `ValueError`). A range is one or more nonempty alternatives separated by literal `||`; any alternative consists of one or more whitespace-separated tokens, ALL of which must match. ANY matching alternative makes contains True. Strip whitespace around alternatives. No empty alternatives/ranges are allowed. Each token is one of:\n- A full version, optionally immediately prefixed with `=`, `>`, `>=`, `<`, or `<=`, with the obvious comparison. No whitespace between operator and version.\n- `*`, matching all versions, or `M.*`, meaning >= M.0.0 and < (M+1).0.0, or `M.m.*`, meaning >= M.m.0 and < M.(m+1).0. Each numeric component follows the core leading-zero rule. These are the only wildcard forms; operators cannot prefix wildcards.\n- `~V` where V is a full version: >= V and < V.major.(V.minor+1).0.\n- `^V` where V is a full version: >= V and an exclusive upper bound of (major+1).0.0 if major > 0; otherwise 0.(minor+1).0 if minor > 0; otherwise 0.0.(patch+1).\n\nUpper bounds have no prerelease/build. Use only the Version ordering described above, including for prereleases; there is NO extra prerelease exclusion rule. Thus `>=1.0.0 <2.0.0` includes `2.0.0-alpha`, while `1.*` excludes `1.0.0-alpha`. Build metadata never affects membership. Commas, hyphen ranges, partial bare versions, `x` wildcards, `!=`, and single `|` are invalid. Validate every token even in alternatives that would otherwise match everything. Error messages are unrestricted. Implement both parsing/comparison and range matching.\n\n## Files\n- `semver.py`\n- `version_ranges.py`\n",
+  "sources": [
+    "semver.py",
+    "version_ranges.py"
+  ],
+  "expected": [
+    "test_p01_09.py::test_version_parse_fields_and_roundtrip",
+    "test_p01_09.py::test_reject_invalid_versions",
+    "test_p01_09.py::test_precedence_ordering_and_all_operators",
+    "test_p01_09.py::test_build_metadata_ignored_for_equality_and_hash",
+    "test_p01_09.py::test_comparator_conjunctions_and_alternatives",
+    "test_p01_09.py::test_wildcard_ranges_and_prerelease_boundaries",
+    "test_p01_09.py::test_caret_and_tilde_expansion",
+    "test_p01_09.py::test_invalid_range_syntax_and_version_argument"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "id": "p01-05",
+  "title": "Tiny arithmetic expression evaluator",
+  "difficulty": "hard",
+  "instructions": "Complete `expr_tokens.py` and `expression.py` without eval(), exec(), or compiling Python source. The language has decimal numbers, variables, `+ - * /`, parentheses, unary signs, and whitespace. Implement a tokenizer and a parser/evaluator.\n\n`expr_tokens.tokenize(text: str) -> list[tuple[str, str]]` ignores whitespace (characters for which str.isspace() is true). A number is `[0-9]+(\\.[0-9]+)?` or `\\.[0-9]+`; exponent notation and trailing decimal points are not allowed. An identifier is `[A-Za-z_][A-Za-z0-9_]*`. Each number produces `('NUMBER', original_text)`, identifier `('IDENT', original_text)`, and operator/parenthesis `(character, character)`. Append exactly `('EOF', '')`. Scan numbers and identifiers greedily; any character not consumed by these rules raises `ValueError`. For example `.5 + x` produces `[('NUMBER', '.5'), ('+', '+'), ('IDENT', 'x'), ('EOF', '')]`.\n\n`expression.evaluate(text: str, variables: dict[str, int | float] | None = None) -> float` uses this grammar (EOF must follow):\n```\nexpression = term (('+' | '-') term)*\nterm       = unary (('*' | '/') unary)*\nunary      = ('+' | '-') unary | primary\nprimary    = NUMBER | IDENT | '(' expression ')'\n```\nBinary operators at the same precedence associate left. Unary signs bind tighter than multiplication and may repeat. Division is ordinary float division. Return a float even for an integer literal. Variables are case sensitive; None means an empty mapping. Resolve only variables actually used and do not mutate the mapping. A missing name raises `KeyError` with that name as its only argument. A referenced value must be a finite built-in int or float, excluding booleans; otherwise raise `ValueError`. Numeric literals and arithmetic results in the tested inputs are within finite float range. Division by zero raises `ZeroDivisionError`.\n\nEmpty input, invalid characters, missing operands, mismatched parentheses, adjacent primaries (no implicit multiplication), or unconsumed tokens raise `ValueError`. Error messages are unrestricted except for the missing-name KeyError. Invalid syntax cases will not also contain missing/invalid variables or division by zero, so their relative error precedence is unspecified. Nesting is at most 40 levels and expressions at most 200 tokens.\n\n## Files\n- `expr_tokens.py`\n- `expression.py`\n",
+  "sources": [
+    "expr_tokens.py",
+    "expression.py"
+  ],
+  "expected": [
+    "test_p01_05.py::test_tokenizer_contract",
+    "test_p01_05.py::test_precedence_and_left_associativity",
+    "test_p01_05.py::test_unary_signs_and_fractional_numbers",
+    "test_p01_05.py::test_variables_and_unchanged_mapping",
+    "test_p01_05.py::test_invalid_variable_values",
+    "test_p01_05.py::test_syntax_errors",
+    "test_p01_05.py::test_zero_division_and_nested_expression"
+  ]
+}

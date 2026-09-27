@@ -1,0 +1,18 @@
+{
+  "id": "p01-04",
+  "title": "Markdown table formatting and escaping",
+  "difficulty": "easy",
+  "instructions": "Implement `markdown_table.py` with `escape_cell(value: object) -> str` and `format_table(headers: list[object], rows: list[list[object]], alignments: list[str] | None = None) -> str`.\n\n`escape_cell`: convert None to the empty string and every other value with str(). Normalize CRLF and lone CR to LF, then replace each backslash with two backslashes, each `|` with `\\|`, and each LF with `<br>`, in that order. Preserve all other whitespace and characters.\n\n`format_table`: require at least one header (`ValueError` otherwise); every row must have exactly as many cells as headers (`ValueError` otherwise). If alignments is None use `left` for all columns; otherwise require exactly one of `left`, `right`, `center` per column (`ValueError` for wrong count or unknown value). Escape all cells, including headers. Each column width is the maximum of 3 and the Python len() of every escaped cell in that column. Alignment affects padding of headers and data alike: left pads on the right, right pads on the left, center splits padding with the smaller half on the left. Each line has format `| ` + cells joined by ` | ` + ` |`. After the header line, output a separator line using tokens of exactly the column width: left is `:` followed by width-1 hyphens; right is width-1 hyphens followed by `:`; center is `:` + width-2 hyphens + `:`. Use the same line wrapper for separators. Join lines with LF and no trailing newline. With no rows output just the header and separator. Do not mutate any input lists. Input headers/rows/alignments are lists with the types described; arbitrary cell objects are allowed.\n\n## Files\n- `markdown_table.py`\n",
+  "sources": [
+    "markdown_table.py"
+  ],
+  "expected": [
+    "test_p01_04.py::test_escape_order_and_newlines",
+    "test_p01_04.py::test_default_table",
+    "test_p01_04.py::test_alignment_and_center_odd_padding",
+    "test_p01_04.py::test_empty_rows_and_minimum_width",
+    "test_p01_04.py::test_width_after_escaping",
+    "test_p01_04.py::test_reject_invalid_shapes_and_alignments",
+    "test_p01_04.py::test_input_lists_are_unchanged"
+  ]
+}
