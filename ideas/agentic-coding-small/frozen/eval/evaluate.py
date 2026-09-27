@@ -25,15 +25,19 @@ priv = Path("/data/private")
 tasks = [json.loads(line) for line in open(priv / "tasks.jsonl")]
 run = Path(a.run)
 try:
-    status = {r["id"]: r["status"] for r in map(json.loads, open(run / "tasks.jsonl"))}
+    recs = {r["id"]: r for r in map(json.loads, open(run / "tasks.jsonl"))}
+    status = {i: r["status"] for i, r in recs.items()}
 except (OSError, ValueError, KeyError) as e:
     write({"valid": False, "primary": None, "metrics": {}, "items": None, "message": f"tasks.jsonl unreadable: {e}"})
     raise SystemExit(0)
 
 
+SCORED = ("finished", "returned", "step_limit", "time_limit")  # the agent stopped normally or hit a step/time limit
+
+
 def score(t):
     ws = run / "ws" / t["id"]
-    if not ws.is_dir() or status.get(t["id"]) == "budget_exceeded":  # over the per-task cap scores 0
+    if not ws.is_dir() or status.get(t["id"]) not in SCORED:  # missing record, over budget or crashed → 0
         return t["id"], 0.0
     return t["id"], run_hidden_tests(ws, t["sources"], priv / "tests" / t["id"], t["expected"], timeout_s=120)["score"]
 
@@ -42,7 +46,7 @@ with ThreadPoolExecutor(8) as ex:
     items = dict(ex.map(score, tasks))
 n = len(tasks)
 metrics = {"pass_rate": sum(items.values()) / n,
-           "timeout_rate": sum(status.get(t["id"]) == "time_limit" for t in tasks) / n}
+           "timeout_rate": sum(bool(recs.get(t["id"], {"timed_out": True}).get("timed_out")) for t in tasks) / n}
 for d in sorted({t["difficulty"] for t in tasks}):
     ds = [items[t["id"]] for t in tasks if t["difficulty"] == d]
     metrics[f"pass_{d}"] = sum(ds) / len(ds)

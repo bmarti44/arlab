@@ -59,3 +59,13 @@ def test_interrupted_keeps_agent_calls(tmp_path):
     c.resume_records()
     r = load_records(c.dir)[0]
     assert r["status"] == "interrupted" and r["agent_calls"] == 2 and r["tokens"]["input"] == 5 and r["timings"]["propose_s"] == 30.0
+
+
+def test_symlink_out_of_run_output_is_invalid(tmp_path):
+    out = tmp_path / "out"
+    out.mkdir()
+    (out / "ok.txt").write_text("x")
+    (out / "inside").symlink_to(out / "ok.txt")
+    (out / "answers.jsonl").symlink_to("/data/private/gold.jsonl")
+    escaping = [p for p in out.rglob("*") if p.is_symlink() and not p.resolve().is_relative_to(out.resolve())]
+    assert [p.name for p in escaping] == ["answers.jsonl"]

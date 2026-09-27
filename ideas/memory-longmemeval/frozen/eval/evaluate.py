@@ -20,7 +20,8 @@ def write(obj):
 
 gold = {g["id"]: g for g in map(json.loads, open(a.gold))}
 try:
-    answers = {r["id"]: str(r["answer"]) for r in map(json.loads, open(f"{a.run}/answers.jsonl"))}
+    rows = list(map(json.loads, open(f"{a.run}/answers.jsonl")))
+    answers = {r["id"]: str(r["answer"]) if r.get("status") == "ok" else "" for r in rows}  # over budget / crashed → 0
 except (OSError, ValueError, KeyError) as e:
     write({"valid": False, "primary": None, "metrics": {}, "items": None, "message": f"answers.jsonl unreadable: {e}"})
     raise SystemExit(0)

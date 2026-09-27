@@ -6,6 +6,7 @@ validation / holdout halves. Haystacks go to public/ (RUN may read them), gold a
 """
 import argparse
 import collections
+import hashlib
 import json
 import os
 import random
@@ -52,11 +53,13 @@ for name, items in split.items():
     os.makedirs(f"{out}/{name}/private")
     with open(f"{out}/{name}/public/questions.jsonl", "w") as fq, open(f"{out}/{name}/private/gold.jsonl", "w") as fg:
         for stratum, x, al, abst in items:
-            sessions = [{"session_id": sid, "date": date, "turns": turns}
-                        for sid, date, turns in zip(x["haystack_session_ids"], x["haystack_dates"], x["haystack_sessions"])]
-            fq.write(json.dumps({"id": x["question_id"], "question": x["question"], "question_date": x["question_date"],
+            # public turns carry only role + content (the dataset also marks answer-bearing turns: has_answer)
+            sessions = [{"session_id": f"s{i}", "date": date, "turns": [{"role": t["role"], "content": t["content"]} for t in turns]}
+                        for i, (date, turns) in enumerate(zip(x["haystack_dates"], x["haystack_sessions"]))]
+            qid = hashlib.sha256(x["question_id"].encode()).hexdigest()[:12]   # opaque: original ids encode abstention (_abs)
+            fq.write(json.dumps({"id": qid, "question": x["question"], "question_date": x["question_date"],
                                  "sessions": sessions}) + "\n")
-            fg.write(json.dumps({"id": x["question_id"], "type": stratum, "aliases": al, "abstention": abst,
+            fg.write(json.dumps({"id": qid, "source_id": x["question_id"], "type": stratum, "aliases": al, "abstention": abst,
                                  "answer": str(x["answer"])}) + "\n")
 json.dump({"validation": n, "holdout": n}, open(f"{out}/splits.json", "w"))
 json.dump({"revision": REV, "kept": len(kept), "per_split": n, "dropped": dict(dropped),

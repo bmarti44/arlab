@@ -2,12 +2,11 @@
 import re
 import string
 
-NUM = {w: str(i) for i, w in enumerate("zero one two three four five six seven eight nine ten eleven twelve thirteen "
-                                          "fourteen fifteen sixteen seventeen eighteen nineteen twenty".split())}
-NUM.update({"thirty": "30", "forty": "40", "fifty": "50", "sixty": "60", "seventy": "70", "eighty": "80", "ninety": "90",
-            "hundred": "100", "first": "1st", "second": "2nd", "third": "3rd", "once": "1 time", "twice": "2 times"})
+CARD = {w: i for i, w in enumerate("zero one two three four five six seven eight nine ten eleven twelve thirteen "
+                                   "fourteen fifteen sixteen seventeen eighteen nineteen".split())}
+CARD.update({"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70, "eighty": 80, "ninety": 90})
+WORDS = {"first": "1st", "second": "2nd", "third": "3rd", "once": "1 time", "twice": "2 times"}
 ARTICLES = {"a", "an", "the"}
-TENS = {"20", "30", "40", "50", "60", "70", "80", "90"}
 ABSTAIN = ["i dont know", "unknown", "not mentioned", "you did not mention this", "you did not mention this information",
            "no information", "not enough information", "cannot be determined", "i do not know"]
 
@@ -15,14 +14,30 @@ ABSTAIN = ["i dont know", "unknown", "not mentioned", "you did not mention this"
 def normalize(s) -> str:
     s = str(s).lower().replace("’", "'").replace("'", "")
     s = re.sub(r"(?<=\d),(?=\d{3})", "", s)                       # 1,000 → 1000
+    s = re.sub(r"(?<=\d)\.(?=\d)", "\x00", s)                      # keep decimal points (20.5 != 205)
+    s = re.sub(r"(?<![\w.])-(?=\d)", "\x01", s)                     # and minus signs (-5 != 5)
     s = "".join(" " if c in string.punctuation and c not in ":$%" else c for c in s)
-    s = s.replace("$", " $ ").replace("%", " % ")
-    toks = []
-    for t in (NUM.get(t, t) for t in s.split() if t not in ARTICLES):
-        if toks and t.isdigit() and len(t) == 1 and toks[-1] in TENS:   # twenty one → 21
-            toks[-1] = str(int(toks[-1]) + int(t))
-        else:
-            toks.append(t)
+    s = s.replace("$", " $ ").replace("%", " % ").replace("\x00", ".").replace("\x01", "-")
+    toks, run = [], None                  # run: value of the number words being read ("two hundred fifty" → 250)
+    for t in (t for t in s.split() if t not in ARTICLES):
+        if t == "hundred":
+            run = (run or 1) * 100
+            continue
+        if t in CARD:
+            v = CARD[t]
+            if run is not None and ((run % 100 == 0 and v < 100) or (run >= 20 and run % 10 == 0 and v < 10)):
+                run += v                  # "hundred fifty", "twenty one"
+            else:
+                if run is not None:       # "five six": two separate numbers
+                    toks.append(str(run))
+                run = v
+            continue
+        if run is not None:
+            toks.append(str(run))
+            run = None
+        toks.append(WORDS.get(t, t))
+    if run is not None:
+        toks.append(str(run))
     return " ".join(toks)
 
 

@@ -299,6 +299,9 @@ class Campaign:
         if bad:
             return {**res, "status": bad, "reason": f"RUN rc={r.rc}", "log_tail": tail(tdir / "run.log")}
 
+        escaping = [p for p in out.rglob("*") if p.is_symlink() and not p.resolve().is_relative_to(out.resolve())]
+        if escaping:  # EVALUATE would follow it into its own mounts (e.g. /data/private)
+            return {**res, "status": "invalid", "reason": f"RUN output links outside itself: {escaping[0].relative_to(out)}"}
         res["wait_s"] += guards.wait_for_free(self.need_gb(), self.own_cids(), self.pack.needs_gpu, self._on_wait)
         self.save(waiting=None)
         e = self.evaluate_step(surface, out, split, tdir)

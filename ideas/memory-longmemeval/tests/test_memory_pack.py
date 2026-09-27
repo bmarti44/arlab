@@ -46,7 +46,8 @@ def test_abstention():
 
 
 def test_normalize_numbers_and_punctuation():
-    assert normalize("The $1,200 fee!") == "$ 1200 fee" and normalize("Twenty-one") == "21" and normalize("20 5") == "25"
+    assert normalize("The $1,200 fee!") == "$ 1200 fee" and normalize("Twenty-one") == "21" and normalize("twenty five") == "25"
+    assert normalize("20.5") != normalize("25") and normalize("-5") != normalize("5") and normalize("one hundred") == "100"
 
 
 def test_bm25_deterministic():

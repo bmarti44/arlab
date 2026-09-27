@@ -73,12 +73,13 @@ def one(t):
         status = "time_limit"
     except Exception:  # noqa: BLE001  a crashing agent loses the task, not the run
         status = "error: " + traceback.format_exc(limit=2)[-300:]
+    tools.kill_all()
     secs = time.monotonic() - t0
-    if secs > TASK_SECONDS:
-        status = "time_limit"
+    timed_out = status == "time_limit" or secs > TASK_SECONDS
     if client.used(t["id"]) > PER_TASK_TOKENS:  # the surface may have swallowed BudgetExceeded
         status = "budget_exceeded"
-    return {"id": t["id"], "status": status, "steps": tools.steps, "seconds": round(secs, 1), "tokens": client.used(t["id"])}
+    return {"id": t["id"], "status": status, "timed_out": timed_out, "steps": tools.steps, "seconds": round(secs, 1),
+            "tokens": client.used(t["id"])}
 
 
 with ThreadPoolExecutor(WORKERS) as ex:

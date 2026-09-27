@@ -27,6 +27,7 @@ class Tools:
     def __init__(self, root: Path, max_steps: int, deadline: float):
         self.root, self.max_steps, self.deadline = Path(root).resolve(), max_steps, deadline
         self.steps, self.done = 0, False
+        self._pgids: list[int] = []
 
     def _tick(self):
         self.steps += 1
@@ -79,6 +80,7 @@ class Tools:
         p = subprocess.Popen(["bash", "-c", cmd], cwd=self.root, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                              stdin=subprocess.DEVNULL, start_new_session=True, text=True, errors="replace",
                              env={"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": str(self.root), "PYTHONDONTWRITEBYTECODE": "1"})
+        self._pgids.append(p.pid)
         try:
             out, _ = p.communicate(timeout=timeout)
             rc = p.returncode
@@ -93,3 +95,11 @@ class Tools:
 
     def finish(self) -> None:
         self.done = True
+
+    def kill_all(self) -> None:
+        """Called by the harness when the task ends: stop anything its commands left running in the background."""
+        for pg in self._pgids:
+            try:
+                os.killpg(pg, signal.SIGKILL)
+            except (ProcessLookupError, PermissionError):
+                pass
