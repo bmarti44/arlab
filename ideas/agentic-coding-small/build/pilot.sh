@@ -9,7 +9,7 @@ mkdir -p "$OUT/out" "$OUT/result"; chmod 777 "$OUT/out"
 docker network create arlab-pilot-net >/dev/null 2>&1
 vcid=$(docker run -d --name arlab-pilot-llm --network arlab-pilot-net --network-alias llm --gpus all --ipc=host \
   -v /home/bmarti44/.cache/huggingface:/hf:ro -e HF_HOME=/hf -e HF_HUB_OFFLINE=1 nvcr.io/nvidia/vllm:26.04-py3 \
-  vllm serve $MODEL --served-model-name llm --port 8000 --max-num-seqs ${SEQS:-16} --gpu-memory-utilization 0.30 --max-model-len 32768)
+  vllm serve $MODEL --served-model-name llm --port 8000 --max-num-seqs ${SEQS:-16} --enable-prefix-caching --gpu-memory-utilization 0.30 --max-model-len 32768)
 trap 'docker rm -f $vcid >/dev/null; docker network rm arlab-pilot-net >/dev/null' EXIT
 IP=$(docker inspect -f '{{(index .NetworkSettings.Networks "arlab-pilot-net").IPAddress}}' $vcid)
 for i in $(seq 1 120); do curl -sf -m 3 http://$IP:8000/health >/dev/null 2>&1 && break; sleep 10; done

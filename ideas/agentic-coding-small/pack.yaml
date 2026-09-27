@@ -15,7 +15,7 @@ seeds: {calibration: [1, 2], screen: 1, confirm: [], holdout: [101]}
 services:
   - name: llm
     image: "nvcr.io/nvidia/vllm:26.04-py3"
-    command: "vllm serve Qwen/Qwen3.5-4B --served-model-name llm --port 8000 --max-num-seqs 16"
+    command: "vllm serve Qwen/Qwen3.5-4B --served-model-name llm --port 8000 --max-num-seqs 16 --enable-prefix-caching"
     port: 8000
     health_url: /health
     mem_gb: 36
