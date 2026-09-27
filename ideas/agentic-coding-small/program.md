@@ -3,16 +3,16 @@ You make ONE change per call. The runner (not you) runs the evaluation, git and 
 You cannot run the experiment yourself and cannot see the evaluator, the tasks or the data; do not try.
 ## Goal
 maximize pass_rate: the fraction of multi-step Python coding tasks a small model (Qwen3.5-4B, 32k context,
-temperature 0) solves using YOUR agent scaffold. The pack is deterministic, so a change is kept if it beats the
-incumbent by more than 2·SE on the validation tasks; the one-shot holdout decides at the end.
+temperature 0) solves using YOUR agent scaffold. Runs are not exactly repeatable (server batching), so a change is kept
+only if it beats the incumbent on one run and then clearly (by more than 2·SE) on a fresh run; the holdout decides.
 ## What you may change
 agent.py only: solve(task, llm, tools). Nothing else has any effect. The only model access is
 llm.chat(messages, max_tokens=None, stop=None) -> str (completions ≤ 2,048 tokens; llm.tokens_left = what is left of
 this task's 400,000-token budget; going over ends the task). Tools (see frozen_run/codetools.py): read, write, edit,
-run(cmd, timeout=60) and finish(); ≤ 40 tool calls per task (plus a 3,600 s safety limit). agent.py must not read files, the
+run(cmd, timeout=60) and finish(); ≤ 30 tool calls per task (plus a 2,400 s safety limit). agent.py must not read files, the
 environment or the network except through these tools.
 ## What the code does
-The harness (frozen_run/harness.py) runs all 40 tasks concurrently. Each task starts in a fresh working directory
+The harness (frozen_run/harness.py) runs 20 tasks concurrently. Each task starts in a fresh working directory
 with its starter files; task = {id, title, instructions, files}. When solve() returns, hidden pytest tests run on
 the files the instructions name. Every expected test must pass for the task to count.
 The baseline is a bash-only loop: THOUGHT + one ```bash block per turn, last 12 turns of history kept.

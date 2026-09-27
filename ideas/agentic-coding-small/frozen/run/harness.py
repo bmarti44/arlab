@@ -19,9 +19,9 @@ from codetools import StepLimit, TimeLimit, Tools
 
 PER_TASK_TOKENS = 400_000   # fixed in IDEA.md before calibration (budget.limit = this × 40 tasks per split)
 MAX_COMPLETION = 2048
-MAX_STEPS = 40
-TASK_SECONDS = 3600  # safety net for runaway tasks; the budgets are MAX_STEPS and PER_TASK_TOKENS
-WORKERS = 40  # every task at once: one wave; batching raises aggregate throughput
+MAX_STEPS = 30
+TASK_SECONDS = 2400  # safety net for runaway tasks; the budgets are MAX_STEPS and PER_TASK_TOKENS
+WORKERS = 20  # two waves; keeps per-request latency (~9 tok/s per stream) far below the client timeout
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--out", required=True)
@@ -32,7 +32,7 @@ sys.path.insert(0, "/work")
 import agent as surface  # noqa: E402  (the editable surface)
 
 tasks = [json.loads(line) for line in open("/data/public/tasks.jsonl")]
-client = BudgetedClient("http://llm:8000", "llm", PER_TASK_TOKENS, MAX_COMPLETION)
+client = BudgetedClient("http://llm:8000", "llm", PER_TASK_TOKENS, MAX_COMPLETION, timeout_s=1800)  # a timed-out request would be re-sent
 ws_root = Path(a.out) / "ws"
 
 

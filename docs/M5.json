@@ -1,1 +1,6 @@
-{"tags": {"agentic-coding-small": "m5b"}, "why": "agentic m5 calibration: 55% of tasks hit the 1,200 s wall clock at 16-way concurrency (guard timeout_rate ≤ 0.10 unreachable); stopped before the loop and re-run as m5b with all 40 tasks concurrent and a 3,600 s safety limit."}
+{
+ "tags": {
+  "agentic-coding-small": "m5c"
+ },
+ "why": "agentic m5 calibration: 55% of tasks hit the 1,200 s wall clock at 16-way concurrency (guard timeout_rate \u2264 0.10 unreachable); stopped before the loop and re-run as m5b with all 40 tasks concurrent and a 3,600 s safety limit. m5b's check at 40-way failed differently: per-request latency (~400 s for a 2,048-token reply) exceeded the client's 300 s timeout, retries piled up load, most tasks crashed. Re-run as m5c: 20-way, client timeout 1,800 s, 30 tool calls, 2,400 s safety limit, seed pack (calibration [1,2,3], confirm [2], holdout [101,102]) because m5 measured sigma 0.07 between runs."
+}
