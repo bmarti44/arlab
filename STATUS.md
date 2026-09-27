@@ -1,17 +1,17 @@
 # STATUS
 
-Milestone: M3 next (nanochat-lite Codex campaign, max_hours 3), then M5 campaigns, then M6.
-- M0 PASS, M1 PASS (31/31), M2 PASS, M4 PASS (digits-label-smoothing/m4: not_found_at_this_scale, 20 experiments).
-- Sol xhigh review: 3 rounds, all real findings fixed or recorded (DECISIONS.md 2026-09-26/27).
-- memory-longmemeval: model Qwen3-1.7B (baseline 0.291 on validation). Next: full `arlab check`, then m5 campaign.
-- agentic-coding-small: difficulty ladder done (L1 4/5, L2 3/5, L3 3/5, L4 1/5, astra "p01" 0/10) → edge = L3–L4.
-  7 astra batches (m01–m07: 3×L3, 4×L3b, 3×L4 each) generating; then validate, pick 40/40 (MES 0.20 by the
-  subsample rule since 60/60 can't pass in 30 min), full check, m5 campaign. Testing vLLM prefix caching
-  (hybrid Qwen3.5: off by default) for throughput.
+Milestone: M3 running (nanochat-lite/m3b, Codex gpt-6-sol, max_hours 3 active). Then M5 campaigns, then M6.
+- M0 PASS, M1 PASS (31/31), M2 PASS, M4 PASS (digits-label-smoothing/m4: not_found_at_this_scale).
+- M3: tag m3 calibrated anomalously (sigma 0.0185 → underpowered, no search; DECISIONS 2026-09-27); re-run m3b
+  calibrated normally (sigma 0.0030, SE 0.0024 < MES/2). Loop started 03:16Z. Kill tests armed (unit arlab-m3-kills,
+  ~/arlab-runs/_m1/m3-kills.log → m3b/kill-tests.json). Keep the box quiet (no GPU work, no heavy CPU) during M3.
+- memory-longmemeval: Qwen3-1.7B; astra-review fixes changed data → full `arlab check` must be re-run after M3
+  (then save as ~/arlab-runs/memory-longmemeval/m5/check.log) → m5 campaign.
+- agentic-coding-small: 80 edge-level tasks (40/40), MES 0.20, prefix caching; astra-review fixes in → full
+  `arlab check` after M3 (save as agentic-coding-small/m5/check.log) → m5 campaign.
+- Sol reviews: 4 rounds done, all real findings fixed or recorded.
 
-Background jobs:
-- arlab-gen-m01..m07 (astra task generation, ~/arlab-data/agentic-gen/m0*)
-- prefix-cache A/B test (container arlab-pilot-pc; ~/arlab-data/agentic-pilot/pc-{off,on}.txt)
+Background jobs: arlab-nanochat-lite-m3b (campaign), arlab-m3-kills (kill tests).
 
-Next action: prefix-cache result → memory full check → launch M3 + m3_kill.py tests → validate tasks during M3 →
-after M3: memory m5 → agentic check + m5 → accept-M3/M5 → M6.
+Next action: wait for m3b (≥ 2 active h, ~3 h) → `make accept-M3` → memory check + m5 (detached, 6 h) →
+agentic check + m5 (6 h) → accept-M5-* → M6 (retro, README, accept-M6) → STATUS DONE/INCOMPLETE.
