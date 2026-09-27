@@ -117,7 +117,7 @@ class Campaign:
 
     def own_cids(self) -> set[str]:
         return {c for c in (p.read_text().strip() for p in self.dir.glob("**/*.cid")
-                            if p.is_file() and not {"view", "agent"} & set(p.relative_to(self.dir).parts)) if c}
+                            if p.is_file() and not execute.UNTRUSTED_DIRS & set(p.relative_to(self.dir).parts[:-1])) if c}
 
     @property
     def data(self) -> Path:

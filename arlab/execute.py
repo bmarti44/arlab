@@ -73,7 +73,7 @@ class StepResult:
     peak_mem_gb: float = 0.0
     gpu_temp_max: float | None = None
     foreign: list[str] = field(default_factory=list)
-    launch_failed: bool = False  # docker itself failed (no container, or rc 125): infra, not the candidate's fault
+    launch_failed: bool = False  # docker never created the container: infra, not the candidate's fault
 
 
 BASE_ENV = {"PYTHONDONTWRITEBYTECODE": "1", "PYTHONUNBUFFERED": "1", "PYTHONPATH": "/frozen:/arlab_lib",
@@ -155,8 +155,7 @@ def run_step(s: Step, own_cids: set[str], tick=None) -> StepResult:
                     res.oom, killed = True, True
                     kill_cid(cid)
         res.rc = p.returncode
-    res.launch_failed = res.rc != 0 and (_cid(s.cidfile) is None or (res.rc == 125 and "docker: Error response from daemon"
-                                                                     in Path(s.log).read_bytes()[-4000:].decode(errors="replace")))
+    res.launch_failed = res.rc != 0 and _cid(s.cidfile) is None  # docker never created the container
     s.cidfile.unlink(missing_ok=True)  # the container is gone (--rm); keeps resume/foreign scans cheap
     res.wall_s = time.monotonic() - t0
     res.gpu_temp_max = max(temps) if temps else None
@@ -173,12 +172,15 @@ def kill_cid(cid: str | None):
         sh("docker", "kill", cid, check=False, timeout=60)
 
 
+UNTRUSTED_DIRS = {"view", "agent", "out", "result", "surface"}
+
+
 def kill_leftovers(campaign: Path, prefix: str):
     """Kill containers left by a dead runner: only those whose name shows this campaign started them (cidfiles are
     not trusted on their own; the agent can write files in its view/out dirs)."""
     for cf in list(campaign.glob("**/*.cid")):
-        if {"view", "agent"} & set(cf.relative_to(campaign).parts[:-1]):
-            continue  # agent-writable dirs
+        if UNTRUSTED_DIRS & set(cf.relative_to(campaign).parts[:-1]):
+            continue  # dirs the agent or candidate code can write
         cid = _cid(cf)
         r = sh("docker", "inspect", "-f", "{{.Name}}", cid, check=False) if cid else None
         if r is not None and r.returncode == 0 and r.stdout.strip().startswith(f"/{prefix}-"):

@@ -22,6 +22,10 @@ CASES = {
                                         "    out = yield\n    out.get_result().outcome = 'passed'\n"},
     "sitecustomize": {"calc.py": "def add(a, b):\n    return 0\n", "sitecustomize.py": "import os\nos._exit(0)\n"},
     "pth": {"calc.py": "def add(a, b):\n    return 0\n", "evil.pth": "import os; os._exit(0)\n"},
+    "forged_report": {"calc.py": "import os, sys\nfor a in sys.argv:\n    if a.startswith('--junitxml='):\n"
+                                 "        open(a.split('=', 1)[1], 'w').write('<testsuites><testsuite><testcase classname=\"test_calc\" name=\"test_add\"/>'\n"
+                                 "            '<testcase classname=\"test_calc\" name=\"test_neg\"/></testsuite></testsuites>')\n"
+                                 "        os._exit(0)\n"},
 }
 
 
@@ -51,4 +55,4 @@ def test_cleanroom_scores(tmp_path):
     line = next((ln for ln in r.stdout.splitlines() if ln.startswith("RESULT")), None)
     assert line, r.stdout[-2000:] + r.stderr[-2000:]
     scores = json.loads(line[6:])
-    assert scores == {"good": 1.0, "wrong": 0.0, "exit0_at_import": 0.0, "planted_conftest": 0.0, "sitecustomize": 0.0, "pth": 0.0}, scores
+    assert scores == {"good": 1.0, "wrong": 0.0, "exit0_at_import": 0.0, "planted_conftest": 0.0, "sitecustomize": 0.0, "pth": 0.0, "forged_report": 0.0}, scores

@@ -9,6 +9,7 @@ calls os._exit(0) at import therefore cannot produce a pass.
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -16,6 +17,9 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 NOBODY = 65534
+# Candidate code runs inside the pytest process, so it could write a fake report and exit 0. That cannot be made
+# impossible in-process; sources naming the report machinery score 0 (defense in depth, see DECISIONS.md).
+FORBIDDEN = re.compile(r"junit|xunit|testcase|(?<!\w)_exit\b")  # os._exit / from os import _exit (not on_exit)
 
 
 def junit_results(path: Path) -> dict[str, str]:
@@ -43,6 +47,10 @@ def run_hidden_tests(workspace: Path, sources: list[str], tests_dir: Path, expec
             dst.parent.mkdir(parents=True, exist_ok=True)
             if src.is_file() and not src.is_symlink():
                 shutil.copyfile(src, dst)
+                text = dst.read_text(errors="replace").lower()
+                bad = FORBIDDEN.findall(text)
+                if bad:
+                    return {"score": 0.0, "reason": f"forbidden {bad} in {rel}", "log": ""}
         for t in tests_dir.iterdir():
             if t.is_file() and t.name.startswith("test_") and t.suffix == ".py":
                 shutil.copyfile(t, tmp / t.name)
