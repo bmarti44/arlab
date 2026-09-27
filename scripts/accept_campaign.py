@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """accept-M3 / accept-M4 / accept-M5-<pack> / accept-M6 (PLAN §5). Exit code is the verdict.
 
-Campaign tags: M3 = nanochat-lite/<docs/M3.json tag, default m3>; M4 = the Appendix-B pack (docs/M4.json names it); M5 = <pack>/m5.
+Campaign tags: M3 = nanochat-lite/<docs/M3.json tag, default m3>; M4 = the Appendix-B pack (docs/M4.json names it); M5 = <pack>/<docs/M5.json tag, default m5>.
 """
 import json
 import subprocess
@@ -55,6 +55,7 @@ def campaign_checks(name, tag, min_exp=1, min_active_h=0.0, own_rules=True):
 
 
 M3_TAG = (read_json(ROOT / "docs" / "M3.json", {}) or {}).get("tag", "m3")  # a re-run under a new tag is recorded there
+M5_TAGS = (read_json(ROOT / "docs" / "M5.json", {}) or {}).get("tags", {})    # {pack: tag} for re-runs; default m5
 mode = sys.argv[1]
 if mode == "m3":
     d, st, recs = campaign_checks("nanochat-lite", M3_TAG, min_exp=12, min_active_h=2.0)
@@ -84,15 +85,16 @@ elif mode == "m4":
         check(not diff, f"arlab/ unchanged during M4 (git diff --stat {spec['arlab_commit'][:8]} {end[:8]} -- arlab/): {diff[:200]}")
 elif mode == "m5":
     name = sys.argv[2]
-    d, st, recs = campaign_checks(name, "m5", min_exp=1)
-    check(st.get("underpowered") is False, f"{name}/m5 calibration not underpowered (SE {st.get('expected_holdout_se')})")
+    tag = M5_TAGS.get(name, "m5")
+    d, st, recs = campaign_checks(name, tag, min_exp=1)
+    check(st.get("underpowered") is False, f"{name}/{tag} calibration not underpowered (SE {st.get('expected_holdout_se')})")
     evaluated = [x for x in counted(recs) if x.get("model", "").startswith("gpt-6") and x.get("primary") is not None]
-    check(len(evaluated) >= 1, f"{name}/m5: {len(evaluated)} agent candidates fully evaluated")
+    check(len(evaluated) >= 1, f"{name}/{tag}: {len(evaluated)} agent candidates fully evaluated")
     ck = d / "check.log"
     check(ck.exists() and "PASS" in ck.read_text(), f"{name}: full arlab check passed (saved in {ck})")
     import yaml
     cfg = yaml.safe_load((d / "sealed" / "pack.yaml").read_text())["campaign"]
-    check(cfg["max_hours"] == 6 and cfg["stop_after_no_keep"] == 25, f"{name}/m5 limits max_hours 6, stop_after_no_keep 25")
+    check(cfg["max_hours"] == 6 and cfg["stop_after_no_keep"] == 25, f"{name}/{tag} limits max_hours 6, stop_after_no_keep 25")
     if name == "memory-longmemeval":
         tele = [json.loads(line) for p in sorted(d.glob("**/telemetry.jsonl")) for line in p.read_text().splitlines()]
         evals = {str(p.parent) for p in d.glob("**/eval.log")}
@@ -100,7 +102,7 @@ elif mode == "m5":
               f"resident vLLM never treated as foreign across {len(evals)} evaluations")
 elif mode == "m6":
     total = 0.0
-    for name, tag in [("nanochat-lite", M3_TAG), ("memory-longmemeval", "m5"), ("agentic-coding-small", "m5")]:
+    for name, tag in [("nanochat-lite", M3_TAG)] + [(p, M5_TAGS.get(p, "m5")) for p in ("memory-longmemeval", "agentic-coding-small")]:
         d = RUNS / name / tag
         st = read_json(d / "state.json", {}) or {}
         log = (d / "runner.log").read_text(errors="replace") if (d / "runner.log").exists() else ""

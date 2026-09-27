@@ -20,8 +20,8 @@ from codetools import StepLimit, TimeLimit, Tools
 PER_TASK_TOKENS = 400_000   # fixed in IDEA.md before calibration (budget.limit = this × 40 tasks per split)
 MAX_COMPLETION = 2048
 MAX_STEPS = 40
-TASK_SECONDS = 1200
-WORKERS = 16
+TASK_SECONDS = 3600  # safety net for runaway tasks; the budgets are MAX_STEPS and PER_TASK_TOKENS
+WORKERS = 40  # every task at once: one wave; batching raises aggregate throughput
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--out", required=True)

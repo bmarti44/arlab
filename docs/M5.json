@@ -1,0 +1,1 @@
+{"tags": {"agentic-coding-small": "m5b"}, "why": "agentic m5 calibration: 55% of tasks hit the 1,200 s wall clock at 16-way concurrency (guard timeout_rate ≤ 0.10 unreachable); stopped before the loop and re-run as m5b with all 40 tasks concurrent and a 3,600 s safety limit."}

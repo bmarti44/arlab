@@ -3,7 +3,7 @@ image: {base: "nvcr.io/nvidia/pytorch:25.10-py3"}
 prepare: {command: "python /frozen/prepare.py --out /data", timeout_s: 600}
 run:
   command: "python /frozen/harness.py --out /out --seed {seed} --split {split}"
-  timeout_s: 3600
+  timeout_s: 4500
   gpu: false
   mem_gb: 12
 evaluate: {command: "python /eval/evaluate.py --run /run_out --out /result/metrics.json", timeout_s: 1800}
@@ -15,7 +15,7 @@ seeds: {calibration: [1, 2], screen: 1, confirm: [], holdout: [101]}
 services:
   - name: llm
     image: "nvcr.io/nvidia/vllm:26.04-py3"
-    command: "vllm serve Qwen/Qwen3.5-4B --served-model-name llm --port 8000 --max-num-seqs 16 --enable-prefix-caching"
+    command: "vllm serve Qwen/Qwen3.5-4B --served-model-name llm --port 8000 --max-num-seqs 40 --enable-prefix-caching"
     port: 8000
     health_url: /health
     mem_gb: 36
