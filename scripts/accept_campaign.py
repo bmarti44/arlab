@@ -76,9 +76,10 @@ elif mode == "m4":
         agent = [x for x in counted(recs) if x.get("model", "").startswith("gpt-6")]
         check(len(agent) >= 3, f"{name}/{tag}: {len(agent)} agent experiments >= 3")
         check(speed(recs)["active_h"] <= 0.5 + 1e-9, f"{name}/{tag}: <= 30-minute campaign")
-        diff = subprocess.run(["git", "-C", str(ROOT), "diff", "--stat", spec["arlab_commit"], "HEAD", "--", "arlab/"],
+        end = spec.get("end_commit", "HEAD")  # recorded when the M4 campaign finished
+        diff = subprocess.run(["git", "-C", str(ROOT), "diff", "--stat", spec["arlab_commit"], end, "--", "arlab/"],
                               capture_output=True, text=True).stdout.strip()
-        check(not diff, f"arlab/ unchanged during M4 (git diff --stat {spec['arlab_commit'][:8]} HEAD -- arlab/): {diff[:200]}")
+        check(not diff, f"arlab/ unchanged during M4 (git diff --stat {spec['arlab_commit'][:8]} {end[:8]} -- arlab/): {diff[:200]}")
 elif mode == "m5":
     name = sys.argv[2]
     d, st, recs = campaign_checks(name, "m5", min_exp=1)
