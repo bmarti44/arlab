@@ -34,7 +34,10 @@ def main_pid():
 # 1. wait until the runner is inside the wanted phase (an agent / RUN container of this campaign, >20 s old)
 seen: dict[str, float] = {}
 name = None
+give_up = time.monotonic() + 3 * 3600
 while name is None:
+    if time.monotonic() > give_up:
+        sys.exit(f"no {prefix}* container ran for 20 s within 3 h")
     for n in sh("docker", "ps", "--format", "{{.Names}}").splitlines():
         if n.startswith(prefix) and not n.endswith("-fix"):
             seen.setdefault(n, time.time())
@@ -43,6 +46,8 @@ while name is None:
     time.sleep(5)
 eid = name.removeprefix(prefix).split("-")[0]
 pid = main_pid()
+if pid <= 0:
+    sys.exit(f"{unit} has no main PID; not killing anything")
 t_kill = time.time()
 subprocess.run(["kill", "-9", str(pid)], check=True)
 print(f"killed runner pid {pid} while {name} was running (experiment {eid})", flush=True)
