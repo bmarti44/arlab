@@ -11,7 +11,8 @@ They are split with a fixed seed, stratified by type (abstention items are their
 ("X. Y (including the last day) is also acceptable.", "X (or Y)").
 
 **Model.** Served by vLLM 26.04 from the HF cache, temperature 0, no thinking: the smallest cached Qwen3/Qwen3.5
-model whose baseline accuracy lands in [0.2, 0.8] (chosen at check time; recorded in DECISIONS.md).
+model whose baseline accuracy lands in [0.2, 0.8]: **Qwen3-1.7B** (validation baseline 0.291; Qwen3-0.6B was
+0.107; see DECISIONS.md).
 
 **Budget (fixed before calibration).** An absolute cap of **160,000 service tokens per question** (prompt +
 completion; ≈ one short pass over every session of the ~115k-token haystack plus answering), i.e.

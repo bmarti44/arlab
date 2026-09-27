@@ -21,7 +21,7 @@ PER_TASK_TOKENS = 400_000   # fixed in IDEA.md before calibration (budget.limit 
 MAX_COMPLETION = 2048
 MAX_STEPS = 40
 TASK_SECONDS = 900
-WORKERS = 8
+WORKERS = 16
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--out", required=True)
@@ -36,6 +36,22 @@ client = BudgetedClient("http://llm:8000", "llm", PER_TASK_TOKENS, MAX_COMPLETIO
 ws_root = Path(a.out) / "ws"
 
 
+class TimedClient:
+    """The task's scoped client; model calls past the task's wall-clock deadline raise TimeLimit."""
+
+    def __init__(self, scoped, deadline):
+        self._s, self._deadline = scoped, deadline
+
+    def chat(self, messages, max_tokens=None, stop=None):
+        if time.monotonic() > self._deadline:
+            raise TimeLimit("task wall-clock limit reached")
+        return self._s.chat(messages, max_tokens, stop)
+
+    @property
+    def tokens_left(self):
+        return self._s.tokens_left
+
+
 def one(t):
     ws = ws_root / t["id"]
     shutil.rmtree(ws, ignore_errors=True)
@@ -47,7 +63,7 @@ def one(t):
     tools = Tools(ws, MAX_STEPS, t0 + TASK_SECONDS)
     view = {"id": t["id"], "title": t["title"], "instructions": t["instructions"], "files": sorted(t["starter"])}
     try:
-        surface.solve(view, client.scoped(t["id"]), tools)
+        surface.solve(view, TimedClient(client.scoped(t["id"]), t0 + TASK_SECONDS), tools)
         status = "finished" if tools.done else "returned"
     except BudgetExceeded:
         status = "budget_exceeded"

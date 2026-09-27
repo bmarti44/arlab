@@ -1,0 +1,3 @@
+Levels for this batch (write the tasks in this order, `difficulty` = the level name):
+- `L3` (5 tasks): implement one small class (4–6 methods) in one file, or fix 2 clear bugs in a given ~60-line module; reference solution 40–80 lines; 5–7 tests with several edge cases.
+- `L4` (5 tasks): two modules that interact (e.g. a parser module + a formatter/aggregator module), or fix 3–4 interacting bugs across 2 files; reference solution 80–130 lines in total; 6–8 tests with precise edge-case behaviour.

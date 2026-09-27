@@ -12,7 +12,7 @@ this task's 400,000-token budget; going over ends the task). Tools (see frozen_r
 run(cmd, timeout=60) and finish(); ≤ 40 tool calls and 900 s per task. agent.py must not read files, the
 environment or the network except through these tools.
 ## What the code does
-The harness (frozen_run/harness.py) runs up to 8 tasks concurrently. Each task starts in a fresh working directory
+The harness (frozen_run/harness.py) runs up to 16 tasks concurrently. Each task starts in a fresh working directory
 with its starter files; task = {id, title, instructions, files}. When solve() returns, hidden pytest tests run on
 the files the instructions name. Every expected test must pass for the task to count.
 The baseline is a bash-only loop: THOUGHT + one ```bash block per turn, last 12 turns of history kept.

@@ -1,0 +1,3 @@
+Levels for this batch (write the tasks in this order, `difficulty` = the level name):
+- `L1` (5 tasks): implement ONE small function in one file; reference solution ≤ 15 lines; 3–5 tests of plain behaviour with at most one simple edge case (e.g. empty input). Instructions short and direct.
+- `L2` (5 tasks): implement 2–3 related functions in one file; reference solution 15–40 lines; 4–6 tests including a few edge cases (empty input, invalid value → ValueError).

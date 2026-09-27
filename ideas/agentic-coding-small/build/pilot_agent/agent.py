@@ -5,7 +5,9 @@ task  = {id, title, instructions, files}
 llm   = llm.chat(messages, max_tokens=None, stop=None) -> str  (temperature 0; llm.tokens_left)
 tools = tools.read(path) / write(path, content) / edit(path, old, new) / run(cmd, timeout=60) / finish()
 """
+import json
 import re
+import time
 
 SYSTEM = """You are a careful software engineer working in a Linux shell, in the task's working directory.
 Each reply: a short THOUGHT, then exactly ONE bash code block with the command(s) to run, like
@@ -28,7 +30,10 @@ def solve(task, llm, tools):
     history = []
     while True:
         msgs = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": first}] + history[-2 * KEEP_TURNS:]
+        t0 = time.time()
         reply = llm.chat(msgs, max_tokens=2048)
+        with open(f"/out/log-{task['id']}.jsonl", "a") as f:
+            f.write(json.dumps({"t": round(time.time() - t0, 1), "tokens_left": llm.tokens_left, "reply": reply}) + "\n")
         blocks = re.findall(r"```(?:bash|sh)?\n(.*?)```", reply, re.S)
         history.append({"role": "assistant", "content": reply})
         if len(blocks) != 1:
@@ -39,4 +44,6 @@ def solve(task, llm, tools):
             tools.finish()
             return
         out = tools.run(cmd)
+        with open(f"/out/log-{task['id']}.jsonl", "a") as f:
+            f.write(json.dumps({"cmd": cmd, "out": out[-1500:]}) + "\n")
         history.append({"role": "user", "content": f"<output>\n{out[-3000:]}\n</output>"})
