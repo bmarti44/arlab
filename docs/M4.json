@@ -1,1 +1,7 @@
-{"pack": "digits-label-smoothing", "tag": "m4", "arlab_commit": "73eb4dbb05a27f3f5d59a4690949d4b93f8fe0c1", "started": "2026-09-27T01:26:36Z"}
+{
+ "pack": "digits-label-smoothing",
+ "tag": "m4",
+ "arlab_commit": "73eb4dbb05a27f3f5d59a4690949d4b93f8fe0c1",
+ "started": "2026-09-27T01:26:36Z",
+ "end_commit": "b7e901b32e23e3ae74ecfb7dca97a6cbc59f89b9"
+}

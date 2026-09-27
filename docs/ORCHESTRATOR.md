@@ -30,7 +30,7 @@ arlab calls. Read `CLAUDE.md` (hard prohibitions) first; they always apply.
    docker run --rm -i --name arlab-review-<name> --user 1000:1000 -e HOME=/tmp \
      -v ~/.cache/arlab/codex-home:/codex -e CODEX_HOME=/codex -v $P:/pack:ro -v $R:/out \
      arlab-agent:0.157.1 codex exec --ephemeral -C /pack --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox \
-       -m gpt-6-astra -c model_reasoning_effort='"high"' -o /out/review.md - < $R/prompt.md > $R/events.jsonl
+       -m gpt-6-astra -c model_reasoning_effort='"high"' -o /out/review.md - < $R/prompt.md > $R/events.jsonl 2>$R/stderr.log
    cat $R/review.md
    ```
    Fix real findings; record the rest (with why) in `DECISIONS.md`.
@@ -97,3 +97,12 @@ Keeps smaller than MES are fine (they accumulate); only the verdict is judged ag
 No sudo. Never touch processes/containers/images/files arlab did not create. No pushing or publishing. Never run
 Claude non-interactively (`claude -p`, Agent SDK, Anthropic API). Codex (containerized, arlab's `CODEX_HOME`)
 is the only agent. Keep ≥ 60 GB free. Never end a turn with a campaign pending unless a wake-up is armed.
+
+## Friction noted while running M4 (Appendix B, 2026-09-27)
+- The review command drops Codex's stderr; add `2>$R/stderr.log` so a failed call can be diagnosed.
+- The astra review flags by-design properties (the surface owns its optimizer; wall-time guards bound compute).
+  Answer each finding in the pack's `REVIEW.md` (fixed / bounded by … / by design) so the next reader sees why.
+- Public datasets bundled with the image (sklearn digits) let a surface look labels up: block the loader in the
+  frozen harness and say so in `program.md`.
+- On a seconds-long CPU pack, Codex latency dominates (agent share 93%, ~1 min/experiment); 20 experiments fit
+  in 25 min, so `max_experiments` rather than `max_hours` ends such a campaign.
