@@ -46,7 +46,8 @@ CHECK → PREPARE → TESTS → SEAL → PROBE → CALIBRATE → LOOP → FINALI
 arlab/            runner: cli, pack, campaign, experiment, execute, agent, stats, guards, record, report
 arlab/lib/        shared helpers packs import: lm (token-budget loop, LM scorer, causality), client (budgeted
                   model client), cleanroom (hidden tests as uid 65534)
-ideas/<name>/     one pack per idea (IDEA.md, pack.yaml, program.md, surface/, frozen/run, frozen/eval, tests/)
+ideas/<name>/     one pack per idea (IDEA.md, pack.yaml, program.md, surface/, frozen/run, frozen/eval, tests/;
+                  optional frozen/prepare/ = inputs only PREPARE sees, e.g. tasks with hidden tests; REVIEW.md)
 templates/pack/   `arlab new` scaffold
 tests/            unit tests + CPU fixture campaigns (`make accept-M1`)
 ~/arlab-data/<name>/<data_hash>/   immutable prepared data     ~/arlab-runs/<name>/<tag>/   campaigns
@@ -60,7 +61,21 @@ tests/            unit tests + CPU fixture campaigns (`make accept-M1`)
 | `nanochat-lite` | GPT pretraining under a token budget (lab calibration) | val_bpb ↓ |
 | `memory-longmemeval` | memory subsystem around a small vLLM-served model | accuracy |
 | `agentic-coding-small` | scaffold for a small model on multi-step coding tasks | pass_rate |
+| `digits-label-smoothing` | Appendix-B prose idea turned into a pack via `docs/ORCHESTRATOR.md` (M4) | accuracy |
 | `stencil-focus` | awaiting the owner's `IDEA.md` | — |
+
+## Results so far
+
+| Campaign | Verdict |
+|---|---|
+| `nanochat-lite/m3b` | **supported** — optimizer batch 2^17 → 2^16 tokens: holdout val_bpb −0.0151 (d − 2·SE = 0.0102 > 0) |
+| `digits-label-smoothing/m4` | not_found_at_this_scale (effect < 0.026 < MES 0.05) |
+| `memory-longmemeval/m5` | not_found_at_this_scale (25 candidates; effect < 0.062 < MES 0.08) |
+| `agentic-coding-small/m5c` | __AGENTIC__ |
+
+Per-campaign `report.md` files are in `~/arlab-runs/<pack>/<tag>/`; `docs/retro.md` covers time, accept rates,
+agent latency/tokens and what broke. Tags that were re-run (m3 → m3b, m5 → m5c) and why: `docs/M3.json`,
+`docs/M5.json`, `DECISIONS.md`.
 
 ## Acceptance
 
