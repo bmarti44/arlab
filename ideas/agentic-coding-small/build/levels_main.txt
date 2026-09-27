@@ -1,0 +1,5 @@
+Levels for this batch (write the tasks in this order, `difficulty` = the level name). These levels sit at the edge
+of what the model can do: a pilot showed it passes ~60% of L3 and ~20% of L4 tasks as defined here.
+- `L3` (3 tasks): implement one small class (4–6 methods) in one file, or fix 2 clear bugs in a given ~60-line module; reference solution 40–80 lines; 5–7 tests with several edge cases.
+- `L3b` (4 tasks): one class plus 1–2 helper functions, in one or two files (e.g. a module and a small helper module), or fix 3 bugs in one ~80-line module; reference solution 70–100 lines; 6–8 tests with precise edge cases.
+- `L4` (3 tasks): two modules that interact (e.g. a parser module + a formatter/aggregator module), or fix 3–4 interacting bugs across 2 files; reference solution 80–130 lines in total; 6–8 tests with precise edge-case behaviour.

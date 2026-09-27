@@ -1,21 +1,17 @@
 # STATUS
 
-Milestone: M3 next (Codex campaign on nanochat-lite). Owner approved containerized Codex 2026-09-26 (B1 resolved).
-- M0: accept-M0 PASS (GPU, vLLM, 3 codex calls, owner login untouched).
-- M1: built; final `make accept-M1` running in the acceptance chain (unit arlab-accept-chain).
-- M2: accept-M2 PASS earlier; re-running in the chain after the review fixes (stricter anti-cheat checks).
-- Review: gpt-6-sol xhigh round 1 → 10 findings, all fixed (commit "Fix sol review findings"). Round 2 running
-  (unit arlab-review-sol-2, /tmp/arlab-review-2/review.md).
+Milestone: M3 next (nanochat-lite Codex campaign, max_hours 3), then M5 campaigns, then M6.
+- M0 PASS, M1 PASS (31/31), M2 PASS, M4 PASS (digits-label-smoothing/m4: not_found_at_this_scale, 20 experiments).
+- Sol xhigh review: 3 rounds, all real findings fixed or recorded (DECISIONS.md 2026-09-26/27).
+- memory-longmemeval: model Qwen3-1.7B (baseline 0.291 on validation). Next: full `arlab check`, then m5 campaign.
+- agentic-coding-small: difficulty ladder done (L1 4/5, L2 3/5, L3 3/5, L4 1/5, astra "p01" 0/10) → edge = L3–L4.
+  7 astra batches (m01–m07: 3×L3, 4×L3b, 3×L4 each) generating; then validate, pick 40/40 (MES 0.20 by the
+  subsample rule since 60/60 can't pass in 30 min), full check, m5 campaign. Testing vLLM prefix caching
+  (hybrid Qwen3.5: off by default) for throughput.
 
 Background jobs:
-- arlab-accept-chain: accept-M0 → accept-M2 → accept-M1 (~/arlab-runs/_m1/{accept-m0,accept-m2,accept-m1}.log, chain.txt)
-- arlab-review-sol-2: sol review round 2
-- arlab-gen-p01: gpt-6-astra pilot of 10 agentic-coding tasks (~/arlab-data/agentic-gen/p01)
+- arlab-gen-m01..m07 (astra task generation, ~/arlab-data/agentic-gen/m0*)
+- prefix-cache A/B test (container arlab-pilot-pc; ~/arlab-data/agentic-pilot/pc-{off,on}.txt)
 
-Next action: chain + review done → fix round-2 findings → launch M3 (`arlab run ideas/nanochat-lite --tag m3 --detach`,
-max_hours 3) → during M3: validate pilot tasks, generate the rest (astra), M4 digits campaign (CPU) →
-after M3: memory-longmemeval model selection/check/m5, agentic pilot/check/m5 → M6.
-
-Packs: nanochat-lite (M2 done), memory-longmemeval (static check PASS; model selection pending),
-agentic-coding-small (pack written; tasks being generated), digits-label-smoothing (M4; check PASS),
-stencil-focus (awaiting owner IDEA.md).
+Next action: prefix-cache result → memory full check → launch M3 + m3_kill.py tests → validate tasks during M3 →
+after M3: memory m5 → agentic check + m5 → accept-M3/M5 → M6.
