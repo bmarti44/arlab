@@ -1,0 +1,1 @@
+{"tag": "m3b", "why": "m3 calibration (2026-09-27 02:10Z) measured sigma 0.0185 (pilot/m2: 0.0027): seeds 1-2 ran different compiled kernels after a startup recompile; verdict inconclusive:underpowered, loop never started. Re-run on a quiet box."}

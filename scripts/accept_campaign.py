@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """accept-M3 / accept-M4 / accept-M5-<pack> / accept-M6 (PLAN §5). Exit code is the verdict.
 
-Campaign tags: M3 = nanochat-lite/m3; M4 = the Appendix-B pack (docs/M4.json names it); M5 = <pack>/m5.
+Campaign tags: M3 = nanochat-lite/<docs/M3.json tag, default m3>; M4 = the Appendix-B pack (docs/M4.json names it); M5 = <pack>/m5.
 """
 import json
 import subprocess
@@ -54,9 +54,10 @@ def campaign_checks(name, tag, min_exp=1, min_active_h=0.0, own_rules=True):
     return d, st, recs
 
 
+M3_TAG = (read_json(ROOT / "docs" / "M3.json", {}) or {}).get("tag", "m3")  # a re-run under a new tag is recorded there
 mode = sys.argv[1]
 if mode == "m3":
-    d, st, recs = campaign_checks("nanochat-lite", "m3", min_exp=12, min_active_h=2.0)
+    d, st, recs = campaign_checks("nanochat-lite", M3_TAG, min_exp=12, min_active_h=2.0)
     kills = read_json(d / "kill-tests.json", {}) or {}
     for k in ("during_agent", "during_training"):
         check(kills.get(k, {}).get("resumed") is True, f"kill -9 {k.replace('_', ' ')} then resume: {kills.get(k)}")
@@ -99,7 +100,7 @@ elif mode == "m5":
               f"resident vLLM never treated as foreign across {len(evals)} evaluations")
 elif mode == "m6":
     total = 0.0
-    for name, tag in [("nanochat-lite", "m3"), ("memory-longmemeval", "m5"), ("agentic-coding-small", "m5")]:
+    for name, tag in [("nanochat-lite", M3_TAG), ("memory-longmemeval", "m5"), ("agentic-coding-small", "m5")]:
         d = RUNS / name / tag
         st = read_json(d / "state.json", {}) or {}
         log = (d / "runner.log").read_text(errors="replace") if (d / "runner.log").exists() else ""
