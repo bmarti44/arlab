@@ -7,7 +7,7 @@
 | nanochat-lite/m3b (M3) | gpt-6-sol | 28 (+2 interrupted by kill tests) | 2.90 | 9.6/h, median 5.2 min | **supported**: holdout d = 0.0151 val_bpb (d − 2·SE = 0.0102 > 0, all 3 seeds positive), MES 0.01 |
 | digits-label-smoothing/m4 (M4) | gpt-6-sol | 20 | 0.41 | 48/h, median 1.1 min | not_found_at_this_scale (upper bound 0.026 < MES 0.05) |
 | memory-longmemeval/m5 (M5) | gpt-6-sol | 25 | 1.99 | 12.5/h, median 2.0 min | not_found_at_this_scale (upper bound 0.062 < MES 0.08), stop no_keep |
-| agentic-coding-small/m5c (M5) | gpt-6-sol | __AGENTIC__ | | | |
+| agentic-coding-small/m5c (M5) | gpt-6-sol | 3 | 2.92 (incl. 3 calibration passes) | 1.0/h, median 70 min ("speed target missed") | inconclusive: stopped_early:max_hours (2 guard_fail on timeouts, 1 discard; 0002 scored 0.20 vs 0.15 but 25%+ timeouts) |
 
 Scripted/fixture campaigns (M1, M2) reached every status and every verdict; the M2 anti-cheat cases (b, c, e, f, g)
 behaved as specified.
@@ -27,6 +27,7 @@ behaved as specified.
   its "known-good" edit, found independently by the agent in experiment 0005).
 - digits m4: 1 keep / 20 on validation (0.964 → 0.984) that did not hold on the holdout.
 - memory m5: 0 / 25 (best: an LLM-rewritten extra query, +0.005; per-session fact extraction collapsed to 0.09).
+- agentic m5c: 0 / 3 — two candidates failed the timeout guard (the baseline itself exceeds it), one discard.
 
 ## Agent latency and tokens (gpt-6-sol, effort high)
 | Campaign | Calls | Input tokens (cached) | Output tokens | Median propose |
@@ -34,6 +35,7 @@ behaved as specified.
 | nanochat m3b | 33 | 3.84M (3.16M) | 61k | 53 s |
 | digits m4 | 21 | 2.09M (1.76M) | 47k | 62 s |
 | memory m5 | 28 | 2.84M (2.31M) | 81k | 84 s |
+| agentic m5c | 3 | 0.27M (0.20M) | 5k | 47 s |
 gpt-6-astra: pack reviews (digits, memory, agentic) and ~100 generated coding tasks (10 pilot, 20 ladder, 70 main).
 gpt-6-sol (xhigh): four code-review rounds of arlab itself.
 
@@ -65,5 +67,8 @@ gpt-6-sol (xhigh): four code-review rounds of arlab itself.
 ## Would do differently
 - Pilot service packs at the final concurrency with per-step timing before generating tasks; measure run-to-run
   determinism before choosing deterministic-pack seeds.
+- For agentic-coding-small specifically: the next tag should size the wall-clock limit (or the timeout guard) from
+  m5c's measured distribution, or cut generated tokens per task (edit-based tools), so that a 6-hour campaign has
+  room for more than three candidates.
 - Keep the box quiet during any calibration, and give each GPU calibration its own inductor cache or disable
   autotuning, to rule out compile-state effects.
