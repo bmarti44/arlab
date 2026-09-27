@@ -1,0 +1,18 @@
+{
+  "id": "m05-04",
+  "title": "First-fit warehouse bin packing",
+  "difficulty": "L3b",
+  "instructions": "Implement an incremental first-fit packer for integer item weights.\n\n## Files\n- `packing.py`\n\nPublic API:\n- `validate_weights(weights, capacity: int) -> list[int]`: `weights` is an iterable.\n  Capacity and every weight must have exact type `int` (reject bool). Capacity\n  must be positive, and weights must be between 1 and capacity inclusive. Wrong\n  types raise `TypeError`; invalid integer values raise `ValueError`. Validate\n  capacity even for an empty iterable. Return a new list in input order.\n- `BinPacker(capacity: int)` validates capacity by the same rules and starts empty.\n- `add(weight: int) -> int`: put the item into the earliest existing bin with\n  enough remaining capacity, or append a new bin. Return its zero-based index.\n  Never reorder items or bins. Reject an invalid weight without modifying state.\n- `add_many(weights) -> list[int]`: add in iterable order and return one bin index\n  per item. Validate the entire iterable before adding anything, so an invalid\n  item leaves all bins unchanged. An empty iterable returns `[]`.\n- `snapshot() -> list[list[int]]`: return the bin contents in creation order with\n  items in insertion order. Return a deep copy of the lists.\n- `remaining() -> list[int]`: free capacity in each bin, in creation order, as a\n  fresh list.\n- `first_fit(weights, capacity: int) -> list[list[int]]`: convenience helper using\n  a new packer and the same validation/packing rules. Empty input returns `[]`.\nAn exact fit is allowed. This is first-fit, so do not sort by weight or choose a\nlater bin simply because it would leave less spare capacity.",
+  "sources": [
+    "packing.py"
+  ],
+  "expected": [
+    "test_m05_04.py::test_first_fit_preserves_order",
+    "test_m05_04.py::test_incremental_assignments_and_capacity",
+    "test_m05_04.py::test_generator_and_empty_input",
+    "test_m05_04.py::test_capacity_validation",
+    "test_m05_04.py::test_weight_validation_and_single_add_is_atomic",
+    "test_m05_04.py::test_bad_batch_is_atomic",
+    "test_m05_04.py::test_returned_lists_do_not_alias"
+  ]
+}

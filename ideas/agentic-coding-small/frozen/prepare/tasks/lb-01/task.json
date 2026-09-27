@@ -1,0 +1,17 @@
+{
+  "id": "lb-01",
+  "title": "Undo and redo text buffer",
+  "difficulty": "L3",
+  "instructions": "Implement `TextBuffer` in `text_buffer.py` using undo and redo stacks.\n\n## Files\n- `text_buffer.py`\n\nAPI:\n- `TextBuffer(text: str = \"\")` starts with the given text and empty history.\n- Read-only property `text: str` gives the current text.\n- `insert(position: int, text: str) -> None` inserts before that character;\n  positions from 0 through the current length are valid.\n- `delete(start: int, end: int) -> str` removes and returns the half-open\n  slice `[start, end)`. Require `0 <= start <= end <= len(text)`.\n- Invalid insert positions or delete intervals raise `IndexError` without\n  changing text or either history stack. Validate even an empty insertion.\n- `undo() -> bool` undoes one changing edit, returning True; returns False\n  without changes if no edit is available.\n- `redo() -> bool` reapplies one undone edit, returning True; returns False\n  without changes if unavailable.\n\nEach changing insertion or deletion is one history entry and clears redo.\nEmpty insertions and empty deletions create no history and preserve redo.\nThe initial text is not a history entry. Indexes count Python string characters,\nincluding Unicode. Arguments have the annotated types; other type validation\nis not required. Do not expose mutable history as part of the public API.\n",
+  "sources": [
+    "text_buffer.py"
+  ],
+  "expected": [
+    "test_lb_01.py::test_insert_positions_and_unicode",
+    "test_lb_01.py::test_delete_returns_slice",
+    "test_lb_01.py::test_round_trip_history",
+    "test_lb_01.py::test_edit_after_undo_clears_redo",
+    "test_lb_01.py::test_noops_preserve_redo_and_undo",
+    "test_lb_01.py::test_invalid_edits_are_atomic"
+  ]
+}

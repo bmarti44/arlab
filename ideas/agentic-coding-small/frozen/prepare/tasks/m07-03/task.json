@@ -1,0 +1,17 @@
+{
+  "id": "m07-03",
+  "title": "Repair inventory reorder calculations",
+  "difficulty": "L3",
+  "instructions": "Fix exactly two calculation bugs in the existing `inventory.py`: incoming supply is mishandled and whole-pack ordering is rounded incorrectly. Preserve the public function `calculate_reorders(items, horizon_days) -> list[dict]` and existing validation.\n\n`items` is an iterable of dictionaries with these required fields: nonempty string `sku`; nonnegative integer `on_hand`, `reserved`, and `incoming`; nonnegative finite int/float `daily_rate`; and positive integer `pack_size`. Extra keys are ignored. SKUs must be unique. `horizon_days` is a nonnegative integer. Booleans are not supplied as numbers. Missing fields, invalid field values, duplicate SKUs, or invalid horizon raise `ValueError` (message unspecified).\n\nFor each item:\n1. `available = max(0, on_hand - reserved) + incoming`.\n2. `target = ceil(daily_rate * horizon_days)`.\n3. `shortage = max(0, target - available)`.\n4. `order` is the smallest multiple of `pack_size` greater than or equal to shortage.\n\nReturn only items with a positive order, preserving input order. Each result is a new dictionary containing exactly `sku`, `available`, `target`, `order`. Empty input or a zero horizon returns `[]` for otherwise valid input. Do not mutate the input records. All quantities are ordinary Python numbers of manageable size. Private helper names are not API.\n\n### Files\n- `inventory.py`: repair the existing calculator.\n",
+  "sources": [
+    "inventory.py"
+  ],
+  "expected": [
+    "test_m07_03.py::test_incoming_supply_avoids_unneeded_order",
+    "test_m07_03.py::test_shortage_smaller_than_one_pack",
+    "test_m07_03.py::test_fractional_demand_and_reservations",
+    "test_m07_03.py::test_excess_reservations_and_exact_pack",
+    "test_m07_03.py::test_order_filtering_and_input_isolation",
+    "test_m07_03.py::test_validation_remains_in_place"
+  ]
+}

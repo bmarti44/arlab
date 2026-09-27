@@ -1,0 +1,19 @@
+{
+  "id": "m01-09",
+  "title": "HTML templates with scoped loop blocks",
+  "difficulty": "L4",
+  "instructions": "Implement `parse_template` in `template_parser.py` and `render` in `template_renderer.py`. The renderer must use the parser. This small template language has text, escaped substitutions and nested loops, with no arbitrary expression evaluation.\n`parse_template(template) -> list[tuple]` produces these exact nodes:\n- Literal text: `(\"text\", text)`. Preserve text exactly; omit empty text nodes; contiguous text between tags is a single node.\n- `{{ path }}`: `(\"var\", path)`.\n- `{% for alias in path %}body{% endfor %}`: `(\"for\", alias, path, children)`, where children is a list of nodes. Empty bodies and nested loops are valid.\nA name is `[A-Za-z_][A-Za-z0-9_]*`; a path is one or more names separated by dots, without spaces around dots. Alias is a single name. Surrounding whitespace inside either tag is optional. `for`, alias, `in` and path must be separated by one or more whitespace characters. Keywords are case-sensitive. There is no other syntax. Raise `ValueError` for invalid paths/aliases, unknown block tags, unmatched endfor, unclosed loops, and any `{{` or `{%` opener without its matching `}}` or `%}` closer. Standalone closing delimiters are literal text. Error messages are not specified.\n`render(template, context) -> str` parses then renders. Context is a dict. Resolve each path by looking up each component in nested dicts only. If a component is absent or an intermediate object is not a dict, raise `KeyError` whose argument is the full requested path. Substitutions use `str(value)`, except None becomes an empty string, then escape with `html.escape(..., quote=True)` (including `&`, `<`, `>`, double quote and apostrophe). Literal template text is never escaped.\nLoop paths must resolve to a list or tuple, otherwise raise `TypeError`. Render body once per element in order. The alias is bound to that element in a copied local context, shadowing an existing name only inside its loop body. Nested aliases may shadow outer aliases. Empty loops emit nothing and do not resolve paths in their bodies. Do not mutate context or nested values. Do not recursively interpret inserted values as template syntax.\n\n## Files\n- `template_parser.py`\n- `template_renderer.py`",
+  "sources": [
+    "template_parser.py",
+    "template_renderer.py"
+  ],
+  "expected": [
+    "test_m01_09.py::test_parse_exact_tree",
+    "test_m01_09.py::test_escaping_and_literal_text",
+    "test_m01_09.py::test_loop_order_empty_and_tuple",
+    "test_m01_09.py::test_nested_scope_and_unchanged_context",
+    "test_m01_09.py::test_path_failures_and_loop_types",
+    "test_m01_09.py::test_invalid_syntax",
+    "test_m01_09.py::test_whitespace_adjacent_tags_and_local_alias"
+  ]
+}

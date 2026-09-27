@@ -1,0 +1,19 @@
+{
+  "id": "lb-06",
+  "title": "Log parser and summary report",
+  "difficulty": "L4",
+  "instructions": "Complete two modules for parsing UTF-8 application logs and reporting counts.\n\n## Files\n- `log_parser.py`: `parse_line`, `parse_file`, and `LEVELS`.\n- `log_report.py`: `summarize` and `report_file`, using the parser module.\n\n`LEVELS` is the tuple `(\"INFO\", \"WARN\", \"ERROR\")`.\n`parse_line(line: str) -> dict | None` strips surrounding whitespace and\nreturns None for blank lines or lines whose first non-whitespace character\nis `#`. Other lines use `timestamp | level | message`. Split on only the\nfirst two pipes and strip each field; further pipes belong to the message.\nThe timestamp must be a valid date and time with exact spelling\n`YYYY-MM-DD HH:MM:SS` (years 0001\u20139999, seconds 00\u201359); levels are case\nsensitive and must be in LEVELS; messages must be nonempty. Malformed records\nraise `ValueError`. Return exactly the keys `timestamp`, `level`, `message`,\nall strings, with the stripped timestamp preserved.\n\n`parse_file(path: str | Path) -> tuple[list[dict], list[int]]` opens UTF-8,\nreturns valid records in input order and 1-based physical line numbers of\nmalformed records. Skip comments and blanks without marking them invalid.\nContinue after bad records. Propagate filesystem errors.\n\n`summarize(records: Iterable[dict]) -> dict` accepts valid parsed records,\nincluding a generator, without modifying them. Return exactly `total` (int),\n`counts` (a dict with all three levels even when zero), `earliest`, and\n`latest` (minimum/maximum timestamp strings, or None when empty).\n\n`report_file(path: str | Path) -> str` parses and summarizes the file. Return\nexactly these seven lines, in order, with a final newline:\n```\nTOTAL <total>\nINFO <count>\nWARN <count>\nERROR <count>\nFIRST <earliest timestamp or ->\nLAST <latest timestamp or ->\nINVALID <comma-separated invalid line numbers, no spaces, or ->\n```\nNo error-message wording is required. Inputs have the indicated types.\n",
+  "sources": [
+    "log_parser.py",
+    "log_report.py"
+  ],
+  "expected": [
+    "test_lb_06.py::test_parse_fields_pipes_and_unicode",
+    "test_lb_06.py::test_blank_comments_and_invalid_records",
+    "test_lb_06.py::test_parse_file_tracks_physical_lines",
+    "test_lb_06.py::test_summary_generator_and_time_order",
+    "test_lb_06.py::test_empty_summary_and_report",
+    "test_lb_06.py::test_complete_report",
+    "test_lb_06.py::test_missing_file_errors"
+  ]
+}

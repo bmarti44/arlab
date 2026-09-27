@@ -1,0 +1,19 @@
+{
+  "id": "m07-07",
+  "title": "LRU and LFU caches with one interface",
+  "difficulty": "L3b",
+  "instructions": "Implement a cache pair in `caches.py` using one `Cache` class and two factory functions:\n- `lru_cache(capacity: int) -> Cache`: return a fresh Cache using least-recently-used eviction.\n- `lfu_cache(capacity: int) -> Cache`: return a fresh Cache using least-frequently-used eviction, with least-recently-used tie breaking.\n- `Cache(capacity: int, policy: str)`: policy is exactly `\"lru\"` or `\"lfu\"`; capacity must be a nonnegative integer. Invalid values raise `ValueError`. Booleans are not supplied as numbers.\n\nBoth caches share these methods:\n- `get(key: str, default=None)`: on a hit return the stored value, increment its frequency by one, and make it most recent. On a miss return default and leave all entries' frequency and recency unchanged.\n- `put(key: str, value) -> None`: an existing key's value is replaced, its frequency increments by one, and it becomes most recent. A new key starts at frequency one and is most recent; if full, evict one existing entry BEFORE insertion. For LRU evict the least recent entry; for LFU evict the lowest frequency, breaking ties by least recent. Capacity zero discards writes.\n- `delete(key: str) -> bool`: remove if present, returning True; otherwise False. Reinsertion starts at frequency one. Deleting does not touch other entries.\n- `snapshot() -> list[tuple[str, object]]`: a new list of `(key, value)` pairs ordered least recent to most recent, regardless of policy. Reading a snapshot does not change recency or frequency. Values are returned as stored (no deep copying).\n\nKeys are strings and values can be any Python object, including None. Each factory call creates an independent cache. Internal representation is not prescribed; linear scans are acceptable for these small caches. Recency is defined by the sequence of successful get and put calls, with no clock usage.\n\n### Files\n- `caches.py`: implement `Cache`, `lru_cache`, and `lfu_cache`.\n",
+  "sources": [
+    "caches.py"
+  ],
+  "expected": [
+    "test_m07_07.py::test_lru_hits_control_eviction",
+    "test_m07_07.py::test_lfu_frequency_overrides_recency",
+    "test_m07_07.py::test_lfu_tie_uses_recency_and_update_counts",
+    "test_m07_07.py::test_updates_and_none_values",
+    "test_m07_07.py::test_delete_reinsert_resets_frequency",
+    "test_m07_07.py::test_zero_capacity_and_validation",
+    "test_m07_07.py::test_snapshot_does_not_touch_and_factories_are_independent",
+    "test_m07_07.py::test_one_slot_and_direct_constructor"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "id": "m03-01",
+  "title": "Editable Integer Interval Set",
+  "difficulty": "L3",
+  "instructions": "Implement `IntervalSet` in `interval_set.py`. It stores integer half-open intervals:\n`[start, end)` includes start but excludes end. Inputs are integers; no type checking is required.\n\n- `IntervalSet()` creates an empty set.\n- `add(start: int, end: int) -> None` unions an interval into the set. Merge overlapping\n  intervals AND touching intervals into a single interval.\n- `remove(start: int, end: int) -> None` subtracts an interval, splitting stored intervals\n  when necessary. Removing absent values is harmless.\n- Both mutations raise `ValueError` for start > end without changing state. Equal endpoints\n  are a no-op.\n- `contains(value: int) -> bool` reports membership.\n- `intervals() -> list[tuple[int, int]]` returns a new list of the nonempty stored intervals,\n  sorted by start. Modifying the returned list must not change the set.\nNegative endpoints are supported; there are no endpoint size limits.\n\n## Files\n- `interval_set.py`",
+  "sources": [
+    "interval_set.py"
+  ],
+  "expected": [
+    "test_m03_01.py::test_empty_and_endpoints",
+    "test_m03_01.py::test_sort_merge_and_bridge",
+    "test_m03_01.py::test_remove_splits_and_trims",
+    "test_m03_01.py::test_remove_across_gaps",
+    "test_m03_01.py::test_empty_reversed_and_atomic",
+    "test_m03_01.py::test_snapshot_and_large_negative_values"
+  ]
+}

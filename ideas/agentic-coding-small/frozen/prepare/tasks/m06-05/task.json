@@ -1,0 +1,18 @@
+{
+  "id": "m06-05",
+  "title": "Price-time limit order matching",
+  "difficulty": "L3b",
+  "instructions": "Implement `OrderBook` in `order_book.py`. Prices and quantities are integer units; IDs and sides\nare strings. There are no market orders, fees, or external dependencies.\n- `OrderBook()` starts empty.\n- `add(order_id: str, side: str, price: int, quantity: int) -> list[tuple[str,str,int,int]]`:\n  side is exactly `buy` or `sell`, price and quantity must be positive, and order_id must be\n  nonempty and not currently resting in the book. Otherwise raise `ValueError` without changing\n  the book. IDs can be reused after full execution or cancellation.\n- An incoming buy matches sells priced <= its limit, lowest price first. An incoming sell\n  matches buys priced >= its limit, highest price first. At equal prices use insertion order.\n  Continue until the incoming quantity is filled or no compatible order remains. Any unfilled\n  incoming remainder rests with its original limit price. Partial resting fills retain priority.\n- Each execution tuple is `(buy_id, sell_id, execution_price, quantity)`, in execution order.\n  The execution price is the resting order's price. Remove fully filled orders.\n- `cancel(order_id: str) -> bool` removes a resting order and returns True; unknown IDs return False.\n- `snapshot(side: str) -> list[tuple[str,int,int]]` returns `(id, price, remaining_quantity)`\n  tuples in matching priority for that side, in a new list. Invalid side raises `ValueError`.\n  Mutating the returned list must not affect the book.\nThe starter validation helper is internal; its interface may be changed.\n\n## Files\n- `order_book.py`\n",
+  "sources": [
+    "order_book.py"
+  ],
+  "expected": [
+    "test_m06_05.py::test_empty_and_non_crossing_orders",
+    "test_m06_05.py::test_buy_uses_best_price_then_fifo",
+    "test_m06_05.py::test_sell_uses_highest_bid_and_resting_price",
+    "test_m06_05.py::test_partial_fill_retains_priority",
+    "test_m06_05.py::test_remainder_rests_at_incoming_limit",
+    "test_m06_05.py::test_cancel_reuse_and_snapshot_isolation",
+    "test_m06_05.py::test_invalid_add_is_atomic"
+  ]
+}

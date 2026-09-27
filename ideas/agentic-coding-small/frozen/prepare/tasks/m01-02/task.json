@@ -1,0 +1,17 @@
+{
+  "id": "m01-02",
+  "title": "Word wrapping and full justification",
+  "difficulty": "L3",
+  "instructions": "Implement class `TextWrapper` in `text_layout.py` with these five methods:\n- `TextWrapper(width)`: width is an integer; raise `ValueError` if it is not positive.\n- `words(text) -> list[str]`: split a string on all whitespace, discarding empty words.\n- `wrap(text) -> list[str]`: greedily put as many consecutive words as fit on each line, separated by one ASCII space. Ignore original line breaks. A word longer than width occupies a line by itself and is never split. Empty/whitespace-only text produces `[]`.\n- `justify(text) -> list[str]`: use the same line grouping as wrap. Expand spaces on every line except the last to exactly width characters. Divide added space as evenly as possible among gaps, giving extra spaces to leftmost gaps. A one-word line is unchanged, even if shorter or longer than width. The final line always uses single spaces with no padding.\n- `format(text, justify=False) -> str`: join wrap's lines (or justify's lines when the flag is true) with `\\n`, without a trailing newline. Empty input produces `\"\"`.\nLengths are Python string lengths; there is no display-width or hyphenation logic. Calls must not retain text from earlier calls.\n\n## Files\n- `text_layout.py`",
+  "sources": [
+    "text_layout.py"
+  ],
+  "expected": [
+    "test_m01_02.py::test_words_and_empty",
+    "test_m01_02.py::test_greedy_boundary",
+    "test_m01_02.py::test_oversized_words",
+    "test_m01_02.py::test_leftmost_extra_spaces",
+    "test_m01_02.py::test_last_line_and_repeated_calls",
+    "test_m01_02.py::test_width_one_unicode_and_invalid"
+  ]
+}

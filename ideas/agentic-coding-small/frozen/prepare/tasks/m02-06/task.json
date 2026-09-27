@@ -1,0 +1,18 @@
+{
+  "id": "m02-06",
+  "title": "Vending machine transaction states",
+  "difficulty": "L3b",
+  "instructions": "Implement a small vending machine with integer-cent prices and credit.\n\n## Files\n- `vending.py`: implement `VendingMachine`. You may use helper functions.\n\n`VendingMachine(inventory: dict[str, tuple[int, int]])` receives item codes\nmapped to (price, stock). Codes must be nonempty strings (no stripping).\nPrice must be a positive int, stock a nonnegative int, neither bool.\nInvalid entries raise ValueError. The inventory argument itself is a dict\nwhose values are two-element tuples. An empty inventory is valid. Copy the\ndata so subsequent changes to the caller's dict cannot affect the machine.\n\nPublic methods:\n- `select(code: str) -> None`: unknown code raises KeyError; zero stock\n  raises ValueError. Otherwise select this item, replacing any old selection\n  and preserving credit. All lookup codes will be strings.\n- `insert(cents: int) -> int`: accept only 5, 10, 25, or 100, as integers\n  excluding bool. Other values raise ValueError. Return total credit.\n  Inserting before selecting is allowed.\n- `vend() -> dict`: require a selection and credit >= its price, otherwise\n  ValueError. Return exactly {'item': code, 'change': excess_credit}, reduce\n  that item's stock by one, and clear selection and credit. Change is an\n  integer-cent amount; coin supply is unlimited.\n- `cancel() -> int`: return all credit and clear credit and selection;\n  stock is unaffected. Canceling idle returns 0.\n- `restock(code: str, amount: int) -> None`: unknown code raises KeyError.\n  amount must be a positive int excluding bool, otherwise ValueError.\n  Increase stock, leaving credit and selection untouched.\n- `status() -> dict`: return exactly {'state': ..., 'credit': int,\n  'selected': str | None, 'stock': dict[str, int]}. State is 'idle' whenever\n  no item is selected (even with credit), 'collecting' when selected with\n  insufficient credit, and 'ready' when selected with enough credit.\n  Return a fresh outer dict and stock dict.\n\nEvery failed operation preserves all state. If multiple arguments are\ninvalid, validation order is unspecified.\n",
+  "sources": [
+    "vending.py"
+  ],
+  "expected": [
+    "test_m02_06.py::test_purchase_state_transitions",
+    "test_m02_06.py::test_prepaid_change_and_cancel",
+    "test_m02_06.py::test_selection_changes_preserve_credit",
+    "test_m02_06.py::test_failures_preserve_transaction",
+    "test_m02_06.py::test_sold_out_and_restock",
+    "test_m02_06.py::test_inventory_validation",
+    "test_m02_06.py::test_inventory_and_snapshot_isolation"
+  ]
+}

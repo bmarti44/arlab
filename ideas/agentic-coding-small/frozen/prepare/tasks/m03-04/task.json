@@ -1,0 +1,18 @@
+{
+  "id": "m03-04",
+  "title": "Theatre Seat Reservations",
+  "difficulty": "L3b",
+  "instructions": "Implement `SeatMap` and the two helpers in `seats.py`. A theatre has rows A through Z\n(at most 26), with seats numbered 1 through seats_per_row. All ordered seat lists use\nrow order then numeric seat order, so A2 comes before A10.\n\n- `seat_label(row: int, number: int) -> str` uses a zero-based row index and one-based\n  seat number. Require integer (not bool) row in 0..25 and positive integer (not bool)\n  number; otherwise `ValueError`.\n- `parse_seat(label: str, rows: int, seats_per_row: int) -> tuple[int, int]` returns\n  (zero-based row, one-based number). Require exact uppercase labels such as A1 or B12;\n  no whitespace, leading zeroes, signs or extra characters. Malformed/out-of-bounds labels\n  raise `ValueError`. Its dimension arguments are assumed valid.\n- `SeatMap(rows: int, seats_per_row: int)` requires integer, non-bool dimensions, rows\n  1..26 and seats_per_row >= 1; invalid dimensions raise `ValueError`.\n- `reserve(labels, owner: str) -> list[str]`: labels is an iterable of strings. Owner must\n  be a nonempty string (whitespace is allowed), otherwise `ValueError`. Validate all labels,\n  deduplicate, then reserve them atomically. Any already occupied seat, even by the same\n  owner, raises `ValueError`; any error leaves the map unchanged. Return reserved labels\n  in seat order. An empty iterable returns [].\n- `release(owner: str) -> list[str]` frees every seat held by that exact owner and returns\n  sorted labels; unknown owners return [].\n- `available(row: str) -> list[str]` returns free labels for an exact one-letter uppercase\n  row. Invalid or out-of-bounds rows raise `ValueError`.\n- `reserve_block(row: str, size: int, owner: str) -> list[str] | None` reserves the leftmost\n  run of size free adjacent seats in that row. Validate row, positive integer non-bool size,\n  and owner even if no block fits. Invalid inputs raise `ValueError`; no fitting block returns\n  None without mutation. A size greater than the row width is valid but cannot fit.\n- `snapshot() -> dict[str, str]` maps occupied labels to owners in seat order; it is a copy.\n\n## Files\n- `seats.py`",
+  "sources": [
+    "seats.py"
+  ],
+  "expected": [
+    "test_m03_04.py::test_helpers_and_dimensions",
+    "test_m03_04.py::test_reserve_deduplicate_numeric_order",
+    "test_m03_04.py::test_atomic_conflict_and_bad_labels",
+    "test_m03_04.py::test_release_and_snapshot_copy",
+    "test_m03_04.py::test_leftmost_block_and_fragmentation",
+    "test_m03_04.py::test_block_validation_is_atomic",
+    "test_m03_04.py::test_owners_and_row_validation"
+  ]
+}

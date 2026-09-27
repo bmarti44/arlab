@@ -1,0 +1,18 @@
+{
+  "id": "m02-04",
+  "title": "Library loans and due dates",
+  "difficulty": "L3b",
+  "instructions": "Build an in-memory library loan tracker with explicit calendar dates.\n\n## Files\n- `loans.py`: implement `parse_date` and `LoanTracker`.\n\n`parse_date(text: str) -> datetime.date` accepts only a valid calendar date\nin exactly YYYY-MM-DD form (ASCII digits, four-digit year). Invalid types,\nformats, or dates raise ValueError. Dates and intervals use calendar days.\n\n`LoanTracker()` starts empty. Book and borrower identifiers must be strings\nnonempty after stripping surrounding whitespace, otherwise ValueError; store\nand look up the stripped identifiers. The public methods are:\n- `checkout(book: str, borrower: str, on: str, days: int = 14) -> str`:\n  record a loan due parse_date(on) + days and return its ISO date string.\n  days must be a positive int excluding bool (ValueError otherwise).\n  An already-loaned book raises ValueError.\n- `return_book(book: str) -> str`: remove its loan and return its borrower;\n  an unknown book raises KeyError.\n- `renew(book: str, on: str, days: int = 7) -> str`: extend the EXISTING due\n  date by days, returning the new ISO due date. Reject renewal when on is\n  later than the old due date (ValueError); renewal on the due date is valid.\n  Validate days like checkout; unknown book raises KeyError.\n- `loans() -> list[tuple[str, str, str]]`: (book, borrower, ISO due date)\n  tuples sorted by book, in a fresh list.\n- `overdue(on: str) -> list[tuple[str, str, str]]`: loans whose due date is\n  strictly before on, sorted by (due date, book), in a fresh list.\n\nAll rejected mutations leave the tracker unchanged. Inputs will not cause\ndate arithmetic to exceed datetime.date's range. No persistence is required.\n",
+  "sources": [
+    "loans.py"
+  ],
+  "expected": [
+    "test_m02_04.py::test_strict_date_parser",
+    "test_m02_04.py::test_checkout_dates_and_sorted_snapshot",
+    "test_m02_04.py::test_overdue_strict_boundary_and_order",
+    "test_m02_04.py::test_renew_from_due_date",
+    "test_m02_04.py::test_return_and_unknown_book",
+    "test_m02_04.py::test_rejected_mutations_are_atomic",
+    "test_m02_04.py::test_identifier_and_date_errors"
+  ]
+}

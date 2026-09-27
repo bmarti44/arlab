@@ -1,0 +1,17 @@
+{
+  "id": "m01-01",
+  "title": "Circular buffer with overwrite reporting",
+  "difficulty": "L3",
+  "instructions": "Implement `CircularBuffer` in `circular_buffer.py`, a bounded FIFO queue.\nInputs for capacity are integers (not booleans).\n- `CircularBuffer(capacity)`: capacity must be positive, otherwise raise `ValueError`.\n- `len(buffer)`: number of currently stored items, initially zero.\n- `append(item)`: append any Python object. If full, evict the oldest item and return it; otherwise return `None`. Stored `None` is allowed, so a returned `None` can also mean an evicted `None`.\n- `extend(items)`: consume an iterable in order using the same overwrite policy. Return a list of every evicted item, including evicted `None` values. Return `[]` if nothing was evicted.\n- `pop()`: remove and return the oldest item; raise `IndexError` if empty.\n- `snapshot()`: return a new list of items from oldest to newest. Changing this list must not change the buffer (items themselves need not be copied).\nSupport repeated wraparound and reuse after becoming empty. No particular internal representation is required.\n\n## Files\n- `circular_buffer.py`",
+  "sources": [
+    "circular_buffer.py"
+  ],
+  "expected": [
+    "test_m01_01.py::test_empty_and_capacity",
+    "test_m01_01.py::test_fifo_and_overwrite",
+    "test_m01_01.py::test_extend_generator",
+    "test_m01_01.py::test_evicted_none",
+    "test_m01_01.py::test_reuse_and_wraparound",
+    "test_m01_01.py::test_snapshot_independence"
+  ]
+}

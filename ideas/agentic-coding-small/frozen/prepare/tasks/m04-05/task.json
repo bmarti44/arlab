@@ -1,0 +1,18 @@
+{
+  "id": "m04-05",
+  "title": "Tiered usage pricing and invoices",
+  "difficulty": "L3b",
+  "instructions": "Implement graduated usage pricing using integer cents throughout.\n\n## Files\n- `pricing.py`\n\n`RateTable(tiers)` copies an iterable of `(upper_bound, unit_cents)` pairs. Bounds\nare cumulative quantity limits, not tier widths. There must be at least one tier;\nexactly the last bound must be None (unlimited). Finite bounds must be positive\nand strictly increasing. Prices must be nonnegative. Invalid tables raise\n`ValueError`. Bound types are guaranteed int or None; prices and quantities are\nintegers (not bool); pair shapes are valid. Prices need not decrease.\n\n- `breakdown(quantity) -> list[tuple[int, int, int]]`: return `(units, unit_cents,\n  subtotal_cents)` for each used tier, in order, omitting tiers with zero units.\n  A zero quantity gives `[]`; negative quantity raises `ValueError`.\n- `quote(quantity) -> int`: sum the graduated subtotals. Example: tiers\n  `[(10, 100), (20, 80), (None, 50)]` charge 1950 cents for 23 units.\n\nAlso implement:\n- `format_money(cents) -> str`: integer cents formatted with exactly two decimals\n  and a leading `$`, no grouping; negative cents raise `ValueError`.\n- `format_invoice(table, items) -> str`: items is an iterable of `(label, quantity)`\n  pairs. Labels are guaranteed strings without newlines. Each item is independently\n  priced starting at the first tier; preserve order and repeated labels. Each line\n  is exactly `LABEL: Q units = $D.CC` (always `units`, even for 1). End with\n  `Total: $D.CC`. Join lines with `\\n` and no trailing newline. Empty items produce\n  `Total: $0.00`. Negative quantities raise `ValueError`.",
+  "sources": [
+    "pricing.py"
+  ],
+  "expected": [
+    "test_m04_05.py::test_graduated_boundaries",
+    "test_m04_05.py::test_free_and_increasing_prices",
+    "test_m04_05.py::test_invalid_tables",
+    "test_m04_05.py::test_copy_iterable_and_result_isolation",
+    "test_m04_05.py::test_money_exactness",
+    "test_m04_05.py::test_invoice_order_and_independent_tiers",
+    "test_m04_05.py::test_negative_quantities"
+  ]
+}

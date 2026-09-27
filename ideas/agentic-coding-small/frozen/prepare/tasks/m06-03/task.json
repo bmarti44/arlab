@@ -1,0 +1,17 @@
+{
+  "id": "m06-03",
+  "title": "Repair daily time-range overlap",
+  "difficulty": "L3",
+  "instructions": "Fix two logic bugs in `time_ranges.py`: overnight splitting and endpoint counting.\nKeep the existing public functions and signatures:\n- `parse_time(text: str) -> int`: minutes since midnight.\n- `overlap_minutes(start_a: str, end_a: str, start_b: str, end_b: str) -> int`.\n- `overlaps(start_a, end_a, start_b, end_b) -> bool` and\n  `disjoint(start_a, end_a, start_b, end_b) -> bool`, its logical opposite.\nAll four time arguments are guaranteed valid zero-padded `HH:MM` strings from `00:00` to\n`23:59`; malformed input is outside scope. Ranges are half-open: start included, end excluded.\nTouching endpoints do not overlap. Equal start and end means an empty range.\nWhen end is earlier than start, the range crosses midnight. Treat all ranges as portions of\nthe same repeating 24-hour day, with no dates or timezones. For example, `23:00`\u2013`02:00`\nand `01:00`\u2013`03:00` overlap for 60 minutes. Two overnight ranges can overlap in both their\nlate-evening and early-morning pieces; sum the pieces exactly once.\n\n## Files\n- `time_ranges.py`\n",
+  "sources": [
+    "time_ranges.py"
+  ],
+  "expected": [
+    "test_m06_03.py::test_daytime_intersection_and_parser",
+    "test_m06_03.py::test_touching_and_empty_ranges",
+    "test_m06_03.py::test_contained_and_identical_ranges",
+    "test_m06_03.py::test_overnight_against_early_and_late_day",
+    "test_m06_03.py::test_two_overnight_ranges",
+    "test_m06_03.py::test_midnight_boundaries_and_symmetry"
+  ]
+}

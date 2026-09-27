@@ -1,0 +1,18 @@
+{
+  "id": "m06-07",
+  "title": "Category budget and monthly spending report",
+  "difficulty": "L3b",
+  "instructions": "Implement `BudgetTracker` in `budget.py`. All money is integer cents; date, month, IDs, and\ncategories are strings. Expenses have positive amounts; refunds have negative amounts.\n- `BudgetTracker()` starts with no entries and no limits.\n- `add(entry_id: str, date: str, category: str, amount: int) -> None` stores an entry.\n  The ID must be nonempty and not already stored. Date must be exactly `YYYY-MM-DD` with ASCII\n  digits and a valid calendar date (years 0001\u20139999). Strip surrounding whitespace from category;\n  the result must be nonempty and remains case-sensitive. Amount must be nonzero.\n  Invalid input raises `ValueError` and leaves state unchanged.\n- `remove(entry_id: str) -> bool` removes an entry, returning True if found and False otherwise.\n  Removed IDs may be reused.\n- `set_limit(category: str, cents: int) -> None` strips/validates category as above and sets its\n  monthly limit. Negative cents raises `ValueError` without changing state; zero is allowed.\n  Limits apply to every month and setting again replaces the old limit.\n- `report(month: str) -> dict` accepts exactly `YYYY-MM` with ASCII digits, years 0001\u20139999,\n  and months 01\u201312; otherwise raise `ValueError`. Return:\n  `{\"month\": month, \"total\": int, \"categories\": list[dict]}`.\n  Include each category with an entry in that month (even if its net amount is zero), plus each\n  category with a limit. Sort categories lexicographically. Each row has exactly\n  `{\"category\": str, \"spent\": int, \"limit\": int|None, \"remaining\": int|None}`.\n  Spent and total sum signed entry amounts in that month. Missing limits give None for both\n  limit and remaining; otherwise remaining = limit - spent, possibly negative.\nReports are fresh independent containers; callers may mutate them without affecting the tracker.\nNo persistence or floating-point currency conversion is required. Internal helpers may be changed.\n\n## Files\n- `budget.py`\n",
+  "sources": [
+    "budget.py"
+  ],
+  "expected": [
+    "test_m06_07.py::test_empty_and_limit_only_report",
+    "test_m06_07.py::test_month_filter_sort_and_unlimited_categories",
+    "test_m06_07.py::test_refunds_zero_net_and_overspending",
+    "test_m06_07.py::test_remove_and_reuse_entry_id",
+    "test_m06_07.py::test_invalid_adds_leave_ledger_unchanged",
+    "test_m06_07.py::test_limit_replacement_validation_and_case",
+    "test_m06_07.py::test_month_validation_and_report_isolation"
+  ]
+}

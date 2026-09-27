@@ -1,0 +1,18 @@
+{
+  "id": "m04-06",
+  "title": "Blocked grid routes and path rendering",
+  "difficulty": "L3b",
+  "instructions": "Implement a grid route counter and a deterministic path printer. Coordinates are\nzero-based `(row, column)` tuples. Routes start at `(0, 0)` and end at\n`(rows-1, cols-1)`, moving only right or down without entering blocked cells.\n\n## Files\n- `grid_paths.py`\n\nImplement `path_counts(rows, cols, blocked) -> list[list[int]]`: a table where each\ncell contains the number of routes from that cell to the bottom-right destination.\nBlocked cells have count zero. Dimensions must be positive integers; any out-of-bounds\nblocked coordinate raises `ValueError`. Blocked is an iterable of coordinate tuples;\nduplicates are ignored. Types of dimensions and coordinates are guaranteed integers.\nUse a dynamic programming approach suitable for a 30 by 30 grid (do not enumerate routes).\n\n`GridPaths(rows, cols, blocked=())` performs the same validation and copies blocked cells.\n- `count() -> int`: number of routes; return zero when either endpoint is blocked.\n- `path() -> list[tuple[int,int]] | None`: choose a route by preferring right whenever\n  the right neighbor can still reach the destination, otherwise down. Include both\n  endpoints. Return None if unreachable. For an open 1x1 grid return `[(0, 0)]`.\n  Return a fresh list each call.\n- `render() -> str`: show this chosen path, or just the grid if unreachable. Rows\n  separated by `\\n`, no final newline. Blocked cells are `#`, chosen path cells\n  are `*`, other cells are `.`. Overlay `S` at the start and `E` at the destination\n  only if those cells are unblocked, even if unreachable. On a 1x1 unblocked grid,\n  use `S`. Blocked endpoints stay `#`.",
+  "sources": [
+    "grid_paths.py"
+  ],
+  "expected": [
+    "test_m04_06.py::test_counts_and_right_preference",
+    "test_m04_06.py::test_obstacle_detour_and_dead_end",
+    "test_m04_06.py::test_unreachable_and_blocked_endpoints",
+    "test_m04_06.py::test_singleton_and_thin_grids",
+    "test_m04_06.py::test_copy_duplicates_and_fresh_path",
+    "test_m04_06.py::test_validation",
+    "test_m04_06.py::test_large_count"
+  ]
+}

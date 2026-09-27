@@ -1,0 +1,19 @@
+{
+  "id": "m02-10",
+  "title": "Six-instruction assembler and virtual machine",
+  "difficulty": "L4",
+  "instructions": "Implement a tiny assembly language and its VM in two interacting modules.\n\n## Files\n- `assembler.py`: `assemble(source: str) -> list[tuple]`.\n- `vm.py`: `run(source: str, max_steps: int = 100) -> dict`, calling assemble.\n\nThe source is a string. Strip each line's `#` comment and outer whitespace;\nignore blank lines. Tokens are separated by whitespace, with no commas.\nA line can begin with one label `name:` optionally followed by an instruction\n(whitespace after the colon is optional). Labels match ASCII\n`[A-Za-z_][A-Za-z0-9_]*`, are case sensitive and unique, and point to the next\ninstruction's zero-based index. Labels at the end may point one past the last\ninstruction. Forward references are allowed. No more than one label per line.\n\nExactly six uppercase instructions exist:\n- `SET r n`: set register r to signed decimal integer n.\n- `ADD r n`: add signed decimal integer n to register r.\n- `JMP label`: jump unconditionally.\n- `JNZ r label`: jump when register r is nonzero, otherwise advance.\n- `OUT r`: append register r's current integer value to output.\n- `HALT`: stop execution.\n\nRegisters are exactly lowercase a, b, c, d. Integers match `[+-]?[0-9]+`\n(no exponent or underscores). Unknown opcodes/registers/labels, duplicate or\ninvalid labels, invalid integers, and wrong operand counts raise ValueError.\nError message text is unspecified. `assemble` returns tuples with resolved\ninteger targets, e.g. [('SET', 'a', 2), ('JNZ', 'a', 0), ('HALT',)]. It must\nvalidate the whole source, including unreachable instructions.\n\n`run` initializes all four registers to zero on every call. Execution starts\nat instruction zero; ordinary instructions advance by one. Integers have\nPython's unbounded arithmetic. Return exactly {'registers': {'a': int, 'b':\nint, 'c': int, 'd': int}, 'output': list[int], 'steps': int, 'halted': bool}.\nEvery executed instruction, including HALT and jumps, counts as one step.\n`halted` is true only for an executed\nHALT, false when execution falls off the end (including jumps to an end\nlabel and empty programs). Registers/output are independent across calls.\n\nmax_steps must be a positive integer excluding bool, otherwise ValueError.\nRaise RuntimeError if another instruction would execute after max_steps\ninstructions have executed. Reaching HALT or the end on exactly max_steps\nis successful. Source syntax errors propagate as ValueError even if they\noccur after an unreachable HALT. Use no eval or exec.\n",
+  "sources": [
+    "assembler.py",
+    "vm.py"
+  ],
+  "expected": [
+    "test_m02_10.py::test_assembly_labels_comments_and_targets",
+    "test_m02_10.py::test_arithmetic_registers_and_halt",
+    "test_m02_10.py::test_conditional_loop_and_step_count",
+    "test_m02_10.py::test_jumps_fallthrough_and_empty_program",
+    "test_m02_10.py::test_invalid_assembly_is_rejected",
+    "test_m02_10.py::test_step_limit_and_validation",
+    "test_m02_10.py::test_calls_are_independent_and_labels_can_share_target"
+  ]
+}

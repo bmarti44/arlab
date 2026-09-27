@@ -1,0 +1,17 @@
+{
+  "id": "m01-03",
+  "title": "Repair CSV column type inference",
+  "difficulty": "L3",
+  "instructions": "Fix two bugs in `csv_sniffer.py`: blank cells currently pollute inferred types, and mixed integer/decimal columns fail to widen to float. Preserve the API:\n- `sniff_column(values) -> str` consumes an iterable of strings. Strip each cell; ignore blank cells. Return `\"unknown\"` when none remain. Otherwise return `\"bool\"` if all are case-insensitive `true`/`false`, `\"int\"` if all match `[+-]?[0-9]+`, `\"float\"` if all are numeric and at least one is not an integer, or `\"str\"` otherwise. Numeric grammar is `[+-]?(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?`. This is lexical inference, with no conversion or range check. `NaN`, `inf`, underscores and boolean/numeric mixtures are strings.\n- `sniff_csv(text) -> dict[str, str]`: parse standard comma CSV with Python's `csv.reader`; first row supplies exact, unstripped column names. Infer each column with `sniff_column`. Empty input returns `{}`; header-only columns are `unknown`. Ignore completely empty data rows (`[]`), but not rows containing blank cells. Raise `ValueError` for an empty header row, whitespace-only header names, duplicate exact names, or any nonempty data row with the wrong number of cells. Quoted commas and quoted newlines are supported. Inputs use valid CSV quoting.\n\n## Files\n- `csv_sniffer.py`",
+  "sources": [
+    "csv_sniffer.py"
+  ],
+  "expected": [
+    "test_m01_03.py::test_missing_only",
+    "test_m01_03.py::test_missing_boolean_and_integer",
+    "test_m01_03.py::test_numeric_widening",
+    "test_m01_03.py::test_csv_blanks_and_header_only",
+    "test_m01_03.py::test_csv_numeric_and_quoted_cells",
+    "test_m01_03.py::test_validation_with_missing_cells"
+  ]
+}

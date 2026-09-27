@@ -1,0 +1,18 @@
+{
+  "id": "m01-05",
+  "title": "Recurring event scheduler",
+  "difficulty": "L3b",
+  "instructions": "Implement `next_occurrence(start, interval, after)` and `EventScheduler` in `scheduler.py`. All times are integer ticks, all intervals/counts are integers, and event IDs are strings. There are no callbacks or real clocks.\n- `next_occurrence(start, interval, after) -> int`: return the smallest member of `start, start+interval, ...` strictly greater than after. Return start if after < start. Require interval > 0, else `ValueError`.\n- `EventScheduler()`: exposes integer attribute `now`, initially 0; callers only read it.\n- `add(event_id, when, payload=None, interval=None) -> None`: schedule a one-time event, or a recurring event at when and then every interval ticks. Require when >= now and interval positive when supplied; otherwise `ValueError`. An ID already pending raises `ValueError`. Rejected additions leave state unchanged. Arbitrary payload objects are retained as supplied.\n- `cancel(event_id) -> bool`: remove that pending event including future recurrences, returning True; return False if absent.\n- `run_until(limit) -> list[tuple[int, str, object]]`: require limit >= now, else `ValueError` without changing state. Emit every occurrence with time <= limit as `(time, event_id, payload)`, sorted by time and then original successful add order. Recurrences retain their original add order for ties. Remove one-time events after emission; advance recurring events and finally set now to limit. Events added exactly at now can fire on the next call even if limit equals now. Repeated calls must not duplicate already emitted occurrences.\n- `pending() -> list[tuple[int, str]]`: fresh list of the next time and ID of every pending event, sorted by next time then add order. Empty scheduler returns `[]`.\nCanceled or completed IDs may be added again and receive a fresh add order.\n\n## Files\n- `scheduler.py`",
+  "sources": [
+    "scheduler.py"
+  ],
+  "expected": [
+    "test_m01_05.py::test_next_occurrence_boundaries",
+    "test_m01_05.py::test_once_and_empty_advance",
+    "test_m01_05.py::test_recurrences_and_split_runs",
+    "test_m01_05.py::test_stable_ties_with_recurring_events",
+    "test_m01_05.py::test_cancel_and_reuse",
+    "test_m01_05.py::test_invalid_operations_preserve_state",
+    "test_m01_05.py::test_payload_identity_and_pending_copy"
+  ]
+}

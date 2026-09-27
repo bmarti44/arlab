@@ -1,0 +1,19 @@
+{
+  "id": "m04-09",
+  "title": "Transition table automaton with execution trace",
+  "difficulty": "L4",
+  "instructions": "Implement a deterministic finite automaton loaded from a small CSV-like table.\n\n## Files\n- `transition_table.py`\n- `automaton.py`\n\n`transition_table.parse_table(text) -> tuple[tuple[str, ...], dict[str, dict[str, str]]]`:\nIgnore blank lines; split other lines on commas and strip each field. No quoting\nsyntax is supported. The first row is `state,a,b,...`: the first field must be\nexactly `state`; at least one symbol follows. Symbols are unique single ASCII\nlowercase letters. Subsequent rows contain a state name followed by one destination\nper symbol. State names match ASCII `[A-Za-z][A-Za-z0-9_]*` and are unique. There\nmust be at least one state row. Destination `-` denotes a missing transition;\notherwise it must name a defined state (forward references allowed). Reject malformed\nheaders, rows, state names, or unknown destinations with `ValueError`. Return\nsymbols in header order and a nested dict with every state, omitting missing transitions.\n\nIn `automaton.py`, use this parser and implement `Automaton(table, start, accepting)`.\nThe table is text; start and accepting entries are strings. Copy the accepting\niterable into a set. Unknown start or accepting states raise `ValueError`.\n`run(text) -> dict` starts a new run every call and returns exactly these keys:\n- `accepted`: bool, true only if all characters were consumed and final state is accepting.\n- `state`: current/final state string.\n- `trace`: list of visited state names, beginning with start; append after each successful transition.\n- `consumed`: number of successful transitions (characters consumed).\n- `error`: None on full consumption, otherwise `unknown symbol` if the next character\n  is outside the alphabet, or `missing transition` if that state's transition is absent.\nStop on the first error, leaving its character unconsumed. Empty text is valid input.\n\n`automaton.format_trace(result) -> str` accepts a result from run. Join states with\n` -> `, then append ` | accepted` or ` | rejected`. On an error append\n`: ERROR at N` after `rejected`, where N is consumed (the zero-based failure position).\nExample: `S -> A | rejected: unknown symbol at 1`. No final newline.",
+  "sources": [
+    "transition_table.py",
+    "automaton.py"
+  ],
+  "expected": [
+    "test_m04_09.py::test_parse_forward_references_and_missing",
+    "test_m04_09.py::test_bad_tables",
+    "test_m04_09.py::test_success_rejection_and_format",
+    "test_m04_09.py::test_missing_transition_stops_before_character",
+    "test_m04_09.py::test_unknown_symbol_and_empty_text",
+    "test_m04_09.py::test_configuration_errors",
+    "test_m04_09.py::test_runs_and_configuration_are_independent"
+  ]
+}

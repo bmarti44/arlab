@@ -1,0 +1,17 @@
+{
+  "id": "m03-02",
+  "title": "Identifier Case Converter",
+  "difficulty": "L3",
+  "instructions": "Implement the class `IdentifierConverter` in `identifiers.py` with four instance methods.\nIt has no constructor arguments or stored configuration. Inputs to name methods are strings.\n\n`split(name: str) -> list[str]` validates and splits an identifier into lowercase tokens.\nValid names match `[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)*` using ASCII characters only.\nInvalid names (including empty strings, leading/trailing/doubled underscores, punctuation,\nspaces or non-ASCII letters) raise `ValueError`. Underscores separate chunks. Within each\nchunk, split lowercase-to-uppercase boundaries, the last capital of an acronym when it\nstarts a lowercase word, and every letter/digit boundary. Consecutive digits stay together.\nExamples: `HTTPServer2_ID` -> `['http', 'server', '2', 'id']`, `a12B` -> `['a', '12', 'b']`,\n`XML` -> `['xml']`, `version_2_value` -> `['version', '2', 'value']`.\n\n- `to_snake(name: str) -> str`: join split tokens with underscores.\n- `to_camel(name: str, upper: bool = False) -> str`: join tokens with each word capitalized\n  (first letter uppercase, rest lowercase). When upper is False, leave the first token\n  lowercase. Digit tokens remain unchanged.\n- `convert(name: str, style: str) -> str`: dispatch to snake, lower camel, or upper camel\n  for exact styles `'snake'`, `'camel'`, `'pascal'`. Any other style raises `ValueError`.\nAll three conversion methods apply the same input validation as split.\n\n## Files\n- `identifiers.py`",
+  "sources": [
+    "identifiers.py"
+  ],
+  "expected": [
+    "test_m03_02.py::test_acronym_boundaries",
+    "test_m03_02.py::test_digit_groups_and_chunks",
+    "test_m03_02.py::test_snake_and_single_tokens",
+    "test_m03_02.py::test_camel_modes",
+    "test_m03_02.py::test_dispatch",
+    "test_m03_02.py::test_invalid_identifiers"
+  ]
+}

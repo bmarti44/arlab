@@ -1,0 +1,19 @@
+{
+  "id": "m03-08",
+  "title": "Recipe Scaling and Unit Normalization",
+  "difficulty": "L4",
+  "instructions": "Implement `units.py` and `recipes.py` for scaling and combining recipe ingredients. Use\nexact rational arithmetic internally, then round only final output amounts.\n\nIn `units.py`:\n- `parse_amount(value: int | float | str) -> fractions.Fraction`: accept nonnegative finite\n  ints/floats (exclude bool), converting floats through their decimal string. Strings are\n  stripped of outer whitespace and must be one of: digits (`'2'`), digits-dot-digits\n  (`'2.50'`), integer fraction (`'3/4'`), or mixed fraction (`'1 1/2'`, exactly one space).\n  All components are unsigned decimal ASCII digits. Leading zeroes are allowed. A mixed\n  fraction is whole + numerator/denominator; improper fractions are allowed. Zero\n  denominators, negative values, signs, exponent strings, `.5`, `2.`, internal extra\n  whitespace, invalid types and malformed strings raise `ValueError`.\n- `normalize_unit(unit: str) -> tuple[str, int]`: strip whitespace, lowercase, and return\n  (canonical unit, multiplier). Unknown units raise `ValueError`. Accept ONLY these groups:\n  `g/gram/grams` -> ('g',1); `kg/kilogram/kilograms` -> ('g',1000);\n  `ml/milliliter/milliliters` -> ('ml',1); `l/liter/liters` -> ('ml',1000);\n  `tsp/teaspoon/teaspoons` -> ('ml',5); `tbsp/tablespoon/tablespoons` -> ('ml',15);\n  `cup/cups` -> ('ml',240); `each/piece/pieces` -> ('each',1).\n  Unit inputs are strings.\n\nIn `recipes.py`, `scale_recipe(ingredients, servings, target_servings) -> list[dict]`:\n- ingredients is any iterable of dicts with keys `name` (string), `amount`, `unit` (string).\n  No validation of the dict structure is needed. Parse amounts with parse_amount.\n- Parse both serving counts with parse_amount, additionally requiring both > 0, else\n  `ValueError`. Multiply each ingredient by target_servings / servings and its unit factor.\n- Strip and lowercase names; empty names raise `ValueError`. Preserve internal spaces.\n- Combine items with the same normalized name AND canonical unit. The same name in\n  different unit families remains separate. Keep groups in first-appearance order, including\n  zero-amount groups. Each result has exactly `name`, `amount`, `unit`; amount is a float\n  produced by `float(round(total_fraction, 6))` (ties to even). No other rounding occurs.\n- Never mutate input records. Propagate helper validation errors. Even an empty recipe\n  validates both serving counts and then returns [].\nNumeric inputs in tests are small enough for ordinary float output.\n\n## Files\n- `units.py`\n- `recipes.py`",
+  "sources": [
+    "units.py",
+    "recipes.py"
+  ],
+  "expected": [
+    "test_m03_08.py::test_parse_quantities_exactly",
+    "test_m03_08.py::test_reject_bad_quantities",
+    "test_m03_08.py::test_unit_aliases",
+    "test_m03_08.py::test_scale_merge_and_keep_first_order",
+    "test_m03_08.py::test_dimensions_zero_and_internal_spaces",
+    "test_m03_08.py::test_round_only_after_aggregation",
+    "test_m03_08.py::test_servings_and_ingredient_errors"
+  ]
+}

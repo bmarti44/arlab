@@ -1,0 +1,18 @@
+{
+  "id": "m02-07",
+  "title": "Stable word-list change report",
+  "difficulty": "L3b",
+  "instructions": "Compare two word lists as multisets while retaining useful input order.\n\n## Files\n- `worddiff.py`: implement `normalize_words`, `diff_words`, and `WordDiff`.\n\n`normalize_words(words, ignore_case: bool = False) -> list[str]` consumes a\nfinite iterable of strings. Strip each string's surrounding whitespace,\ndiscard empty results, and apply str.casefold() if ignore_case is true.\nDo not split strings on internal whitespace. A non-string element raises\nTypeError. ignore_case will be a bool. Return a new list.\n\n`diff_words(before, after, ignore_case: bool = False) -> dict[str, list[str]]`\nnormalizes both iterables and returns exactly `added`, `removed`, `unchanged`.\nMatching is by normalized spelling, with multiplicity. Scan before in order:\nmatch each word to the earliest still-unmatched equal word in after if one\nexists, emitting it in unchanged; otherwise emit it in removed. Then emit\nunmatched after words in their original order in added. All output spellings\nare normalized. Example before=['a','b','a'], after=['b','a','c'] produces\nunchanged=['a','b'], removed=['a'], added=['c'].\n\n`WordDiff(before, after, ignore_case: bool = False)` snapshots the inputs\n(including generators), using those same rules, and supports:\n- `result() -> dict[str, list[str]]`: the diff, returning fresh lists/dict.\n- `has_changes() -> bool`: true exactly when added or removed is nonempty.\n- `reversed() -> WordDiff`: a new comparison with the snapshotted after as\n  before and vice versa; recompute ordering for that direction.\n- `format() -> str`: emit removed words as '- word', then added words as\n  '+ word', then unchanged words as '= word', one word per line, preserving\n  each category's order. No final newline; an empty comparison returns ''.\n\nLater mutations to input lists or returned results must have no effect on\nthe object. Use only the standard library.\n",
+  "sources": [
+    "worddiff.py"
+  ],
+  "expected": [
+    "test_m02_07.py::test_normalization_rules",
+    "test_m02_07.py::test_multiplicity_and_stable_order",
+    "test_m02_07.py::test_casefold_and_case_sensitive_modes",
+    "test_m02_07.py::test_snapshot_and_generator_inputs",
+    "test_m02_07.py::test_reverse_recomputes_order",
+    "test_m02_07.py::test_format_and_empty_comparison",
+    "test_m02_07.py::test_nonstring_elements_rejected"
+  ]
+}

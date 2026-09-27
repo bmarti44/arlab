@@ -1,0 +1,18 @@
+{
+  "id": "m01-07",
+  "title": "Escaped wildcard glob matching",
+  "difficulty": "L3b",
+  "instructions": "Implement `GlobPattern` and `glob_match` in `glob_matcher.py`. This is a whole-string, case-sensitive matcher, not a filesystem search:\n- `GlobPattern(pattern)` parses a string pattern. Unescaped `?` matches exactly one Python character; unescaped `*` matches zero or more characters. They match everything including slashes and newlines. A backslash escapes the next character, making it literal (including `*`, `?`, or backslash). A trailing backslash raises `ValueError` at construction. All other characters, including square brackets, dots and parentheses, are literal. Empty patterns are valid. Consecutive stars are equivalent to one star.\n- `matches(text) -> bool`: True exactly when the entire text matches. Repeated calls are independent.\n- `filter(strings) -> list[str]`: consume an iterable and return matching strings in their input order, retaining duplicates.\n- `glob_match(pattern, text) -> bool`: convenience function with the same pattern validation and matching behavior.\nUse a polynomial-time algorithm (e.g. dynamic programming), not exponential recursive backtracking. Patterns/texts up to 300 characters must be practical; no regex translation is necessary. Python Unicode code points count as characters.\n\n## Files\n- `glob_matcher.py`",
+  "sources": [
+    "glob_matcher.py"
+  ],
+  "expected": [
+    "test_m01_07.py::test_literal_and_whole_string",
+    "test_m01_07.py::test_empty_and_star",
+    "test_m01_07.py::test_question_character_rules",
+    "test_m01_07.py::test_escaped_metacharacters",
+    "test_m01_07.py::test_invalid_escape",
+    "test_m01_07.py::test_filter_order_and_reuse",
+    "test_m01_07.py::test_ambiguous_star_paths"
+  ]
+}

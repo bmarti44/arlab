@@ -1,0 +1,18 @@
+{
+  "id": "m03-06",
+  "title": "Priority Print Spooler",
+  "difficulty": "L3b",
+  "instructions": "Implement `PrintSpooler` and `validate_job` in `spooler.py`. Jobs are processed one page\nper tick. Higher numeric priority wins; ties use original submission order. Once started,\na job prints without preemption until finished or canceled, regardless of new submissions.\n\n`validate_job(name: str, pages: int, priority: int) -> None` raises `ValueError` unless\nname is a nonempty string, pages is a positive integer (not bool), and priority is any\ninteger (not bool). Whitespace names are valid.\n\n`PrintSpooler()` starts empty. Implement:\n- `submit(name: str, pages: int, priority: int = 0) -> int`: validate, enqueue, and return\n  a unique sequential ID starting at 1. Invalid submissions do not consume IDs.\n- `cancel(job_id: int) -> bool`: discard an active or queued job and return True; return\n  False for unknown, finished, or already canceled IDs.\n- `reprioritize(job_id: int, priority: int) -> bool`: validate priority first (same rule\n  as above). Change priority only for a queued job and return True, without changing its\n  tie-breaking submission order. Active or unknown IDs return False.\n- `tick() -> dict | None`: if idle, start the best queued job. Print exactly one page and\n  return `{'id': int, 'name': str, 'page': int, 'total': int, 'done': bool}`, where page\n  is the one-based page just printed. A finished job is removed immediately. Do not start\n  another job in that same tick. Return None when no work exists.\n- `snapshot() -> dict`: return `{'active': record_or_None, 'queued': [records...]}` with\n  queued jobs in dispatch order. A record has exactly `id`, `name`, `pages`, `priority`,\n  `printed` (pages printed so far). Return independent dict/list copies.\nJob ID arguments are integers. Invalid input errors must not alter spooler state.\n\n## Files\n- `spooler.py`",
+  "sources": [
+    "spooler.py"
+  ],
+  "expected": [
+    "test_m03_06.py::test_validation_and_ids",
+    "test_m03_06.py::test_priority_then_fifo",
+    "test_m03_06.py::test_nonpreemptive_pages_and_events",
+    "test_m03_06.py::test_reprioritize_preserves_submission_order",
+    "test_m03_06.py::test_cancel_queued_and_active",
+    "test_m03_06.py::test_snapshot_copies_and_active_priority",
+    "test_m03_06.py::test_invalid_reprioritize_and_empty"
+  ]
+}

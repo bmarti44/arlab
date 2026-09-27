@@ -1,0 +1,17 @@
+{
+  "id": "m02-01",
+  "title": "Bounded integer histogram",
+  "difficulty": "L3",
+  "instructions": "Implement a counter for integer measurements with fixed-width bins.\n\n## Files\n- `histogram.py`: implement `BoundedHistogram`.\n\nPublic API (all methods are instance methods):\n- `BoundedHistogram(low: int, high: int, width: int)`: inclusive bounds;\n  require low <= high and width > 0, otherwise raise ValueError. Bounds and\n  width must be integers other than bool, otherwise raise TypeError.\n- `add(value: int, count: int = 1) -> None`: value and count must be integers\n  other than bool (TypeError otherwise); count must be nonnegative (ValueError).\n  A value outside the inclusive bounds raises ValueError even for count=0.\n  Add count occurrences to the bin containing value. Validation failures\n  leave all counts unchanged.\n- `count(value: int) -> int`: return the total count of the BIN containing\n  value, not just occurrences of that exact value. Apply the same type and\n  range validation as add's value.\n- `bins() -> list[tuple[int, int, int]]`: return (start, end, count) for every\n  bin in increasing order, including empty bins. Bin ends are inclusive and\n  the last end is clipped to high. Return a fresh list on every call.\n- `reset() -> None`: zero all counts while retaining the bin configuration.\n\nBins start at low and every width thereafter. For example bounds -2..4 and\nwidth 3 produce [-2..0], [1..3], [4..4]. Use only the standard library.\n",
+  "sources": [
+    "histogram.py"
+  ],
+  "expected": [
+    "test_m02_01.py::test_bin_geometry",
+    "test_m02_01.py::test_accumulates_per_bin",
+    "test_m02_01.py::test_invalid_configuration",
+    "test_m02_01.py::test_rejected_add_is_atomic",
+    "test_m02_01.py::test_count_validation_and_zero_add",
+    "test_m02_01.py::test_reset_and_snapshot"
+  ]
+}

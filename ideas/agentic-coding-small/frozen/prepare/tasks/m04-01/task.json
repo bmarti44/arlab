@@ -1,0 +1,17 @@
+{
+  "id": "m04-01",
+  "title": "Canonical polynomial arithmetic",
+  "difficulty": "L3",
+  "instructions": "Implement `Polynomial` in `polynomial.py` for polynomials with integer coefficients.\n\n## Files\n- `polynomial.py`\n\n`Polynomial(coefficients)` takes an iterable of integers in ascending power order\n(constant first). Copy the iterable and expose a tuple `coefficients`. Remove trailing\nzero coefficients; an empty/all-zero input becomes `(0,)`. Inputs are guaranteed integers.\nImplement these five methods:\n- `__init__(coefficients)` as above.\n- `__add__(other)` returns a new Polynomial, adding corresponding coefficients.\n- `__mul__(other)` returns a new Polynomial, using polynomial multiplication.\n- `__call__(x)` returns its numeric value; tested x values are integers.\n- `__str__()` returns the exact canonical expression described below.\nFor addition/multiplication with a non-Polynomial, return `NotImplemented` from the\nspecial method (normal unsupported operators therefore raise `TypeError`). Never mutate operands.\n\nString terms appear in descending power order, omitting zero terms. Use `x` for power\n1 and `x^N` for higher powers. Omit coefficient magnitude 1 on nonconstant terms;\notherwise concatenate the magnitude and variable without `*`. The first negative\nterm starts with `-`; subsequent signs are surrounded by spaces (` + ` or ` - `).\nZero is `0`. Examples: coefficients `[3, -1, 2]` -> `2x^2 - x + 3`,\n`[0, -1]` -> `-x`, and `[-1]` -> `-1`.",
+  "sources": [
+    "polynomial.py"
+  ],
+  "expected": [
+    "test_m04_01.py::test_normalization_and_copy",
+    "test_m04_01.py::test_addition_cancellation",
+    "test_m04_01.py::test_multiplication_and_zero",
+    "test_m04_01.py::test_evaluation",
+    "test_m04_01.py::test_string_signs_and_powers",
+    "test_m04_01.py::test_unsupported_operands"
+  ]
+}

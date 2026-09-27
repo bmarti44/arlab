@@ -1,0 +1,17 @@
+{
+  "id": "m06-02",
+  "title": "Shell-like quoted tokenizer",
+  "difficulty": "L3",
+  "instructions": "Implement `ShellTokenizer(text: str)` in `shell_tokens.py` and its `tokens() -> list[str]` method.\nEach call to `tokens()` parses the entire original text afresh, returning a new list. The other\nstarter methods are implementation helpers and may be changed.\nRules:\n- Outside quotes, only space, tab, carriage return, and newline separate tokens. Repeated\n  separators are ignored; empty or whitespace-only input returns `[]`.\n- Single or double quotes begin a quoted fragment; matching quotes end it and are removed.\n  Quoted fragments and unquoted text with no separator concatenate into one token.\n  Even an empty quoted fragment creates a token.\n- Inside single quotes every character except the closing single quote is literal, including\n  backslashes and double quotes.\n- Outside quotes and inside double quotes, backslash consumes the next character and appends\n  it literally, even whitespace, a quote, another backslash, or a newline.\n- An unmatched quote or a backslash without a following character (outside single quotes)\n  raises `ValueError`. No partial result is returned.\n- `#`, `$`, and shell operators are ordinary characters. There are no comments or expansions.\n\n## Files\n- `shell_tokens.py`\n",
+  "sources": [
+    "shell_tokens.py"
+  ],
+  "expected": [
+    "test_m06_02.py::test_whitespace_and_empty_input",
+    "test_m06_02.py::test_fragments_and_empty_quotes",
+    "test_m06_02.py::test_single_quotes_are_literal",
+    "test_m06_02.py::test_escapes_outside_and_inside_double_quotes",
+    "test_m06_02.py::test_errors_for_unfinished_fragments",
+    "test_m06_02.py::test_literals_and_repeated_calls"
+  ]
+}

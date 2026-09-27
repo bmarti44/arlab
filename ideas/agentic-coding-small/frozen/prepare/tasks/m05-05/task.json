@@ -1,0 +1,18 @@
+{
+  "id": "m05-05",
+  "title": "Weekly cron subset scheduler",
+  "difficulty": "L3b",
+  "instructions": "Implement a small weekly cron subset using naive `datetime.datetime` values.\n\n## Files\n- `weekly_cron.py`\n\n`parse_field(text: str, minimum: int, maximum: int) -> set[int]` parses a field.\nAssume integer bounds with `minimum <= maximum`. A field is exactly `*`, or a\ncomma-separated list of decimal integers and inclusive `a-b` ranges. Only ASCII\ndigits are accepted; leading zeros are allowed. No signs, whitespace, steps,\nnames, empty list elements, reversed ranges, out-of-range endpoints, or `*`\ninside a list. Invalid fields raise `ValueError`. Duplicate values collapse.\n\n`CronSchedule(expression: str)` splits on whitespace and requires exactly three\nfields, in order: minute (0\u201359), hour (0\u201323), weekday (0\u20136, Monday is 0).\nSurrounding/repeated whitespace between fields is allowed. Parse each field by\n`parse_field`; invalid expressions raise `ValueError`.\n\n- `matches(moment: datetime) -> bool` checks the three calendar fields. Seconds\n  and microseconds do not affect matching.\n- `next_after(moment: datetime) -> datetime` returns the earliest matching minute\n  strictly later than `moment`, with seconds and microseconds both zero. Thus a\n  matching exact minute is skipped, and a time partway through a minute cannot\n  return the start of that minute. Correctly cross day, month, year, and leap-day\n  boundaries. Every valid schedule matches within seven days.\n\nBoth methods reject a datetime whose `tzinfo` is not `None` with `ValueError`.\nAssume inputs are datetime objects with enough range for the next eight days.\nUse the standard library only; this is a three-field weekly format, not full cron.",
+  "sources": [
+    "weekly_cron.py"
+  ],
+  "expected": [
+    "test_m05_05.py::test_parse_lists_ranges_and_duplicates",
+    "test_m05_05.py::test_invalid_field_grammar_and_bounds",
+    "test_m05_05.py::test_expression_validation_and_matching",
+    "test_m05_05.py::test_strictly_later_minute",
+    "test_m05_05.py::test_weekly_wrap_and_weekday_numbering",
+    "test_m05_05.py::test_calendar_rollovers",
+    "test_m05_05.py::test_timezone_is_rejected"
+  ]
+}

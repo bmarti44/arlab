@@ -17,10 +17,10 @@ from pathlib import Path
 from arlab.lib.client import BudgetedClient, BudgetExceeded
 from codetools import StepLimit, TimeLimit, Tools
 
-PER_TASK_TOKENS = 400_000   # fixed in IDEA.md before calibration (budget.limit = this × tasks per split)
+PER_TASK_TOKENS = 400_000   # fixed in IDEA.md before calibration (budget.limit = this × 40 tasks per split)
 MAX_COMPLETION = 2048
 MAX_STEPS = 40
-TASK_SECONDS = 900
+TASK_SECONDS = 1200
 WORKERS = 16
 
 ap = argparse.ArgumentParser()

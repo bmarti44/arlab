@@ -1,0 +1,17 @@
+{
+  "id": "m06-01",
+  "title": "Vector geometry helpers",
+  "difficulty": "L3",
+  "instructions": "Implement `Vector2` in `vector2.py`, a small immutable-by-convention point/vector class.\nCoordinates and scalar arguments are finite real numbers; nonnumeric inputs are outside scope.\nThe public attributes `x` and `y` are floats. No operator overloads or equality method are required.\nImplement exactly these public operations:\n- `Vector2(x=0.0, y=0.0)` stores floating-point coordinates.\n- `add(other: Vector2) -> Vector2` returns the componentwise sum.\n- `scale(factor: float) -> Vector2` multiplies both coordinates by the factor.\n- `dot(other: Vector2) -> float` returns the dot product.\n- `distance_to(other: Vector2) -> float` returns Euclidean point distance.\n- `normalized() -> Vector2` returns a vector of length one in the same direction.\n  The zero vector raises `ValueError`.\nAll operations leave their inputs unchanged. Every vector result must be a new object, including\nscaling by one and normalizing a unit vector. Floating-point comparisons allow normal rounding error.\n\n## Files\n- `vector2.py`\n",
+  "sources": [
+    "vector2.py"
+  ],
+  "expected": [
+    "test_m06_01.py::test_constructor_defaults_and_floats",
+    "test_m06_01.py::test_add_does_not_mutate_inputs",
+    "test_m06_01.py::test_scale_negative_zero_and_identity",
+    "test_m06_01.py::test_dot_product",
+    "test_m06_01.py::test_point_distance",
+    "test_m06_01.py::test_normalization_and_zero_error"
+  ]
+}

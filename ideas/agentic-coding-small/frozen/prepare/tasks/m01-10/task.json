@@ -1,0 +1,19 @@
+{
+  "id": "m01-10",
+  "title": "Dependency ordering with deterministic cycle reports",
+  "difficulty": "L4",
+  "instructions": "Implement `DependencyGraph` in `dependency_graph.py`, and `CycleError`, `find_cycle`, and `topological_sort` in `topology.py`. The topology module uses the graph module. Node names are strings; ordering means Python's lexicographic string order.\n`DependencyGraph()` starts empty.\n- `add_node(name) -> None`: add a node; duplicate additions have no effect. Empty string raises `ValueError`; other strings (including whitespace) are valid.\n- `add_dependency(task, prerequisite) -> None`: automatically add both nodes, then record that prerequisite must occur before task. Duplicate edges have no effect; self-dependencies are allowed. Either empty name raises `ValueError` without modifying the graph.\n- `nodes() -> list[str]`: fresh sorted list of all nodes, including isolated ones.\n- `prerequisites(node) -> list[str]`: fresh sorted list of that node's immediate prerequisites. Unknown node raises `KeyError`.\n`find_cycle(graph) -> list[str]`: return `[]` for an acyclic graph. Otherwise use depth-first traversal of nodes in sorted order, following each node's prerequisites in sorted order. Skip already fully visited nodes. The first edge reaching a node on the active DFS path defines the result: return the active path segment from that node through the current node, then repeat the reached node at the end. For example if `a` requires `b`, `b` requires `c`, and `c` requires `b`, return `['b', 'c', 'b']`. A self-cycle is `['x', 'x']`. This direction follows task-to-prerequisite edges.\n`topological_sort(graph) -> list[str]`: return all nodes with prerequisites before tasks. Repeatedly choose the lexicographically smallest currently available node (one with all prerequisites already emitted), including newly available nodes in that choice. Return `[]` for an empty graph. For a cycle, raise `CycleError(find_cycle(graph))`; never return a partial order.\n`CycleError(cycle)` subclasses `ValueError`, exposes a copied list at `.cycle`, and has exact string form `\"cycle: \" + \" -> \".join(cycle)`.\nAll query and sorting operations must leave the graph unchanged. Support disconnected graphs. Tested graphs have at most 100 nodes; recursive DFS is acceptable.\n\n## Files\n- `dependency_graph.py`\n- `topology.py`",
+  "sources": [
+    "dependency_graph.py",
+    "topology.py"
+  ],
+  "expected": [
+    "test_m01_10.py::test_empty_and_isolated",
+    "test_m01_10.py::test_dependencies_and_dynamic_priority",
+    "test_m01_10.py::test_cycle_path_and_error",
+    "test_m01_10.py::test_self_cycle_and_disconnected_component",
+    "test_m01_10.py::test_deterministic_first_cycle",
+    "test_m01_10.py::test_validation_and_detached_queries",
+    "test_m01_10.py::test_diamond_and_error_copy"
+  ]
+}

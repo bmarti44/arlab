@@ -1,0 +1,19 @@
+{
+  "id": "m06-09",
+  "title": "Minimal INI serialization and parsing",
+  "difficulty": "L4",
+  "instructions": "Implement `loads(text: str) -> dict[str, dict[str, str]]` in `ini_reader.py` and\n`dumps(data: dict[str, dict[str, str]]) -> str` in `ini_writer.py`. The writer may import\nvalidation helpers from the reader. This is a deliberately small INI format, with no interpolation.\nReader rules:\n- Lines are separated by LF (CRLF is also accepted). Strip surrounding whitespace on each line.\n  Ignore blank lines and lines whose first nonwhitespace character is `#` or `;`.\n- A line beginning `[` must be exactly a section header `[name]`. Trim the name; it must be\n  nonempty and contain neither `[` nor `]`. A repeated section resumes its existing dictionary.\n- Every other content line must contain `=` and occur after a section header. Split at the first\n  `=`, stripping whitespace from key and value. Keys must be nonempty and cannot start with\n  `[`, `#`, or `;`. Duplicate keys overwrite the previous value. Empty values are allowed.\n  Inline `#`, `;`, `=`, and quotes in values are literal. No quoting or escape syntax is recognized.\n- Section names, keys, and values may not contain CR or LF. Invalid syntax raises `ValueError`.\n  Empty/comment-only input returns `{}`. Preserve insertion order of sections and keys; replacing\n  a key or reopening a section does not move it.\nWriter rules:\n- Input consists of dictionaries and strings as in the signature. Preserve their insertion order.\n- Section names must be nonempty, already stripped, and contain no brackets or CR/LF.\n  Keys must be nonempty, already stripped, contain no `=` or CR/LF, and not start with `[`, `#`, `;`.\n  Values must already be stripped and contain no CR/LF; they may be empty.\n  Any unrepresentable name, key, or value raises `ValueError`.\n- Emit `[name]`, then each `key=value`, one per line. Separate sections with exactly one blank\n  line, and end nonempty output with exactly one newline. Emit empty sections too. `{}` emits `\"\"`.\nEvery valid writer input must round-trip through the reader exactly, including empty sections.\n\n## Files\n- `ini_reader.py`\n- `ini_writer.py`\n",
+  "sources": [
+    "ini_reader.py",
+    "ini_writer.py"
+  ],
+  "expected": [
+    "test_m06_09.py::test_writer_exact_format_and_empty_sections",
+    "test_m06_09.py::test_reader_whitespace_comments_and_crlf",
+    "test_m06_09.py::test_repeated_sections_and_key_order",
+    "test_m06_09.py::test_literal_values_and_round_trip",
+    "test_m06_09.py::test_reader_invalid_syntax",
+    "test_m06_09.py::test_writer_invalid_names_and_values",
+    "test_m06_09.py::test_round_trip_file_and_independent_reads"
+  ]
+}

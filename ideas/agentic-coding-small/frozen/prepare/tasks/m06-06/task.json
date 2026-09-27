@@ -1,0 +1,18 @@
+{
+  "id": "m06-06",
+  "title": "Hierarchical configuration overrides",
+  "difficulty": "L3b",
+  "instructions": "Implement `merge_config` and `Config` in `config_merge.py`. Configurations are plain dictionaries\nwith nonempty string keys that contain no dots. Values are dictionaries, lists, strings, numbers,\nbooleans, or None; data is acyclic. Lists are opaque values (do not merge or interpret their contents).\n- `merge_config(base: dict, override: dict) -> dict` recursively merges dictionary values.\n  A dictionary override on a nondictionary/missing base value merges against `{}`. Other override\n  values replace the base value, except None, which deletes that key if present. Deleting a missing\n  key is a no-op. Empty override dictionaries preserve existing dictionary contents; empty parent\n  dictionaries are retained after deletions. None values already in the base remain unless overridden.\n  Return a deep independent copy; mutate neither argument.\n- `Config(data: dict)` takes a deep independent snapshot, without applying deletion semantics to data.\n- `Config.apply(override: dict) -> Config` returns a new merged Config and leaves the original unchanged.\n- `Config.get(path: str, default=None)` traverses dot-separated dictionary keys. If a segment is\n  missing or traversal meets a nondictionary, return a deep copy of default. Lists cannot be indexed.\n  An empty path or any empty segment (e.g. `.x`, `x.`, `x..y`) raises `ValueError`.\n  A present None value returns None, rather than default. Return deep copies of found values too.\n- `Config.to_dict() -> dict` returns a deep independent copy of all stored data.\nOnly the described input types need support. Internal helpers may be changed.\n\n## Files\n- `config_merge.py`\n",
+  "sources": [
+    "config_merge.py"
+  ],
+  "expected": [
+    "test_m06_06.py::test_recursive_merge_and_replacement",
+    "test_m06_06.py::test_deletions_and_empty_parents",
+    "test_m06_06.py::test_dict_over_scalar_and_list_replacement",
+    "test_m06_06.py::test_merge_deep_independence",
+    "test_m06_06.py::test_config_snapshot_and_apply",
+    "test_m06_06.py::test_get_default_and_invalid_paths",
+    "test_m06_06.py::test_exports_and_found_values_are_copies"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "id": "lb-02",
+  "title": "Priority queue with deadlines",
+  "difficulty": "L3",
+  "instructions": "Implement `DeadlineQueue` in `deadline_queue.py`. Use integer timestamps\nsupplied by callers, never the system clock.\n\n## Files\n- `deadline_queue.py`\n\nAPI:\n- `DeadlineQueue()` creates an empty queue.\n- `add(task_id: str, priority: int, deadline: int | None = None) -> None`\n  adds a task. An ID already pending raises `ValueError` without modifying\n  the existing task or its ordering. Removed IDs may be reused.\n- `cancel(task_id: str) -> bool` removes that task and returns True, or\n  returns False if absent.\n- `pending() -> list[str]` returns a fresh list of IDs in scheduling order:\n  lower numeric priority first, then earlier deadline, with None after all\n  integer deadlines at the same priority, then insertion order for ties.\n- `pop(now: int) -> str | None` first permanently discards **all** tasks\n  whose deadline is strictly less than now, then removes and returns the\n  first remaining ID in scheduling order, or None if empty. A deadline\n  equal to now is still valid.\n- `len(queue) -> int` counts pending tasks. Only `pop` purges expired tasks;\n  `pending`, `cancel`, and `len` do not use time.\n\nNegative priorities and timestamps are valid. Re-adding a removed ID gets\nnew insertion order. Mutating a returned list must not affect the queue.\nArguments have the indicated types; further type validation is not required.\n",
+  "sources": [
+    "deadline_queue.py"
+  ],
+  "expected": [
+    "test_lb_02.py::test_priority_deadline_and_fifo_order",
+    "test_lb_02.py::test_expiry_boundary_and_global_purge",
+    "test_lb_02.py::test_empty_and_all_expired",
+    "test_lb_02.py::test_duplicate_add_is_atomic",
+    "test_lb_02.py::test_cancel_and_reinsert_order",
+    "test_lb_02.py::test_pending_is_independent_and_does_not_expire"
+  ]
+}

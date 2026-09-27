@@ -1,0 +1,20 @@
+{
+  "id": "m07-08",
+  "title": "Maze parser and shortest-path solver",
+  "difficulty": "L4",
+  "instructions": "Build a text maze parser and breadth-first shortest-path solver across two modules.\n\n`maze_parser.py`:\n- Define `Maze(rows: tuple[str, ...], start: tuple[int, int], end: tuple[int, int])` with readable attributes of those names. Coordinates are `(row, column)`, zero based. A dataclass is suitable.\n- `parse_maze(text: str) -> Maze`: a nonempty rectangular grid using only `#` (wall), `.` (open), `S` (start), `E` (end), with exactly one S and one E. Rows are separated by `\\n`; allow one optional final `\\n` and remove it. Blank rows, multiple final newlines, carriage returns, other characters, ragged rows, empty input, or missing/duplicate markers raise `ValueError`. Preserve all grid characters in `rows`, as a tuple of strings. Boundaries need not be walls.\n\n`maze_solver.py`:\n- `shortest_path(maze: Maze) -> list[tuple[int, int]] | None`: return a shortest path including S and E, or None when unreachable. Move orthogonally through all non-wall cells. Use BFS, marking cells visited when enqueued, with neighbors considered in this exact order: up, right, down, left. This determines ties. Do not mutate the Maze.\n- `solve_maze(text: str) -> list[tuple[int, int]] | None`: parse with `parse_maze`, then return `shortest_path`; parser errors propagate.\n- `render_path(maze: Maze, path: list[tuple[int, int]]) -> str`: replace `.` cells included in path with `*`, preserve S/E/walls, and join rows using `\\n` with no final newline. `path` is guaranteed to be empty or a valid path for this Maze; empty means show the original grid. Do not mutate the Maze or path.\n\nAll Maze objects supplied to solver functions satisfy the parser invariants. Use iterative BFS with polynomial time and memory; grids up to 80 by 80 are supported. Do not enumerate all possible paths.\n\n### Files\n- `maze_parser.py`: grid representation and strict parser.\n- `maze_solver.py`: import the parser/representation and implement BFS and rendering.\n",
+  "sources": [
+    "maze_parser.py",
+    "maze_solver.py"
+  ],
+  "expected": [
+    "test_m07_08.py::test_parse_coordinates_and_optional_newline",
+    "test_m07_08.py::test_invalid_grids",
+    "test_m07_08.py::test_adjacent_and_single_column",
+    "test_m07_08.py::test_tie_breaking_up_then_right",
+    "test_m07_08.py::test_detour_and_rendering_are_pure",
+    "test_m07_08.py::test_unreachable_without_wraparound",
+    "test_m07_08.py::test_open_grid_has_shortest_deterministic_path",
+    "test_m07_08.py::test_render_preserves_unvisited_open_cells"
+  ]
+}

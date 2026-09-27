@@ -1,0 +1,20 @@
+{
+  "id": "m05-08",
+  "title": "Address book deduplication and merges",
+  "difficulty": "L4",
+  "instructions": "Build an in-memory address book whose contacts are identified by normalized email.\n\n## Files\n- `contact_rules.py`: normalization functions.\n- `address_book.py`: `AddressBook`, using the normalization rules.\n\nNormalization API:\n- `normalize_email(email: str) -> str`: strip outer whitespace, lowercase, then\n  require exactly one `@`, nonempty text on both sides, and no remaining character\n  for which `isspace()` is true. Invalid emails raise `ValueError`. No further\n  domain or punctuation validation is required.\n- `normalize_phone(phone: str) -> str`: remove every ASCII space and each of\n  `(`, `)`, `-`, `.`. The result must contain 1\u201315 ASCII digits, optionally preceded\n  by one `+`. Keep that plus sign. Reject anything else with `ValueError`.\n- `normalize_contact(record: dict) -> dict`: return exactly keys `name`, `email`,\n  `phones`. Require an `email` key (missing raises `ValueError`), normalize it as\n  above, strip outer whitespace from `name` (default `\"\"`), and normalize `phones`\n  (default `[]`). Deduplicate phones while preserving their first occurrence.\n  Ignore extra keys. Assume records are dicts, email/name are strings, and phones\n  is a list of strings. Never mutate the input.\n\n`AddressBook()` starts empty. Its methods:\n- `upsert(record: dict) -> dict`: normalize and insert or merge by email. On a merge,\n  a nonempty incoming name replaces the old name; an empty incoming name keeps the\n  old name. Keep existing phone order and append only previously absent incoming\n  phones, in incoming order. Return the resulting contact as a detached copy.\n- `merge(records) -> int`: consume an iterable of records in order, applying the\n  same rules. Return the number of distinct normalized emails in this batch,\n  including preexisting contacts. Empty input returns 0. Normalize the ENTIRE\n  batch before changing anything; any invalid record leaves the book unchanged.\n  Repeated emails in a batch merge sequentially, so the last nonempty name wins.\n- `get(email: str) -> dict | None`: normalize the lookup email and return a detached\n  contact or `None` if absent.\n- `remove(email: str) -> bool`: normalize email and report whether a contact existed.\n- `contacts() -> list[dict]`: detached contacts sorted by normalized email using\n  Python string order.\nInvalid emails on lookup/removal raise `ValueError`. Failed `upsert` is atomic.\nAll returned dicts and nested phone lists must be independent of stored state\nand caller-owned input objects.",
+  "sources": [
+    "contact_rules.py",
+    "address_book.py"
+  ],
+  "expected": [
+    "test_m05_08.py::test_normalization_and_stable_phone_dedup",
+    "test_m05_08.py::test_invalid_normalization",
+    "test_m05_08.py::test_upsert_name_and_phone_merge_rules",
+    "test_m05_08.py::test_batch_distinct_count_and_sequential_merges",
+    "test_m05_08.py::test_failed_batch_and_upsert_are_atomic",
+    "test_m05_08.py::test_lookup_remove_and_invalid_keys",
+    "test_m05_08.py::test_inputs_and_upsert_result_are_detached",
+    "test_m05_08.py::test_listing_and_lookup_are_detached"
+  ]
+}

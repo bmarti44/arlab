@@ -1,0 +1,17 @@
+{
+  "id": "m03-03",
+  "title": "Repair Streaming Moving Averages",
+  "difficulty": "L3",
+  "instructions": "Fix two arithmetic bugs in `moving_average.py`: averages during warm-up and the running\nsum when a sample is evicted. Preserve the existing public API and all behavior below.\n\n`MovingAverage(window: int)` accepts positive integers only (bool is rejected), otherwise\nraises `ValueError`. It retains the most recent window samples in arrival order.\n- `add(value: int | float) -> float` adds a sample, evicts the oldest if necessary, and\n  returns the arithmetic mean of the samples actually retained. Negative and zero values\n  are valid. Bool, other types, NaN and infinities raise `ValueError` without changing state.\n  Test numeric inputs are small enough for float conversion and summation.\n- Read-only property `average -> float | None` returns the current mean, or None if empty.\n- Read-only property `count -> int` is the number of retained samples.\n- `snapshot() -> tuple[float, ...]` returns retained samples, oldest first, independently\n  of later updates.\n- `extend(values) -> list[float]` consumes any iterable once by calling add for each item;\n  returns the successive averages. If an item is invalid, raise `ValueError`; earlier\n  valid items from that call stay committed and later items are not consumed.\n- `reset() -> None` empties samples and running sum but keeps the same window.\nThe public `window` attribute contains the configured size; callers do not change it.\n\n## Files\n- `moving_average.py`",
+  "sources": [
+    "moving_average.py"
+  ],
+  "expected": [
+    "test_m03_03.py::test_warmup_uses_actual_count",
+    "test_m03_03.py::test_eviction_subtracts_oldest",
+    "test_m03_03.py::test_single_sample_window",
+    "test_m03_03.py::test_reset_starts_new_warmup",
+    "test_m03_03.py::test_validation_preserves_state",
+    "test_m03_03.py::test_extend_partial_commit_and_generator"
+  ]
+}

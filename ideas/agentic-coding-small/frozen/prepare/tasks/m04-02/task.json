@@ -1,0 +1,17 @@
+{
+  "id": "m04-02",
+  "title": "Deterministic relative date humanizer",
+  "difficulty": "L3",
+  "instructions": "Implement the four-method `Humanizer` class in `humanizer.py`. No method reads the clock.\n\n## Files\n- `humanizer.py`\n\n- `Humanizer(now)` stores the supplied reference `datetime.datetime`. Non-datetimes\n  raise `TypeError`.\n- `seconds_from(moment) -> int` returns `(moment - now).total_seconds()` truncated\n  toward zero. A non-datetime raises `TypeError`; mixing naive and timezone-aware\n  datetimes raises `ValueError`. A datetime is aware when `utcoffset()` is not None.\n  Aware values with different UTC offsets must compare as instants.\n- `describe(moment) -> str` uses the signed integer from `seconds_from`. Zero is\n  `just now`. Otherwise choose the largest unit whose size is at most the absolute\n  seconds: week=604800, day=86400, hour=3600, minute=60, second=1. Divide with floor\n  division; do not round and do not include smaller units. Pluralize unless the count\n  is 1. Past is `N units ago`; future is `in N units`. Examples: `3 days ago`,\n  `in 1 hour`. There is no month/year unit: large durations remain weeks.\n- `describe_many(moments) -> list[str]` accepts any iterable and returns descriptions\n  in input order, including duplicates; an empty iterable gives `[]`. Invalid\n  moments raise the same errors as `seconds_from`.",
+  "sources": [
+    "humanizer.py"
+  ],
+  "expected": [
+    "test_m04_02.py::test_whole_seconds_and_subseconds",
+    "test_m04_02.py::test_unit_boundaries",
+    "test_m04_02.py::test_large_durations_and_floor",
+    "test_m04_02.py::test_offsets_represent_instants",
+    "test_m04_02.py::test_iterable_order_and_empty",
+    "test_m04_02.py::test_type_and_awareness_errors"
+  ]
+}

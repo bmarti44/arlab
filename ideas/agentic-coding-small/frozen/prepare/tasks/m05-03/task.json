@@ -1,0 +1,17 @@
+{
+  "id": "m05-03",
+  "title": "Repair leaderboard tie rankings",
+  "difficulty": "L3",
+  "instructions": "Fix two bugs in the existing `Leaderboard` implementation: names within tied\nscores are sorted in the wrong direction, and tied players get different ranks.\nPreserve the public API below.\n\n## Files\n- `leaderboard.py`\n\n- `Leaderboard()` starts empty.\n- `set_score(name: str, score: int) -> None` adds or replaces a player's score.\n  Names are nonempty strings and scores are integers; assume valid input.\n- `remove(name: str) -> bool` returns `True` when a player was removed and `False`\n  when absent.\n- `ranking() -> list[tuple[int, str, int]]` returns fresh `(rank, name, score)`\n  triples sorted by decreasing score, then increasing name using Python's normal\n  case-sensitive string order. Use competition ranks: scores `9, 9, 5` have\n  ranks `1, 1, 3`. Multiple groups of ties each skip the occupied positions.\n  Negative scores and zero work the same way. An empty board returns `[]`.\n- `top(count: int) -> list[tuple[int, str, int]]` returns at most `count` entries\n  from `ranking()`, even if the cutoff splits a tie. Zero returns `[]`; negative\n  values raise `ValueError`. Assume an integer count.\n- `rank_of(name: str) -> int | None` returns the current rank, or `None` if absent.\nUpdates and removals must be reflected by all queries. Editing a returned list\nmust not change the board.",
+  "sources": [
+    "leaderboard.py"
+  ],
+  "expected": [
+    "test_m05_03.py::test_equal_scores_use_name_order",
+    "test_m05_03.py::test_competition_rank_skips_positions",
+    "test_m05_03.py::test_update_creates_and_breaks_ties",
+    "test_m05_03.py::test_removal_recomputes_ranks",
+    "test_m05_03.py::test_top_can_split_a_tie_and_is_detached",
+    "test_m05_03.py::test_multiple_ties_case_order_and_negative_scores"
+  ]
+}

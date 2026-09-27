@@ -1,0 +1,17 @@
+{
+  "id": "m05-01",
+  "title": "Normalized fraction arithmetic",
+  "difficulty": "L3",
+  "instructions": "Implement `Fraction` in `fraction.py`, a small exact-rational value class.\n\n## Files\n- `fraction.py`\n\nPublic API (all arithmetic returns a new `Fraction`):\n- `Fraction(numerator: int, denominator: int = 1)` stores public integer attributes\n  `numerator` and `denominator`. Inputs must have exact type `int` (booleans are\n  rejected with `TypeError`). A zero denominator raises `ValueError`.\n- Always reduce by the greatest common divisor, put any minus sign on the numerator,\n  and represent every zero as `0/1`.\n- `add(other: Fraction) -> Fraction`, `subtract(other: Fraction) -> Fraction`, and\n  `multiply(other: Fraction) -> Fraction` perform exact arithmetic without changing\n  either operand. You may assume `other` is a `Fraction`.\n- `as_tuple() -> tuple[int, int]` returns the normalized numerator and denominator.\n- `str(fraction)` returns `\"n/d\"`, including `/1` for integers; no spaces.\n\nDo not use `fractions.Fraction`. Python integers may be arbitrarily large.",
+  "sources": [
+    "fraction.py"
+  ],
+  "expected": [
+    "test_m05_01.py::test_reduction_and_sign",
+    "test_m05_01.py::test_zero_and_default",
+    "test_m05_01.py::test_invalid_components",
+    "test_m05_01.py::test_add_without_mutation",
+    "test_m05_01.py::test_subtract_and_cancellation",
+    "test_m05_01.py::test_large_product_and_zero"
+  ]
+}

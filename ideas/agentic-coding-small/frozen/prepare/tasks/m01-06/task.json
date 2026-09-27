@@ -1,0 +1,18 @@
+{
+  "id": "m01-06",
+  "title": "Nested transactions in a key-value store",
+  "difficulty": "L3b",
+  "instructions": "Implement `TransactionStore` and `diff` in `transaction_store.py`. Keys are strings; values are arbitrary Python objects. Copies are shallow. No persistence or concurrency is required.\n- `TransactionStore(initial=None)`: begin with a shallow copy of initial dict, or empty when None.\n- `set(key, value) -> None`: write in the current view.\n- `get(key) -> object`: return current value; missing keys raise `KeyError` (a stored None is a value).\n- `delete(key) -> object`: remove and return current value; missing keys raise `KeyError` without changing state.\n- `snapshot() -> dict`: detached shallow copy of the currently visible mapping.\n- `begin() -> int`: start a nested transaction using the current view; return the new active transaction depth (first is 1).\n- `commit() -> int`: commit the innermost transaction into its parent view and end that transaction; return remaining depth. An inner commit remains subject to an outer rollback.\n- `rollback() -> int`: discard the innermost transaction and restore its parent view; return remaining depth.\nBoth commit and rollback raise `RuntimeError` if there is no transaction. Writes outside a transaction are immediately part of the base view. Failed operations leave state unchanged.\n- `diff(before, after) -> dict`: compare two dicts using value equality, returning exactly `{\"added\": {...}, \"updated\": {...}, \"removed\": {...}}`. Added maps new keys to their after values; updated maps changed existing keys to `(before_value, after_value)` tuples; removed maps missing keys to their before values. Do not mutate either input. Output dict ordering is unspecified. Values used for diff have ordinary boolean equality results.\n\n## Files\n- `transaction_store.py`",
+  "sources": [
+    "transaction_store.py"
+  ],
+  "expected": [
+    "test_m01_06.py::test_base_operations_and_none",
+    "test_m01_06.py::test_copies_are_shallow",
+    "test_m01_06.py::test_commit_and_rollback",
+    "test_m01_06.py::test_inner_commit_outer_rollback",
+    "test_m01_06.py::test_inner_rollback_outer_commit",
+    "test_m01_06.py::test_invalid_boundaries_and_missing_delete",
+    "test_m01_06.py::test_diff_categories_and_inputs"
+  ]
+}

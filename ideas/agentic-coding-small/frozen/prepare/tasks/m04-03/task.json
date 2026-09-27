@@ -1,0 +1,17 @@
+{
+  "id": "m04-03",
+  "title": "Repair ISBN checksum weights",
+  "difficulty": "L3",
+  "instructions": "Fix the two checksum-weight bugs in `isbn.py`. The existing module's validation,\nnormalization, and conversion depend on these calculations; preserve its API.\n\n## Files\n- `isbn.py`\n\nAll public functions take a string; non-string input raises `TypeError`. Before any\nprocessing, remove ASCII spaces and hyphens anywhere and uppercase the remainder.\nNo other whitespace is removed. Digits mean ASCII `0` through `9` only.\n- `check_digit10(prefix) -> str`: require exactly nine digits after compaction,\n  otherwise `ValueError`. Multiply them left-to-right by 10,9,...,2. The check\n  value makes the total divisible by 11; return `X` for 10, otherwise its digit.\n- `check_digit13(prefix) -> str`: require exactly twelve digits after compaction,\n  otherwise `ValueError`. Weights alternate 1,3,1,3,... starting with 1. Return\n  the digit which makes the total divisible by 10.\n- `is_valid(text) -> bool`: accept ten characters with nine digits and a final\n  digit or X, or thirteen digits, only when the checksum matches. Malformed strings\n  return False. Do not enforce publisher or 978/979 registration-prefix rules.\n- `normalize(text) -> str`: return compact uppercase text for a valid ISBN;\n  invalid strings raise `ValueError`.\n- `to_isbn13(text) -> str`: validate first. Return an ISBN-13 unchanged after\n  normalization. Convert ISBN-10 by prefixing `978` to its first nine digits and\n  computing a new ISBN-13 check digit. Invalid strings raise `ValueError`.",
+  "sources": [
+    "isbn.py"
+  ],
+  "expected": [
+    "test_m04_03.py::test_ten_digit_check_values",
+    "test_m04_03.py::test_thirteen_digit_check_values",
+    "test_m04_03.py::test_valid_shapes_and_invalid_checks",
+    "test_m04_03.py::test_normalization_and_conversion",
+    "test_m04_03.py::test_malformed_and_type_errors",
+    "test_m04_03.py::test_prefix_compaction_and_bad_lengths"
+  ]
+}

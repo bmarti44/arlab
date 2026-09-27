@@ -1,0 +1,20 @@
+{
+  "id": "m06-10",
+  "title": "Mini dictionary query language",
+  "difficulty": "L4",
+  "instructions": "Implement `parse_query(text: str) -> dict` in `query_parser.py` and\n`run_query(rows: list[dict], text: str) -> list[dict]` in `query_engine.py`, using the parser.\nQueries contain optional clauses in this fixed order: `where`, `select`, `order`.\nEach clause can occur at most once. Empty/whitespace-only queries are valid.\nGrammar (braces mean repetition, brackets mean optional):\n```\n[where FIELD OP VALUE {and FIELD OP VALUE}]\n[select FIELD {, FIELD}]\n[order FIELD asc|desc]\n```\nWhitespace separates words; it is optional around operators and commas. FIELD matches\n`[A-Za-z_][A-Za-z0-9_]*`, excluding the lowercase reserved words\n`where`, `select`, `order`, `and`, `asc`, `desc`. Keywords are case-sensitive lowercase.\nOP is one of `=`, `!=`, `<`, `<=`, `>`, `>=`. VALUE is an optionally minus-prefixed ASCII integer,\nor a single/double quoted string. Strings may contain spaces, commas, operators, and the other\nquote character, but not CR/LF or their own quote character. Backslashes are literal, with no\nescape syntax. Integers may have leading zeros. Unquoted strings and plus signs are invalid.\nA where clause requires at least one condition; select requires at least one field with no\nduplicates; order requires an explicit `asc` or `desc`. Invalid syntax, unknown tokens,\nunclosed strings, clause reordering, or trailing tokens raise `ValueError`.\n`parse_query` returns exactly `{\"where\": list[tuple[str,str,int|str]], \"select\": list[str]|None,\n\"order\": tuple[str,str]|None}`; absent where is `[]`, absent other clauses are None.\n`run_query` filters, then sorts, then projects:\n- All conditions are ANDed. A missing field or a different value type makes a condition False,\n  including `!=`. Matching types use ordinary Python integer/string comparisons.\n- Order is stable; missing order fields go last for both directions. Present values in an order\n  field are guaranteed all integers or all strings within the input. Do not compare missing values.\n- Select emits keys in the specified order; missing selected fields have value None. Without select,\n  return shallow copies of complete rows. Always return a new list and new row dictionaries;\n  leave the input list and dictionaries unchanged.\nInput rows have string keys and only integer or string values (no booleans or None). Missing keys\nare allowed. No nested values, aggregates, parentheses, OR, or expression evaluation is required.\n\n## Files\n- `query_parser.py`\n- `query_engine.py`\n",
+  "sources": [
+    "query_parser.py",
+    "query_engine.py"
+  ],
+  "expected": [
+    "test_m06_10.py::test_parser_structure_and_empty_query",
+    "test_m06_10.py::test_filter_conjunction_and_comparison_operators",
+    "test_m06_10.py::test_strings_quotes_and_type_sensitive_filter",
+    "test_m06_10.py::test_projection_missing_fields_and_independence",
+    "test_m06_10.py::test_stable_sort_and_missing_values_last",
+    "test_m06_10.py::test_all_clauses_sort_before_projection",
+    "test_m06_10.py::test_invalid_syntax_in_parser_and_engine",
+    "test_m06_10.py::test_strings_containing_other_quote_and_keywords"
+  ]
+}

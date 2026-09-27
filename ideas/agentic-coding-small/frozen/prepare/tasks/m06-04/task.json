@@ -1,0 +1,18 @@
+{
+  "id": "m06-04",
+  "title": "Game of Life with bounded or wrapped edges",
+  "difficulty": "L3b",
+  "instructions": "Implement `LifeGrid` and `neighbor_cells` in `life.py`. Coordinates are `(x, y)` integer pairs,\nwith `0 <= x < width` and `0 <= y < height`. Width and height are integers; wrap is a bool.\n- `neighbor_cells(x, y, width, height, wrap=False) -> set[tuple[int, int]]` returns the\n  distinct valid cells in the eight surrounding positions. In bounded mode discard off-grid\n  positions. In wrapped mode reduce coordinates modulo the dimensions, deduplicate, and\n  exclude the center cell itself. This matters for grids one or two cells wide/high.\n  This helper receives valid dimensions and an in-bounds center.\n- `LifeGrid(width, height, alive=(), wrap=False)` accepts an iterable of coordinate pairs.\n  Duplicate live cells collapse. Nonpositive dimensions or an out-of-bounds live cell raise\n  `ValueError`. Store public `width`, `height`, `wrap`, and `alive` (a `frozenset` of pairs).\n  Copy input state; later mutation of the input collection must not affect the grid.\n- `step() -> LifeGrid` returns a new grid with one simultaneous Conway step: live cells\n  survive with two or three live neighbors; dead cells are born with exactly three.\n- `advance(steps: int) -> LifeGrid` applies that many steps; negative steps raise `ValueError`.\n  Zero returns a new grid with the same state.\nBoth methods preserve dimensions and wrap mode and never mutate the original grid.\n\n## Files\n- `life.py`\n",
+  "sources": [
+    "life.py"
+  ],
+  "expected": [
+    "test_m06_04.py::test_neighbor_geometry",
+    "test_m06_04.py::test_constructor_copies_and_validates",
+    "test_m06_04.py::test_blinker_and_simultaneous_update",
+    "test_m06_04.py::test_still_life_and_isolation",
+    "test_m06_04.py::test_wraparound_changes_births",
+    "test_m06_04.py::test_tiny_torus_counts_distinct_cells",
+    "test_m06_04.py::test_advance_zero_and_negative"
+  ]
+}

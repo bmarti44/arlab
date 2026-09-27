@@ -1,0 +1,17 @@
+{
+  "id": "m02-03",
+  "title": "Repair pagination boundaries",
+  "difficulty": "L3",
+  "instructions": "The existing pagination helper has exactly two arithmetic bugs. Fix them\nwhile preserving its public API and the following behavior.\n\n## Files\n- `pagination.py`: repair `paginate(items, page=1, per_page=10, radius=1) -> dict`.\n\n`items` is a finite iterable. page and per_page must be positive integers,\nexcluding bool; radius must be a nonnegative integer excluding bool. Any\ninvalid option raises ValueError. Materialize items once. Return a dictionary\nwith exactly these keys:\n- `items`: a fresh list for the requested one-based page; [] beyond the end.\n- `page`, `per_page`: the requested values, never clamped.\n- `total`: item count; `pages`: ceiling(total/per_page), or 0 when empty.\n- `has_previous`: total > 0 and page > 1.\n- `has_next`: page < pages.\n- `previous_page`: min(page-1, pages) if has_previous, otherwise None.\n- `next_page`: page+1 if has_next, otherwise None.\n- `window`: all valid page numbers from page-radius through page+radius\n  inclusive, ascending; do not shift the window to compensate for edges.\n\nEmpty input has no navigation and an empty window for any requested page.\nMutating the returned items list must not mutate the input list. The helper\nfunctions are internal and need not be tested or exposed separately.\n",
+  "sources": [
+    "pagination.py"
+  ],
+  "expected": [
+    "test_m02_03.py::test_first_page_defaults",
+    "test_m02_03.py::test_partial_last_page",
+    "test_m02_03.py::test_exact_multiple_and_middle_window",
+    "test_m02_03.py::test_beyond_end_and_empty",
+    "test_m02_03.py::test_generator_copy_and_zero_radius",
+    "test_m02_03.py::test_invalid_options_and_single_item"
+  ]
+}

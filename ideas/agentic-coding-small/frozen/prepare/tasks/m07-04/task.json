@@ -1,0 +1,18 @@
+{
+  "id": "m07-04",
+  "title": "Parking lot allocation",
+  "difficulty": "L3b",
+  "instructions": "Implement a deterministic parking lot allocator in `parking.py`.\n\nA spot has one of the kinds `\"compact\"`, `\"standard\"`, `\"large\"`, ranked in that order. A vehicle of a given kind fits in spots of that kind or larger. When parking, choose the smallest compatible free kind, then the lexicographically smallest spot ID within that kind.\n\nPublic API:\n- `ParkingLot(spots: dict[str, str])`: map nonempty string spot IDs to kinds. Empty lots are allowed. Unknown kinds or empty IDs raise `ValueError`. Copy the mapping so later caller mutations have no effect.\n- `park(plate: str, kind: str) -> str | None`: return the allocated spot ID, or None if none fits. Empty plates, unknown kinds, or an already parked plate raise `ValueError` without changing the lot, even if full. A failed allocation does not register the plate. Plates are case sensitive.\n- `leave(plate: str) -> str`: free that vehicle's spot and return its ID. An absent plate raises `KeyError`.\n- `locate(plate: str) -> str | None`: return the plate's spot, or None if absent.\n- `snapshot() -> list[tuple[str, str, str | None]]`: list every spot as `(spot_id, kind, plate_or_none)`, sorted lexicographically by spot ID. The returned list is independent of future lot changes.\n\nAll IDs, plates, and kinds supplied are strings. A nonempty string containing spaces is valid; do not strip strings. Do not change existing assignments when another vehicle arrives or leaves. Helper functions may be private and are not tested directly.\n\n### Files\n- `parking.py`: implement `ParkingLot` and any allocation/validation helpers.\n",
+  "sources": [
+    "parking.py"
+  ],
+  "expected": [
+    "test_m07_04.py::test_best_fit_before_spot_id",
+    "test_m07_04.py::test_ties_and_upgrades",
+    "test_m07_04.py::test_incompatible_space_and_retry",
+    "test_m07_04.py::test_duplicate_and_invalid_park_are_atomic",
+    "test_m07_04.py::test_snapshot_order_and_isolation",
+    "test_m07_04.py::test_empty_lot_and_constructor_validation",
+    "test_m07_04.py::test_case_sensitive_plates_and_reuse"
+  ]
+}

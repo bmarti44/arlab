@@ -1,0 +1,19 @@
+{
+  "id": "m01-08",
+  "title": "Sparse vectors and cosine similarity",
+  "difficulty": "L4",
+  "instructions": "Implement two cooperating modules. `sparse_vector.py` defines `SparseVector`; `vector_math.py` defines `dot`, `magnitude`, and `cosine_similarity` and imports `SparseVector`. Numeric values/scalars are finite real numbers, not booleans. Dimensions and indices are integers, not booleans. No external numerical libraries.\n`SparseVector(dimension, entries=None)` takes a nonnegative dimension and an optional dict from index to value. Negative dimension raises `ValueError`. Every supplied index must satisfy 0 <= index < dimension, even for zero-valued entries, else `IndexError`. Copy entries, convert retained values to float, and omit all exact zeros. Expose read-only-by-convention attribute `dimension` (callers do not assign it).\n- `vector[index] -> float`: return the value, or 0.0 for a missing in-range index; out-of-range indices raise `IndexError` (no negative indexing).\n- `to_dict() -> dict[int, float]`: detached mapping of nonzero entries.\n- `add(other) -> SparseVector`: elementwise addition, requiring equal dimensions or `ValueError`. Omit exact cancellations. Return a new vector and leave both inputs unchanged.\n- `scale(factor) -> SparseVector`: return a new scaled vector, omitting exact zeros; leave input unchanged.\n`vector_math.py` functions:\n- `dot(left, right) -> float`: sum of products at matching indices. Different dimensions raise `ValueError`, including empty vectors.\n- `magnitude(vector) -> float`: Euclidean length (square root of sum of squares).\n- `cosine_similarity(left, right) -> float`: dot product divided by both magnitudes; return 0.0 if either magnitude is zero. Check equal dimensions first, otherwise `ValueError` even when a vector is zero.\nDimension zero is valid. Storage and computations must iterate stored entries, not all coordinates; support dimension 10**9 with a handful of entries. Floating results are compared approximately where appropriate. Intermediate arithmetic in tests stays finite.\n\n## Files\n- `sparse_vector.py`\n- `vector_math.py`",
+  "sources": [
+    "sparse_vector.py",
+    "vector_math.py"
+  ],
+  "expected": [
+    "test_m01_08.py::test_storage_and_detached_copies",
+    "test_m01_08.py::test_bounds_and_zero_dimension",
+    "test_m01_08.py::test_add_cancellation_and_independence",
+    "test_m01_08.py::test_scaling_zero_and_negative",
+    "test_m01_08.py::test_dot_and_magnitude",
+    "test_m01_08.py::test_cosine_zero_opposite_and_mismatch",
+    "test_m01_08.py::test_large_sparse_dimension"
+  ]
+}

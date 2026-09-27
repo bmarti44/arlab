@@ -1,0 +1,18 @@
+{
+  "id": "m07-05",
+  "title": "Grouped tabular sales report",
+  "difficulty": "L3b",
+  "instructions": "Implement `SalesReport` in `report.py`, accumulating sales rows and rendering a fixed-width text report with group subtotals.\n\nAPI:\n- `SalesReport()`: start empty.\n- `add(group: str, item: str, quantity: int, unit_cents: int) -> None`: append a row. Group and item must be nonempty strings without `|`, newline (`\\n`), or carriage return (`\\r`); preserve spaces and case. Quantity must be a nonnegative integer; unit_cents must be an integer and may be negative (credits). Booleans are not supplied. Invalid values raise `ValueError` without adding a row. Label arguments always have string type.\n- `render() -> str`: produce the exact format below without changing stored rows. Each row is independent, including repeated item names. Group order is first appearance; rows within each group keep insertion order even if additions interleave groups.\n\nThe logical table has four columns with header `Group`, `Item`, `Qty`, `Amount`. Each detail row contains the group, item, quantity, and formatted amount. For each group emit all its detail rows, then a subtotal row with group equal to that group's name, item `SUBTOTAL`, and summed quantity and amount. Finish with a grand total row whose group is `TOTAL` and item is empty. Include the header and grand total even for an empty report. A detail amount is `quantity * unit_cents`; sum integer cents before formatting. Format amounts with a minus sign only for negatives, at least one digit before the decimal point, exactly two after it, no currency symbol or thousands separators (`-5` cents is `-0.05`). Format quantities as decimal integers.\n\nCompute each column width as the maximum length of its header and all its formatted data/subtotal/total cells. Left-align the first two columns, right-align the final two columns (including their headers), and join cells with exactly `\" | \"`. Retain padding in every cell, but add no extra padding beyond the computed widths. Join rows with `\\n`, with no final newline and no separator lines. Zero amounts display `0.00`.\n\n### Files\n- `report.py`: implement `SalesReport` and up to two private formatting/validation helpers.\n",
+  "sources": [
+    "report.py"
+  ],
+  "expected": [
+    "test_m07_05.py::test_empty_report",
+    "test_m07_05.py::test_one_group_exact_alignment",
+    "test_m07_05.py::test_interleaved_groups_and_repeated_items",
+    "test_m07_05.py::test_negative_and_zero_amounts",
+    "test_m07_05.py::test_wide_labels_and_numbers",
+    "test_m07_05.py::test_validation_does_not_append",
+    "test_m07_05.py::test_render_repeatability_and_spaces"
+  ]
+}

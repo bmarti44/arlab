@@ -1,0 +1,17 @@
+{
+  "id": "m07-01",
+  "title": "Fixed-width bitset",
+  "difficulty": "L3",
+  "instructions": "Implement `BitSet` in `bitset.py`, a mutable fixed-width bitset backed by an integer.\n\n- `BitSet(size: int, value: int = 0)`: `size` is a nonnegative integer, otherwise raise `ValueError`. `value` must be a nonnegative integer less than `2 ** size`, otherwise raise `ValueError`. Integers supplied here and as indices are never booleans. A zero-width set permits only value zero.\n- `set(index: int, enabled: bool = True) -> None`: set or clear the indexed bit. Index zero is the least significant bit. An index outside `[0, size)` raises `IndexError` without changing state.\n- `get(index: int) -> bool`: return the indexed bit, with the same bounds checking.\n- `count() -> int`: count enabled bits.\n- `combine(other: BitSet, operation: str) -> BitSet`: return a new set of the same width using `\"and\"`, `\"or\"`, or `\"xor\"`. Raise `ValueError` for unequal widths or an unknown operation. Neither operand changes. `other` is always a BitSet.\n- `to01() -> str`: exactly `size` characters, most significant bit first, including leading zeroes; return `\"\"` for size zero.\n\nDo not add dependencies. Inputs have the stated types unless validation is explicitly required. Internal storage is not part of the API.\n\n### Files\n- `bitset.py`: implement the six methods of `BitSet` (including its constructor).\n",
+  "sources": [
+    "bitset.py"
+  ],
+  "expected": [
+    "test_m07_01.py::test_initial_width_and_bit_order",
+    "test_m07_01.py::test_mutation_and_idempotence",
+    "test_m07_01.py::test_bounds_preserve_state",
+    "test_m07_01.py::test_combinations_are_independent",
+    "test_m07_01.py::test_empty_and_invalid_construction",
+    "test_m07_01.py::test_large_width"
+  ]
+}

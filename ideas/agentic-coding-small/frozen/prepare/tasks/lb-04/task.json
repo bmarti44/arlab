@@ -1,0 +1,17 @@
+{
+  "id": "lb-04",
+  "title": "Rectangular matrix operations",
+  "difficulty": "L3",
+  "instructions": "Implement the small `Matrix` class in `matrix.py`.\n\n## Files\n- `matrix.py`\n\nAPI:\n- `Matrix(rows: list[list[int | float]])` accepts a nonempty rectangular\n  list with at least one column. Empty outer lists, empty rows, or unequal\n  row lengths raise `ValueError`. Copy the input rows so later caller\n  mutations cannot change the matrix. Elements are guaranteed int or float.\n- Read-only `shape: tuple[int, int]` is `(number_of_rows, number_of_columns)`.\n- `to_list() -> list[list[int | float]]` returns independent copies of the\n  outer list and every row.\n- `add(other: Matrix) -> Matrix` returns elementwise addition. Both shapes\n  must match; otherwise raise `ValueError`.\n- `multiply(other: Matrix) -> Matrix` returns ordinary matrix multiplication:\n  output `[i][j]` is `sum(self[i][k] * other[k][j])`. The left column count\n  must equal the right row count; otherwise raise `ValueError`.\n- `transpose() -> Matrix` returns the matrix whose rows are the original\n  columns, including for one-row and one-column matrices.\n\nEvery operation returns a new Matrix and leaves both inputs unchanged.\nSupport negative numbers, zero, rectangular shapes, and floats. No operator\noverloads or validation of unsupported argument types is required.\n",
+  "sources": [
+    "matrix.py"
+  ],
+  "expected": [
+    "test_lb_04.py::test_shape_and_copy_boundaries",
+    "test_lb_04.py::test_invalid_shapes",
+    "test_lb_04.py::test_add_and_operand_preservation",
+    "test_lb_04.py::test_rectangular_multiplication",
+    "test_lb_04.py::test_transpose_and_vector_product",
+    "test_lb_04.py::test_dimension_errors_and_float_arithmetic"
+  ]
+}

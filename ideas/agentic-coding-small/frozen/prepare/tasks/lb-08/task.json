@@ -1,0 +1,19 @@
+{
+  "id": "lb-08",
+  "title": "Unit registry and conversion expressions",
+  "difficulty": "L4",
+  "instructions": "Implement an affine unit registry and a small expression module using it.\n\n## Files\n- `unit_registry.py`: `UnitRegistry`.\n- `unit_expression.py`: `evaluate` and `convert_lines`.\n\n`UnitRegistry()` starts with no units.\n- `register(name: str, dimension: str, factor: float, offset: float = 0.0)\n  -> None` registers `base_value = value * factor + offset`. Names are case\n  sensitive and must match ASCII `[A-Za-z][A-Za-z0-9_]*`; dimension must be\n  nonempty and is compared exactly. Reject duplicate names, nonpositive or\n  nonfinite factors, and nonfinite offsets with `ValueError`, without\n  changing the registry. Numbers passed to the registry are ints or floats.\n- `convert(value: float, source: str, target: str) -> float` converts via\n  base units: `(value * source_factor + source_offset - target_offset) /\n  target_factor`. Unknown units raise `KeyError`; different dimensions,\n  nonfinite input values, or nonfinite conversion results raise `ValueError`.\n  Check unknown units before dimension/value validation. Identity conversions\n  are allowed. No rounding is applied.\n- `units() -> list[str]` returns an independent lexicographically sorted\n  list of names.\n\n`evaluate(expression: str, registry: UnitRegistry) -> float` parses the\nentire expression `<number> <source> -> <target>`. At least one whitespace\ncharacter separates number and source; optional whitespace is allowed at\nboth ends and around `->`. Names use the same grammar as the registry.\nNumbers allow an optional sign, either digits with an optional decimal point\nand optional trailing digits or a decimal point followed by digits, and an\noptional exponent (`e`/`E`, optional sign, digits). Examples: `-2`, `1.`,\n`.5`, `+2.5e-2`. No NaN/inf literals, suffixes, or other tokens. Invalid syntax\nor numbers that convert to nonfinite floats raise `ValueError`. Otherwise\npropagate the registry's `KeyError`/`ValueError`.\n\n`convert_lines(text: str, registry: UnitRegistry) -> list[float]` evaluates\nnonblank lines in order, skipping lines whose first non-whitespace character\nis `#`. Stop on the first invalid expression or conversion (including unknown\nunits) and raise `ValueError` with exactly `line N: invalid conversion`, where\nN is the 1-based physical line number. No inline comments. Empty input returns\nan empty list. Evaluation never changes registry definitions.\n",
+  "sources": [
+    "unit_registry.py",
+    "unit_expression.py"
+  ],
+  "expected": [
+    "test_lb_08.py::test_scaled_conversion_and_sorted_snapshot",
+    "test_lb_08.py::test_affine_temperature_expressions",
+    "test_lb_08.py::test_registration_errors_are_atomic",
+    "test_lb_08.py::test_unknown_incompatible_and_nonfinite_conversions",
+    "test_lb_08.py::test_numeric_grammar_and_rejected_syntax",
+    "test_lb_08.py::test_batch_skips_comments_and_preserves_order",
+    "test_lb_08.py::test_batch_errors_identify_first_physical_line"
+  ]
+}

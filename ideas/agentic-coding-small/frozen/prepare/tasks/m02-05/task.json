@@ -1,0 +1,18 @@
+{
+  "id": "m02-05",
+  "title": "Numbered Markdown heading outline",
+  "difficulty": "L3b",
+  "instructions": "Build a numbered outline from a deliberately small Markdown subset.\n\n## Files\n- `outline.py`: implement `parse_heading` and `Outline`.\n\n`parse_heading(line: str) -> tuple[int, str] | None` recognizes a heading\nonly with 0..3 leading ASCII spaces, 1..6 `#` characters, and then a space,\ntab, or end of line. Strip surrounding whitespace from its text. Remove a\nfinal run of `#` characters only if preceded by whitespace, then strip again.\nFor example `## Title ###` becomes (2, 'Title'), `# C#` keeps 'C#', and `#`\nhas empty text. Inline Markdown is preserved literally. No setext headings.\nThis helper does not track code fences.\n\n`Outline()` starts empty. It has these public methods:\n- `add(markdown: str) -> None`: scan `splitlines()` and append headings.\n  Ignore headings inside fenced blocks. An opening fence has 0..3 leading\n  ASCII spaces and a run of at least 3 backticks OR at least 3 tildes,\n  followed by any text. Its closing fence must use the same character, a\n  run at least as long, 0..3 leading spaces, and only whitespace after it.\n  While inside a fence, everything except its matching closer is ignored.\n  Unclosed fences hide the rest of this add call. Fence state starts outside\n  at each add call, while numbering and entries persist across calls.\n- `entries() -> list[tuple[int, str, str]]`: fresh list of (level, number,\n  text) tuples. Numbering maintains six counters initially zero. A heading\n  at level L increments counter L and resets all deeper counters to zero;\n  its number joins counters 1..L with dots, with no final dot. Skipped\n  levels remain zero: a first level-3 heading is '0.0.1'.\n- `render() -> str`: entries joined by newline, each as `number + ' ' + text`,\n  without indentation or final newline. Empty text retains that one space;\n  an empty outline renders as ''.\n- `reset() -> None`: clear entries and all counters.\n\nAll text arguments are strings; no validation of other types is required.\n",
+  "sources": [
+    "outline.py"
+  ],
+  "expected": [
+    "test_m02_05.py::test_heading_syntax",
+    "test_m02_05.py::test_hierarchy_and_skipped_levels",
+    "test_m02_05.py::test_fence_character_and_length",
+    "test_m02_05.py::test_fence_closer_tail_and_tildes",
+    "test_m02_05.py::test_calls_accumulate_but_fences_do_not",
+    "test_m02_05.py::test_empty_render_and_reset",
+    "test_m02_05.py::test_snapshot_and_nonheadings"
+  ]
+}

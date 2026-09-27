@@ -1,0 +1,18 @@
+{
+  "id": "m05-07",
+  "title": "Knight moves and board display",
+  "difficulty": "L3b",
+  "instructions": "Implement a rectangular chess-knight move helper and a plain-text board printer.\n\n## Files\n- `knight_board.py`\n\n- `parse_square(square: str, width: int, height: int) -> tuple[int, int]` converts\n  notation to zero-based `(x, y)` coordinates. Notation must be one lowercase\n  ASCII letter followed by a positive ASCII decimal rank without leading zeros\n  (`a1`, `h8`, `z99`). The square must be within the supplied dimensions; otherwise\n  raise `ValueError`. Assume valid dimensions for this helper and string squares.\n- `format_square(x: int, y: int) -> str` performs the inverse. Assume valid\n  zero-based coordinates with `0 <= x < 26` and `0 <= y < 99`.\n- `KnightBoard(width: int = 8, height: int = 8)` accepts exact integers (bool is\n  invalid), with width 1\u201326 and height 1\u201399. Wrong types raise `TypeError`; integer\n  values outside these bounds raise `ValueError`.\n- `moves(start: str, blocked=()) -> list[str]`: all legal destinations exactly\n  `(1, 2)` or `(2, 1)` away, with either sign on each offset. Keep only squares\n  inside the board and not blocked. Return notation sorted by increasing rank,\n  then increasing file (coordinate order, not lexicographic order of strings).\n- `render(start: str, blocked=()) -> str`: print ranks from height down to 1 and\n  files left to right. Cells are `K` for start, `#` for blocked, `*` for an\n  unblocked legal destination, and `.` otherwise, in that priority. Join cells\n  with one space and rows with `\\n`, with no final newline or labels.\n\nBoth methods validate start and every blocked square with `parse_square`, raising\n`ValueError` for invalid notation/out-of-board squares. `blocked` is any iterable\nof square strings, possibly a generator or containing duplicates. It may contain\nstart: the knight is still allowed to move and its displayed cell remains `K`.\nBlocked squares affect destinations only; knights jump over other pieces.",
+  "sources": [
+    "knight_board.py"
+  ],
+  "expected": [
+    "test_m05_07.py::test_coordinate_helpers",
+    "test_m05_07.py::test_corner_and_center_moves",
+    "test_m05_07.py::test_blocked_generator_and_duplicates",
+    "test_m05_07.py::test_board_render_orientation_and_priority",
+    "test_m05_07.py::test_narrow_and_tall_board",
+    "test_m05_07.py::test_invalid_squares_and_blocked_entries",
+    "test_m05_07.py::test_dimensions"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "id": "lb-03",
+  "title": "Repair inclusive date ranges",
+  "difficulty": "L3",
+  "instructions": "Fix two boundary bugs in the supplied `date_ranges.py`: inclusive date\niteration and intersections that consist of a shared endpoint. Preserve\nits validation behavior. This is a bug-fix task; the module already runs.\n\n## Files\n- `date_ranges.py`\n\nPublic API:\n- `dates_between(start: str, end: str) -> list[str]` returns every calendar\n  date from start through end **inclusive**, in increasing order, formatted\n  as `YYYY-MM-DD`. Equal endpoints produce a one-element list.\n- `overlap(start_a: str, end_a: str, start_b: str, end_b: str)\n  -> tuple[str, str] | None` returns the inclusive intersection's endpoints,\n  or None for disjoint ranges. A shared endpoint returns that date twice.\n\nEvery endpoint must be a string with exactly the `YYYY-MM-DD` spelling and\nbe a valid calendar date in years 0001 through 9999; otherwise raise\n`ValueError`. Reversed ranges also raise `ValueError`. Validate both ranges\nin `overlap`, even if they would be disjoint. Support leap days, month and\nyear boundaries, and the maximum date 9999-12-31 without overflow.\nNo error-message wording or private helper API is required.\n",
+  "sources": [
+    "date_ranges.py"
+  ],
+  "expected": [
+    "test_lb_03.py::test_single_day",
+    "test_lb_03.py::test_leap_and_month_boundary",
+    "test_lb_03.py::test_year_boundary_and_maximum_date",
+    "test_lb_03.py::test_touching_and_disjoint_intersections",
+    "test_lb_03.py::test_containment_and_singleton_intersection",
+    "test_lb_03.py::test_validation_preserved_alongside_inclusive_behavior"
+  ]
+}

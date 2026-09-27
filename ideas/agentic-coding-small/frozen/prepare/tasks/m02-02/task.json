@@ -1,0 +1,17 @@
+{
+  "id": "m02-02",
+  "title": "Ordered URL query editor",
+  "difficulty": "L3",
+  "instructions": "Implement a mutable query-string parser/builder preserving duplicate keys.\n\n## Files\n- `query.py`: implement `Query` with the five methods below.\n\n- `Query(text: str = \"\")`: text is a query string, not a full URL. Remove at\n  most one leading `?`. Split on `&`, ignore empty segments, and split each\n  remaining segment at its first `=` (missing `=` means empty value).\n  Decode both components with `urllib.parse.unquote_plus`, using its default\n  UTF-8 replacement behavior. Thus `+` means space, malformed percent escapes\n  remain literal, and a semicolon is ordinary data. Preserve pair order,\n  empty names, empty values, and duplicate names.\n- `getall(key: str) -> list[str]`: all values for this decoded key, in order;\n  return a fresh list (empty when absent).\n- `append(key: str, value: str) -> None`: append a decoded pair.\n- `set(key: str, value: str) -> None`: replace all pairs with this key by one\n  pair at the first old occurrence's position; append if absent. Keep all\n  other pairs' relative order.\n- `encode() -> str`: encode every pair as `key=value`, joined with `&`, with\n  no leading `?`. Encode components with `urllib.parse.quote_plus` defaults\n  (UTF-8; spaces as `+`; literal plus and slash percent-encoded).\n\nAll arguments shown as str must be strings; otherwise raise TypeError.\nFailed append/set operations must leave the query unchanged. Encoded input\nis decoded only by construction; append/set receive literal decoded strings.\n",
+  "sources": [
+    "query.py"
+  ],
+  "expected": [
+    "test_m02_02.py::test_duplicates_and_blanks",
+    "test_m02_02.py::test_decoding_and_encoding",
+    "test_m02_02.py::test_set_preserves_first_position",
+    "test_m02_02.py::test_append_and_getall_copy",
+    "test_m02_02.py::test_permissive_escapes_and_prefix",
+    "test_m02_02.py::test_types_and_atomic_mutation"
+  ]
+}

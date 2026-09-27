@@ -1,0 +1,18 @@
+{
+  "id": "m04-04",
+  "title": "Hotel room booking calendar",
+  "difficulty": "L3b",
+  "instructions": "Implement an in-memory booking calendar using half-open stays: checkout day is free.\n\n## Files\n- `booking.py`\n\n`parse_span(start, end) -> tuple[date, date]` accepts two strings strictly in\n`YYYY-MM-DD` form. Invalid dates/formats or start >= end raise `ValueError`.\n\n`BookingCalendar(rooms)` consumes an iterable of unique, nonempty string room names\n(these room-name preconditions are guaranteed). Copy it; room ordering is lexical.\nImplement these methods:\n- `book(booking_id, room, start, end) -> None`: IDs are nonempty strings. Reject an\n  existing ID, unknown room, invalid span, or overlap in that room with `ValueError`.\n  Adjacent stays are allowed. A failed call must leave all bookings unchanged.\n- `cancel(booking_id) -> None`: remove a booking; missing ID raises `KeyError`.\n  A canceled ID may be reused.\n- `available(start, end) -> list[str]`: sorted room names with no overlapping stay.\n  Validate the span even when there are no rooms.\n- `bookings(room=None) -> list[tuple[str, str, str, str]]`: fresh list of\n  `(booking_id, room, start, end)` using original ISO strings, sorted by\n  `(start, room, booking_id)`. With a room argument, filter to it; unknown room\n  raises `ValueError`. No argument returns all bookings.\nOverlap means `a_start < b_end and b_start < a_end`. All date arguments are strings;\nall IDs and room arguments have the guaranteed types above. No persistence is needed.",
+  "sources": [
+    "booking.py"
+  ],
+  "expected": [
+    "test_m04_04.py::test_span_validation",
+    "test_m04_04.py::test_half_open_and_other_rooms",
+    "test_m04_04.py::test_overlap_shapes_are_atomic",
+    "test_m04_04.py::test_ids_rooms_and_cancel",
+    "test_m04_04.py::test_order_filter_and_detached_lists",
+    "test_m04_04.py::test_invalid_span_does_not_reserve_id",
+    "test_m04_04.py::test_empty_calendar"
+  ]
+}

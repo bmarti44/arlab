@@ -1,0 +1,20 @@
+{
+  "id": "m04-10",
+  "title": "Apply a strict unified diff subset",
+  "difficulty": "L4",
+  "instructions": "Implement a parser and applier for a deliberately limited, single-file unified diff.\nAll inputs are strings containing only LF line separators (no CR). Do not read files.\n\n## Files\n- `diff_parser.py`\n- `patcher.py`\n\nIn `diff_parser.py`, provide a dataclass `Hunk` with fields `old_start: int`,\n`old_count: int`, `new_start: int`, `new_count: int`, and\n`lines: tuple[tuple[str, str], ...]` (prefix, content).\n`parse_patch(patch) -> list[Hunk]` follows these rules:\n- The empty string means no hunks. Otherwise the first two lines must start with\n  `--- ` and `+++ ` respectively and have nonempty labels after those prefixes.\n  Labels are ignored. Header-only patches are allowed.\n- Hunk headers exactly match `@@ -N[,C] +N[,C] @@` with ASCII nonnegative decimal\n  integers; omitted counts mean 1. For a positive count its start must be >= 1.\n  Count zero allows start zero. Leading zeros in header numbers are allowed.\n- Each body line begins with one of space, `-`, `+`. Store the rest verbatim,\n  including empty content and trailing spaces. Space consumes an old and a new\n  line, minus only an old line, plus only a new line. Counts must exactly match\n  the body through the next hunk header or EOF. Blank unprefixed lines and all\n  other syntax (including no-newline markers and section labels) are invalid.\n- The patch may have or omit one final LF; it is a line terminator, not a body line.\n  Any malformed patch raises `ValueError`. Ordering/position checks belong to the applier.\n\n`patcher.apply_patch(original, patch) -> str` uses `parse_patch` and applies hunks:\n- Original text must be empty or end in LF; otherwise raise `ValueError`, even for\n  an empty patch. Split it into content lines, preserving blank lines/spaces.\n- For a nonzero old_count, the original zero-based index is old_start-1. For zero\n  old_count, it is old_start (insertion after that many original lines).\n  Hunk positions always refer to the original, not the partially changed text.\n- Hunks must be ordered and nonoverlapping: each index must be >= the original\n  cursor after the previous hunk, and <= the original line count. Equal indices\n  are allowed for consecutive zero-old-count insertions, in patch order.\n- Copy unchanged gaps first. At each hunk, the new-file zero-based index\n  (new_start-1 if new_count>0, otherwise new_start) must equal the number of output\n  lines already produced. Reject inconsistent new coordinates with `ValueError`.\n- Space and minus lines must exactly match the next original line, otherwise\n  `ValueError`; reject consumption past EOF. Emit space and plus contents; omit\n  minus contents. Copy the untouched suffix after all hunks.\n- Return LF-terminated output if there are any lines, otherwise `''`. An empty\n  or header-only patch returns the original unchanged. Propagate parser errors.",
+  "sources": [
+    "diff_parser.py",
+    "patcher.py"
+  ],
+  "expected": [
+    "test_m04_10.py::test_parser_representation_and_default_counts",
+    "test_m04_10.py::test_replace_context_and_untouched_suffix",
+    "test_m04_10.py::test_zero_ranges_insert_delete_and_empty",
+    "test_m04_10.py::test_multiple_hunks_use_original_coordinates",
+    "test_m04_10.py::test_blank_content_and_spaces_are_exact",
+    "test_m04_10.py::test_parser_rejects_malformed_syntax_and_counts",
+    "test_m04_10.py::test_mismatch_bounds_and_new_coordinates",
+    "test_m04_10.py::test_overlapping_and_reversed_hunks"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "id": "m01-04",
+  "title": "Weighted category gradebook",
+  "difficulty": "L3b",
+  "instructions": "Implement `weighted_mean(pairs)` and `Gradebook` in `gradebook.py`. Numeric inputs are finite real numbers, never booleans; category names are strings. No rounding is performed.\n- `weighted_mean(pairs) -> float | None`: consume an iterable of `(value, weight)` pairs. Return sum(value*weight)/sum(weight); return `None` for no pairs. Any weight <= 0 raises `ValueError`.\n- `Gradebook(weights)`: take a nonempty dict mapping category names to positive weights; otherwise raise `ValueError`. Copy the mapping so later caller changes do not affect the book.\n- `add(category, score, possible=100) -> None`: record one assignment. Unknown category raises `KeyError`. Require possible > 0 and 0 <= score <= possible, else `ValueError`, without changing records.\n- `category_average(category) -> float | None`: arithmetic mean of assignment percentages (`100 * score / possible`), not a pooled points ratio. Empty category returns `None`; unknown category raises `KeyError`.\n- `overall() -> float | None`: weighted mean of averages of nonempty categories, using their configured weights. Empty categories do not contribute to the denominator. Return `None` if there are no assignments.\n- `drop_lowest(category, count=1) -> list[tuple]`: permanently remove up to count assignments with the lowest percentage, ties in insertion order. Return removed `(score, possible)` tuples in selection order (percentage ascending, insertion order for ties). Count is an integer; a negative count raises `ValueError`. Zero removes nothing; a count larger than the category size removes all. Unknown category raises `KeyError` before checking count.\n- `report() -> dict`: return a fresh mapping of every category to its average, including `None` for empty categories; preserve the supplied category order. Changes to this mapping do not affect the book.\n\n## Files\n- `gradebook.py`",
+  "sources": [
+    "gradebook.py"
+  ],
+  "expected": [
+    "test_m01_04.py::test_weighted_mean_stream",
+    "test_m01_04.py::test_empty_categories_and_weight_copy",
+    "test_m01_04.py::test_assignment_percentages",
+    "test_m01_04.py::test_drop_order_and_ties",
+    "test_m01_04.py::test_drop_zero_all_and_empty",
+    "test_m01_04.py::test_validation_preserves_state",
+    "test_m01_04.py::test_unknown_and_detached_report"
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "id": "m07-09",
+  "title": "Dependency-aware earliest-start scheduler",
+  "difficulty": "L4",
+  "instructions": "Implement an unlimited-worker scheduler for tasks with dependencies and nonnegative integer durations. This is an earliest-start schedule, not a search over worker assignments. Use a polynomial-time graph algorithm.\n\n`task_graph.py`:\n- `build_graph(records: list[dict]) -> tuple[dict[str, int], dict[str, set[str]]]`: return `(durations, dependencies)` as fresh dictionaries; each dependency value is a fresh set. Each record has required fields `id` (nonempty string), `duration` (nonnegative integer, no booleans), and `deps` (list of strings). Reject missing fields, invalid IDs/durations/deps types, non-string dependency IDs, duplicate task IDs, references to unknown IDs, and self-dependencies with `ValueError`. Empty dependency IDs are unknown and therefore invalid. Repeated entries in one deps list collapse into one dependency. Extra fields are ignored. Forward references are valid. Inputs are never mutated. Records themselves are always dictionaries. Cycles involving multiple tasks are allowed at this stage.\n\n`scheduler.py`:\n- `schedule(records: list[dict]) -> dict`: call the graph builder, then return exactly the keys `order`, `times`, `makespan`, `critical_path`.\n- `order` is a topological list of task IDs. At every step choose the lexicographically smallest currently ready ID (all dependencies already processed). New ready IDs compete immediately with existing ones.\n- `times` maps every ID to `(earliest_start, earliest_finish)` integer minutes. Roots start at zero; other tasks start at the maximum finish of their direct dependencies; finish is start plus duration. Unlimited simultaneous work is allowed, including tasks of zero duration.\n- `makespan` is the maximum finish, or zero for an empty graph.\n- `critical_path` is a list of IDs: choose an ending task whose finish equals makespan, breaking ties by lexicographically smallest ID. Work backward by repeatedly choosing a direct dependency with maximum finish, breaking ties by lexicographically smallest ID, until a root; reverse the resulting chain. Use this local tie rule, not lexicographic comparison of full paths. An empty graph has an empty critical path. Even when every duration is zero, choose the ending task by the same rule.\n- A directed cycle raises `ValueError`; do not return a partial schedule. Graph validation errors propagate. Error messages and dictionary iteration order are unspecified.\n\nSupport at least 2,000 tasks and 10,000 dependency edges with iterative traversal; do not enumerate paths or permutations. All string comparisons use ordinary Python lexicographic order.\n\n### Files\n- `task_graph.py`: validate and normalize records.\n- `scheduler.py`: import `build_graph` and compute the schedule.\n",
+  "sources": [
+    "task_graph.py",
+    "scheduler.py"
+  ],
+  "expected": [
+    "test_m07_09.py::test_empty_and_single_task",
+    "test_m07_09.py::test_parallel_branches_and_critical_chain",
+    "test_m07_09.py::test_ready_queue_competes_immediately",
+    "test_m07_09.py::test_local_critical_ties_and_zero_duration",
+    "test_m07_09.py::test_normalization_forward_refs_and_isolation",
+    "test_m07_09.py::test_invalid_graph_records",
+    "test_m07_09.py::test_cycle_rejected_even_with_schedulable_component",
+    "test_m07_09.py::test_large_layered_graph_uses_graph_algorithm"
+  ]
+}

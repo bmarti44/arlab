@@ -1,0 +1,20 @@
+{
+  "id": "m04-08",
+  "title": "Tag query parser and note index",
+  "difficulty": "L4",
+  "instructions": "Build a note index with AND/OR tag queries, split across two modules.\n\n## Files\n- `tag_query.py`\n- `note_index.py`\n\nIn `tag_query.py`:\n- `normalize_tag(tag) -> str`: strip outer whitespace, lowercase, then require\n  ASCII `[a-z0-9][a-z0-9_-]*`; invalid strings raise `ValueError`. Inputs are strings.\n- `parse_query(query) -> tuple[list[frozenset[str]], frozenset[str]]`: split on\n  whitespace. A positive token is one tag or several tags joined by `|` (OR).\n  Each positive token adds a frozenset to the list, preserving token order.\n  A token starting with `-` excludes a single tag (no `|` allowed). Return positive\n  groups and a frozenset of excluded tags. Normalize tags, collapse duplicates\n  within each group/exclusion set, but keep repeated positive groups. Empty query\n  gives `([], frozenset())`. Empty alternatives, bare `-`, and invalid tags raise\n  `ValueError`. No quoted strings, parentheses, or spaces inside an OR token.\n  Example `Work|HOME urgent -Archived` means (work OR home) AND urgent AND NOT archived.\n\nIn `note_index.py`, import/use the parser and normalizer and implement `NoteIndex()`:\n- `upsert(note_id, text, tags) -> None`: insert or replace a note. ID is a guaranteed\n  nonempty string; text is a string; tags is an iterable of strings. Normalize and\n  deduplicate tags; a bad tag raises `ValueError` without changing the old note or\n  index. Copy input tags. Empty tags are allowed.\n- `remove(note_id) -> None`: delete the note and all its tag memberships; missing\n  ID raises `KeyError`.\n- `search(query) -> list[tuple[str, str, tuple[str, ...]]]`: parse the query, require\n  at least one tag from every positive group, and none of the excluded tags.\n  With no positive groups start with all notes (including untagged notes).\n  Return `(id, text, sorted_tags_tuple)` sorted lexically by ID. Unknown positive\n  tags match nothing; unknown exclusions have no effect. Return a fresh list.\n- `tag_counts() -> dict[str, int]`: count notes per normalized tag; omit tags with\n  zero memberships, including after replacements/removals. Return a fresh dict.\nMaintain a tag-to-note-ID inverted index and update it on replacement/removal.",
+  "sources": [
+    "tag_query.py",
+    "note_index.py"
+  ],
+  "expected": [
+    "test_m04_08.py::test_parser_groups_and_normalization",
+    "test_m04_08.py::test_parser_rejects_malformed_tokens",
+    "test_m04_08.py::test_and_or_exclusions_and_sorting",
+    "test_m04_08.py::test_empty_and_only_negative_queries",
+    "test_m04_08.py::test_replacement_removes_stale_memberships",
+    "test_m04_08.py::test_remove_and_missing_id",
+    "test_m04_08.py::test_failed_replacement_is_atomic",
+    "test_m04_08.py::test_copied_inputs_and_outputs"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "id": "lb-07",
+  "title": "Todo store and query filters",
+  "difficulty": "L4",
+  "instructions": "Complete an in-memory todo store and its query module.\n\n## Files\n- `todo_store.py`: `TodoStore`.\n- `todo_query.py`: `select`, operating on a `TodoStore`.\n\n`TodoStore()` starts empty. Its methods are:\n- `add(title: str, tags: Iterable[str] = ()) -> int`: strip the title;\n  reject an empty title. Strip and casefold each tag; reject empty tags,\n  remove duplicates, and sort tags lexicographically. Allocate integer IDs\n  starting at 1; increment only on successful adds and never reuse removed\n  IDs. New records have done=False. Copy caller tag data.\n- `get(task_id: int) -> dict`: return exactly `id` (int), `title` (str),\n  `done` (bool), and `tags` (list[str]). Missing IDs raise `KeyError`.\n- `set_done(task_id: int, done: bool) -> None`: set completion; reject values\n  that are not actual bools with `ValueError` before checking the ID. Missing\n  IDs with valid done values raise `KeyError`.\n- `remove(task_id: int) -> bool`: remove and return True, or False if absent.\n- `items() -> list[dict]`: all records in increasing ID order.\nAll returned dictionaries and tag lists are detached copies. Invalid adds\nor updates leave data and the next ID unchanged. Validation uses `ValueError`.\n\n`select(store: TodoStore, done: bool | None = None, tag: str | None = None,\ntext: str = \"\", limit: int | None = None) -> list[dict]` combines all filters\nwith AND. None means no done/tag filter. A supplied tag is stripped and\ncasefolded and must be nonempty; match an exact normalized tag. Strip and\ncasefold text and match it as a substring of the casefolded title; empty\ntext matches all titles. Order results by incomplete first, then ID ascending\nwithin each completion state. Apply limit after filtering and sorting; zero\nreturns an empty list. Reject non-bool non-None done values and negative,\nboolean, or non-integer non-None limits with `ValueError`, even on an empty\nstore. Returned records are detached; querying never changes the store.\nOther arguments have the specified types.\n",
+  "sources": [
+    "todo_store.py",
+    "todo_query.py"
+  ],
+  "expected": [
+    "test_lb_07.py::test_add_normalizes_and_detaches",
+    "test_lb_07.py::test_failed_add_does_not_consume_id",
+    "test_lb_07.py::test_completion_validation_and_items_copy",
+    "test_lb_07.py::test_query_combines_filters_with_unicode",
+    "test_lb_07.py::test_order_then_limit_and_empty_text",
+    "test_lb_07.py::test_query_validation_on_empty_store",
+    "test_lb_07.py::test_query_results_cannot_mutate_store"
+  ]
+}

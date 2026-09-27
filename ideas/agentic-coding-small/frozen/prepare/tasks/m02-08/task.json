@@ -1,0 +1,19 @@
+{
+  "id": "m02-08",
+  "title": "Unit-aware temperature log",
+  "difficulty": "L4",
+  "instructions": "Implement temperature parsing/conversion and a labeled log in two modules.\n\n## Files\n- `temperature.py`: `parse_reading` and `convert`.\n- `templog.py`: `TemperatureLog`, using the temperature module.\n\n`parse_reading(text: str) -> tuple[float, str]` strips outer whitespace and\naccepts a signed decimal followed by optional ASCII spaces/tabs and one unit\nletter C, F, or K (case insensitive). Decimal forms include 12, 12., 12.5,\n.5, and their signed versions. No exponent, infinity, NaN, degree symbol,\nor missing unit is accepted. Return (numeric value, uppercase unit).\nInvalid type/syntax, nonfinite values, and temperatures below absolute zero\nraise ValueError. Absolute zero is -273.15 C, -459.67 F, or 0 K, inclusive.\n\n`convert(value: int | float, from_unit: str, to_unit: str) -> float` accepts\nfinite numbers excluding bool; unit arguments must each be exactly one of\nC/F/K, case insensitive, with no surrounding whitespace. Invalid inputs or\nvalues below absolute zero raise ValueError. Use C=(F-32)*5/9, C=K-273.15,\nF=C*9/5+32, K=C+273.15; never round stored values or statistics. Numerical\ncomparisons in tests use approximate equality. Finite numeric inputs have\nabsolute value at most 1,000,000.\n\n`TemperatureLog()` starts empty and implements:\n- `add(label: str, text: str) -> None`: parse text and store the temperature\n  under the stripped label. Labels must be nonempty strings after stripping,\n  otherwise ValueError. Replacing a label keeps its original insertion\n  position. Invalid input leaves the log unchanged.\n- `readings(unit: str = 'C') -> list[tuple[str, float]]`: fresh list of\n  (label, converted value) tuples in insertion order.\n- `stats(unit: str = 'C') -> dict`: exactly {'count': int, 'min': float | None,\n  'max': float | None, 'mean': float | None}. Empty logs have count 0 and\n  None for all three statistics. Use arithmetic mean.\n- `format(unit: str = 'C') -> str`: exactly four newline-separated lines,\n  no trailing newline: `count: N`, `min: V U`, `max: V U`, `mean: V U`.\n  U is the uppercase unit. V uses Python fixed-point formatting with one\n  decimal digit, converting a formatted '-0.0' to '0.0'. For empty logs use\n  '--' for each V, still including the unit.\n\nAll three output methods validate units even when the log is empty, using\nconvert's ValueError rules. Readings and returned dicts must not alias the\nlog. The log stores only finite physically valid readings.\n",
+  "sources": [
+    "temperature.py",
+    "templog.py"
+  ],
+  "expected": [
+    "test_m02_08.py::test_parse_decimal_and_unit_syntax",
+    "test_m02_08.py::test_conversions_and_absolute_zero",
+    "test_m02_08.py::test_invalid_numbers_and_units",
+    "test_m02_08.py::test_mixed_units_stats_and_format",
+    "test_m02_08.py::test_replace_order_and_snapshots",
+    "test_m02_08.py::test_empty_log_and_invalid_add_atomicity",
+    "test_m02_08.py::test_negative_zero_and_fractional_mean"
+  ]
+}

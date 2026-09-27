@@ -1,0 +1,18 @@
+{
+  "id": "m03-07",
+  "title": "Deterministic Text Readability",
+  "difficulty": "L3b",
+  "instructions": "Implement two helper functions and `TextStats` in `text_stats.py`. Use the exact mechanical\nrules below, not a linguistic library. All text arguments are strings.\n\n`words(text: str) -> list[str]` returns lowercase matches of ASCII pattern\n`[A-Za-z]+(?:'[A-Za-z]+)*`, in order. Only a straight apostrophe joins letters. Digits,\nhyphens, curly apostrophes, and non-ASCII characters are separators.\n\n`syllables(word: str) -> int` requires a full match of that word pattern, otherwise raises\n`ValueError`. Lowercase and remove apostrophes. Count maximal runs of vowels `aeiouy`.\nIf the resulting word has more than two letters, ends in `e` but not `le`, and the count\nis greater than one, subtract one. Return at least one. Examples: make=1, table=2, sky=1,\nqueue=1, rhythm=1. This heuristic intentionally does not model all English pronunciation.\n\n`TextStats(text: str = '')` stores text. Its public methods are:\n- `replace(text: str) -> None`: replace all stored text.\n- `append(text: str) -> None`: append exactly as supplied, with NO inserted separator.\n- `summary() -> dict`: return exactly `words`, `sentences`, `syllables`, `characters`,\n  `reading_ease`. Words and syllables are totals from the helpers. Sentences are chunks\n  split by one or more `.`, `!`, or `?` that contain at least one word; a final unterminated\n  chunk counts too. Thus punctuation-only chunks never count. Characters is Python len\n  of the entire original text, including whitespace and punctuation. Reading ease is\n  `round(206.835 - 1.015 * words / sentences - 84.6 * syllables / words, 2)`; use 0.0\n  when there are no words. Do not clamp scores. Summary is a fresh dictionary.\n- `most_common(limit: int = 5) -> list[tuple[str, int]]`: word frequencies sorted by\n  descending count, then ascending word. Require a nonnegative integer excluding bool,\n  else `ValueError`; zero returns [].\nAll methods reflect the latest text, including after edits; no stale cached counts.\n\n## Files\n- `text_stats.py`",
+  "sources": [
+    "text_stats.py"
+  ],
+  "expected": [
+    "test_m03_07.py::test_ascii_word_rules",
+    "test_m03_07.py::test_syllable_heuristic",
+    "test_m03_07.py::test_sentence_chunks_and_score",
+    "test_m03_07.py::test_empty_and_punctuation_only",
+    "test_m03_07.py::test_editing_and_fresh_reports",
+    "test_m03_07.py::test_frequency_sort_limits_and_validation",
+    "test_m03_07.py::test_unterminated_sentences_and_unclamped_scores"
+  ]
+}

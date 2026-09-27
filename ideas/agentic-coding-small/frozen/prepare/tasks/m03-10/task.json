@@ -1,0 +1,19 @@
+{
+  "id": "m03-10",
+  "title": "Ranked Trie Autocomplete",
+  "difficulty": "L4",
+  "instructions": "Implement a weighted trie across `trie_nodes.py` and `autocomplete.py`.\n\nIn `trie_nodes.py`, implement `normalize_word(word: str, allow_empty: bool = False) -> str`.\nAccept ASCII letters A-Z/a-z only and return lowercase. Empty input is valid only when\nallow_empty is True. Invalid strings and non-string values raise `ValueError`. No stripping\nor punctuation handling is performed. This module should also hold the internal trie node\nrepresentation, which is your implementation choice; it is not a separately tested API.\n\nIn `autocomplete.py`, implement `Trie()` with these methods:\n- `add(word: str, weight: int = 1) -> int`: normalize word (nonempty), require positive\n  integer weight excluding bool, otherwise `ValueError` without changing existing entries.\n  Insert the word or add weight to its existing score, returning the new total score.\n- `remove(word: str) -> bool`: normalize word (nonempty), remove its entire entry regardless\n  of score, return True if it existed, False otherwise. Longer words sharing that prefix\n  must survive. Re-adding a removed word starts from the new weight.\n- `contains(word: str) -> bool`: normalize word (nonempty); True only for a stored complete\n  word, not merely a prefix.\n- `prefix_search(prefix: str) -> list[str]`: normalize prefix, allowing empty. Return all\n  stored words beginning with it in ascending alphabetical order. Include the prefix itself\n  if it is a stored word. Empty prefix returns all words. Missing prefixes return [].\n- `autocomplete(prefix: str, limit: int = 5) -> list[tuple[str, int]]`: same normalization;\n  require nonnegative integer limit excluding bool, else `ValueError`. Return at most limit\n  matching (word, total_score) pairs, ordered by descending score then ascending word.\n  Validate prefix even when limit is zero. Empty prefix searches the whole trie.\nAll methods are case-insensitive. Results use normalized lowercase words. Invalid word/prefix\ninputs raise `ValueError` in every method. Returned lists must be independent of trie state.\nUse only these two modules; no external storage or dependencies are needed.\n\n## Files\n- `trie_nodes.py`\n- `autocomplete.py`",
+  "sources": [
+    "trie_nodes.py",
+    "autocomplete.py"
+  ],
+  "expected": [
+    "test_m03_10.py::test_normalization_and_empty_trie",
+    "test_m03_10.py::test_insert_accumulates_and_checks_complete_words",
+    "test_m03_10.py::test_prefix_order_and_empty_prefix",
+    "test_m03_10.py::test_ranking_ties_limits_and_default",
+    "test_m03_10.py::test_remove_prefix_preserves_descendants_and_readd",
+    "test_m03_10.py::test_invalid_inputs_are_atomic",
+    "test_m03_10.py::test_result_lists_are_independent"
+  ]
+}

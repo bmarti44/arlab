@@ -1,0 +1,20 @@
+{
+  "id": "m05-10",
+  "title": "Stack-based bracket and indentation linter",
+  "difficulty": "L4",
+  "instructions": "Implement a first-error linter for a small Python-like text format. It checks\nbrackets and indentation only; it does not parse statements or require colons.\n\n## Files\n- `bracket_scan.py`: line scanning and end-of-input bracket checks.\n- `indent_lint.py`: indentation stack and `lint` entry point.\n\nErrors are `(line: int, column: int, message: str)` tuples, with 1-based line and\ncolumn numbers measured in Python characters. Success is `None`.\n\n`bracket_scan.py` API:\n- `scan_line(text: str, line_number: int, stack: list[tuple[str, int, int]])`\n  returns an error tuple or `None`. Text is one line with no line ending; stack\n  contains unmatched `(opening_character, line, column)` tuples from earlier\n  scans and is mutated in place. Scan left to right. Push `(`, `[`, `{`; on `)`,\n  `]`, `}`, pop only if it matches the stack top. An empty-stack closer produces\n  `\"unexpected closing X\"`; a mismatched closer produces `\"expected X, got Y\"`\n  (X is the closer required by the stack top, Y is the actual closer). Report at\n  the closer's position and stop; leave the unmatched stack entries in place.\n- Single and double quoted strings hide brackets and `#`. Inside a string, a\n  backslash escapes the next character. Outside a string, a backslash has no\n  special meaning. Quotes do not span lines; an unclosed quote gives\n  `\"unterminated string\"` at column `len(text) + 1`. Triple quotes have no special\n  treatment. Outside strings, `#` ignores the rest of that line. Earlier bracket\n  errors take priority over any later unterminated string.\n- `finish(stack)`: return `None` if empty; otherwise report the most recently\n  opened unclosed bracket at its saved position with `\"unclosed X\"` (X is the\n  opener). Do not mutate the stack.\n\n`indent_lint.py` API:\n- `lint(text: str, indent_width: int = 4)` returns the FIRST error tuple or `None`.\n  Reject an indent_width whose exact type is not int or which is <= 0 with\n  `ValueError`. Split lines with `str.splitlines()`; an empty input succeeds.\n- Ignore lines which are empty/whitespace-only, or whose first non-whitespace\n  character is `#`, for both indentation and bracket checking.\n- On each remaining line, if the bracket stack was NONEMPTY at the start of the\n  line, skip all indentation checks (including tabs) for that line. Still scan\n  its brackets and strings. Do not change the indentation stack for that line.\n- Otherwise check indentation BEFORE scanning brackets. The indentation prefix\n  is its leading ASCII spaces/tabs. Any tab in that prefix gives `\"tab indentation\"`\n  at the first tab's column. The number of leading spaces must be a multiple of\n  indent_width; otherwise give `\"indentation must be a multiple of N\"` (substitute\n  the width) at column 1.\n- Start with indentation stack `[0]`. Equal indentation is allowed. A greater\n  indentation pushes that level (increases may skip levels, and the first code\n  line may be indented). For a decrease, the level must already be in the stack;\n  otherwise report `\"inconsistent dedent\"` at column 1. A valid decrease pops\n  larger levels. Only spaces/tabs are used as indentation on nonignored lines.\n- After all lines, use `finish` to report an unclosed bracket. Outstanding\n  indentation levels alone are allowed at EOF.\nNo real Python syntax checking, token library, file access, or execution is needed.",
+  "sources": [
+    "bracket_scan.py",
+    "indent_lint.py"
+  ],
+  "expected": [
+    "test_m05_10.py::test_scanner_stack_across_lines_and_finish",
+    "test_m05_10.py::test_closing_errors_and_locations",
+    "test_m05_10.py::test_quotes_escapes_and_comments",
+    "test_m05_10.py::test_indentation_stack_and_skipped_levels",
+    "test_m05_10.py::test_indent_errors_precede_bracket_scan",
+    "test_m05_10.py::test_bracket_continuations_skip_indentation",
+    "test_m05_10.py::test_blank_comment_lines_and_eof",
+    "test_m05_10.py::test_invalid_widths"
+  ]
+}

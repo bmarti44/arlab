@@ -1,0 +1,19 @@
+{
+  "id": "lb-10",
+  "title": "Tokenizer and RPN calculator",
+  "difficulty": "L4",
+  "instructions": "Complete a tokenizer and reverse Polish notation (RPN) calculator.\n\n## Files\n- `tokenizer.py`: `tokenize` and `OPERATORS`.\n- `calculator.py`: `evaluate` and `calculate`, using the tokenizer.\n\n`OPERATORS` is a frozenset containing `+`, `-`, `*`, `/`.\n`tokenize(text: str) -> list[float | str]` splits on arbitrary whitespace.\nEach token must be one operator or a number. Numeric grammar: optional `+`\nor `-`, then either digits with an optional decimal point and optional\ntrailing digits, or a decimal point followed by digits; optionally followed\nby `e` or `E`, an optional sign, and one or more digits. Digits are ASCII.\nExamples: `-2`, `+.5`, `1.`, `2e-3`. Standalone + and - are operators.\nReturn numbers as floats, operators unchanged. Reject malformed tokens,\nNaN/inf literals, or numeric literals that become nonfinite floats with\n`ValueError`. Blank input returns an empty list. Tokens must be separated:\n`2+3` is invalid. No comments, parentheses, or implicit operators.\n\n`evaluate(tokens: Iterable[int | float | str]) -> float` uses a fresh stack.\nNumbers push values. Each operator pops right then left and pushes\n`left operator right`; division uses true floating-point division.\n- Empty input, too few operands for an operator, more than one final stack\n  value, unknown operators, numeric strings, booleans, other token types,\n  numbers not representable as finite floats, and nonfinite arithmetic\n  results raise `ValueError`.\n- Division by positive or negative zero raises `ZeroDivisionError`.\n- Exactly one final number (including a lone input number) returns a float.\nAccept generators and do not modify supplied lists. Evaluation errors do not\nleave state that affects later calls. Error-message wording is unspecified.\n\n`calculate(text: str) -> float` first tokenizes the entire text, then\npasses the tokens to evaluate and propagates its exceptions. Do not use\nPython eval or exec.\n",
+  "sources": [
+    "tokenizer.py",
+    "calculator.py"
+  ],
+  "expected": [
+    "test_lb_10.py::test_token_types_signs_and_whitespace",
+    "test_lb_10.py::test_reject_invalid_lexical_tokens",
+    "test_lb_10.py::test_arithmetic_and_operand_order",
+    "test_lb_10.py::test_generators_and_input_preservation",
+    "test_lb_10.py::test_stack_shape_errors_and_fresh_state",
+    "test_lb_10.py::test_invalid_tokens_and_nonfinite_arithmetic",
+    "test_lb_10.py::test_zero_division_and_lexing_before_evaluation"
+  ]
+}

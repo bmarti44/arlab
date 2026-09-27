@@ -1,0 +1,17 @@
+{
+  "id": "m05-02",
+  "title": "Column-aligned text tables",
+  "difficulty": "L3",
+  "instructions": "Implement `TextTable` in `text_table.py` for predictable plain-text reports.\n\n## Files\n- `text_table.py`\n\nAPI:\n- `TextTable(headers, alignments=None)`: `headers` is a list of one or more values,\n  converted with `str`. Empty headers raise `ValueError`. `alignments` is either\n  `None` (all columns left aligned), or a list with exactly one `\"left\"` or `\"right\"`\n  per column. Wrong length or an unknown alignment raises `ValueError`.\n- `add_row(values) -> None`: accept a list of exactly the header count, converting\n  each value with `str`. A wrong count raises `ValueError` without adding a row.\n- Headers and cells containing `\\n` or `\\r` raise `ValueError`. Invalid rows must\n  leave the table unchanged. Copy input lists so later caller edits do not matter.\n- `row_count() -> int`: number of data rows (not counting the header).\n- `clear() -> None`: remove all data rows and retain headers and alignments.\n- `render() -> str`: compute each column width as the maximum Python `len` of its\n  header and current cells. Pad each cell with spaces on the appropriate side;\n  headers use the same alignment as their column. Join columns with exactly\n  `\" | \"`. The first line is the headers; the second joins runs of `-` of each\n  column's width with `\"-+-\"`; subsequent lines are the rows in insertion order.\n  Preserve padding, even at the end of a line. Join lines with `\\n`, with no final\n  newline. Always include the header and separator, even with zero rows. Empty\n  cell strings are allowed, including a column with width zero.",
+  "sources": [
+    "text_table.py"
+  ],
+  "expected": [
+    "test_m05_02.py::test_mixed_alignment",
+    "test_m05_02.py::test_empty_table_and_zero_width",
+    "test_m05_02.py::test_cells_are_text_and_padding_is_preserved",
+    "test_m05_02.py::test_clear_recomputes_widths",
+    "test_m05_02.py::test_invalid_configuration",
+    "test_m05_02.py::test_invalid_rows_are_atomic_and_inputs_copied"
+  ]
+}

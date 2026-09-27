@@ -1,0 +1,18 @@
+{
+  "id": "m07-06",
+  "title": "Trip itinerary validation",
+  "difficulty": "L3b",
+  "instructions": "Implement `parse_time` and `Itinerary` in `itinerary.py`. Times are absolute minutes in a trip's local timeline; time zones are out of scope.\n\n`parse_time(value: str) -> int` accepts exactly `D@HH:MM`: D is one or more ASCII decimal digits (leading zeroes allowed), HH exactly two digits from 00 to 23, and MM exactly two digits from 00 to 59. Return `D*1440 + HH*60 + MM`. No spaces, signs, or other characters. Malformed strings raise `ValueError`.\n\n`Itinerary(min_connection: int = 30)` requires a nonnegative integer minimum connection time, or raises `ValueError`; booleans are not supplied. Methods:\n- `add(origin: str, destination: str, departure: str, arrival: str) -> None`: origin/destination must be nonempty strings (do not strip or change case). Parse both times and require arrival strictly after departure. Invalid input raises `ValueError` and leaves the itinerary unchanged. Accept any relationship to existing legs: connection issues are reported by `validate`, not `add`.\n- `validate() -> list[tuple[int, str]]`: inspect adjacent legs in insertion order, never sort. For each leg index i from 1 onward, append `(i, \"location\")` if its origin differs from the previous destination. Then inspect its departure minus previous arrival: append `(i, \"overlap\")` for a negative gap; otherwise append `(i, \"connection\")` for a gap strictly less than min_connection. At most one time issue per pair; a pair can have both a location and time issue, in that order. There is no connection check on the first leg. Empty/single-leg itineraries return `[]`.\n- `elapsed() -> int`: zero if empty; otherwise the last added leg's arrival minus the first added leg's departure, even if invalid. This can be negative.\n- `legs() -> list[tuple[str, str, int, int]]`: return a new list of `(origin, destination, departure_minutes, arrival_minutes)` in insertion order, independent of later mutations.\n\nAll labels and time inputs are strings. Error messages are unspecified. Use only the standard library.\n\n### Files\n- `itinerary.py`: implement the time parser and itinerary class.\n",
+  "sources": [
+    "itinerary.py"
+  ],
+  "expected": [
+    "test_m07_06.py::test_time_parser_boundaries",
+    "test_m07_06.py::test_empty_and_single_leg",
+    "test_m07_06.py::test_connection_threshold_and_zero_minimum",
+    "test_m07_06.py::test_issue_order_and_overlap_precedence",
+    "test_m07_06.py::test_invalid_add_is_atomic",
+    "test_m07_06.py::test_insertion_order_and_snapshot",
+    "test_m07_06.py::test_day_boundaries_and_exact_location_strings"
+  ]
+}

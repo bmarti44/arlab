@@ -1,0 +1,18 @@
+{
+  "id": "m04-07",
+  "title": "Spreadsheet references and cycle detection",
+  "difficulty": "L3b",
+  "instructions": "Implement a small integer spreadsheet with references and addition/subtraction.\n\n## Files\n- `spreadsheet.py`\n\n`normalize_cell(name) -> str` strips outer whitespace, uppercases, and requires\nASCII letters followed by a positive decimal row number with no leading zero\n(e.g. `AA12`). Invalid strings raise `ValueError`. Names are always strings.\n\n`parse_formula(formula) -> list[tuple[int, int | str]]` parses a string beginning\nwith `=` after outer whitespace is stripped. Operands are unsigned ASCII integers\n(leading zeros allowed) or cell references (case-insensitive). Binary operators\nare `+` and `-`. One optional unary `+` or `-` is allowed only before the first\noperand. Whitespace may separate tokens but cannot split an integer or reference.\nReturn terms as `(sign, operand)`, sign 1 or -1, integer operands as int, references\nnormalized to uppercase. Example `=-a1 + 02 - B3` -> `[(-1, 'A1'), (1, 2), (-1, 'B3')]`.\nEmpty expressions, adjacent operands, trailing operators, further unary operators,\nparentheses, and unsupported characters raise `ValueError`.\n\n`Spreadsheet()` starts empty. Implement:\n- `set(name, value) -> None`: value is an int (not bool) or a formula string;\n  other types raise `TypeError`. Validate names and parse formulas immediately;\n  invalid input must not replace an existing cell. Undefined references and cycles\n  are allowed at set time. Integers can be negative.\n- `get(name) -> int`: recursively evaluate current cell contents. Missing cells\n  (including referenced ones) raise `KeyError`; a cycle reached during this\n  evaluation raises `ValueError`. Unrelated cycles do not affect a valid cell.\n  Updates/deletions must affect subsequent evaluations; shared dependencies are\n  not cycles. Do not use Python eval.\n- `delete(name) -> None`: remove the normalized name; missing cells raise `KeyError`.\nAll three methods normalize names using `normalize_cell`.",
+  "sources": [
+    "spreadsheet.py"
+  ],
+  "expected": [
+    "test_m04_07.py::test_names_and_formula_terms",
+    "test_m04_07.py::test_formula_syntax_rejections",
+    "test_m04_07.py::test_dependencies_and_updates",
+    "test_m04_07.py::test_missing_references_and_delete",
+    "test_m04_07.py::test_cycles_are_local_and_recoverable",
+    "test_m04_07.py::test_shared_dependency_is_not_cycle",
+    "test_m04_07.py::test_failed_set_preserves_value_and_name_validation"
+  ]
+}

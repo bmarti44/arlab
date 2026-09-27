@@ -1,0 +1,17 @@
+{
+  "id": "lb-05",
+  "title": "Bank account transaction history",
+  "difficulty": "L3",
+  "instructions": "Implement `BankAccount` in `bank_account.py`. All money uses integer cents.\n\n## Files\n- `bank_account.py`\n\nAPI:\n- `BankAccount(opening_balance: int = 0)` requires a nonnegative integer.\n  The opening balance creates no history entry.\n- Read-only `balance: int` gives the current balance.\n- `deposit(amount: int) -> int` and `withdraw(amount: int) -> int` return\n  the new balance. Each amount must be a strictly positive integer.\n  Withdrawals may use the entire balance but cannot overdraw.\n- `transfer_to(other: BankAccount, amount: int) -> None` transfers a positive\n  integer amount to a different BankAccount. Reject self-transfers, non-account\n  destinations, and insufficient funds.\n- `history() -> list[tuple[str, int, int]]` returns a fresh list of entries\n  in operation order. Each tuple is `(kind, positive_amount, resulting_balance)`.\n  Kinds are `deposit`, `withdraw`, `transfer_out` on the sender, and\n  `transfer_in` on the recipient. A transfer adds exactly one entry to each\n  account (no extra deposit/withdraw entries).\n\nAll validation errors raise `ValueError`. Reject booleans and non-integers\nfor monetary arguments. Every rejected operation leaves all balances and\nhistories unchanged. Mutating the list returned by history must not affect\ninternal state. No timestamps or identifiers are needed.\n",
+  "sources": [
+    "bank_account.py"
+  ],
+  "expected": [
+    "test_lb_05.py::test_opening_balance_validation",
+    "test_lb_05.py::test_deposit_withdraw_and_ordered_ledger",
+    "test_lb_05.py::test_transfer_records_both_accounts",
+    "test_lb_05.py::test_invalid_amounts_are_atomic",
+    "test_lb_05.py::test_rejected_withdrawals_and_destinations",
+    "test_lb_05.py::test_history_is_a_snapshot"
+  ]
+}

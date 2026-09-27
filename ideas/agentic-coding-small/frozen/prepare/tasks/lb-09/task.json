@@ -1,0 +1,19 @@
+{
+  "id": "lb-09",
+  "title": "Repair cart and discount interactions",
+  "difficulty": "L4",
+  "instructions": "Fix four interacting bugs across the supplied shopping cart and discount\nmodules: repeated adds lose quantity, a discount minimum excludes its exact\nboundary, multiple discounts stack, and free shipping uses the discounted\namount. Preserve the existing validation and nonmutating checkout behavior.\n\n## Files\n- `cart.py`: `Cart`.\n- `discount_rules.py`: `percentage_discount` and `best_discount`.\n\nAll money is integer cents. `percentage_discount(subtotal: int, percent: int,\nminimum: int = 0) -> int` returns `subtotal * percent // 100` when subtotal\nis **at least** minimum, else 0. Subtotal/minimum must be nonnegative and\npercent must be 0\u2013100 inclusive. Invalid arguments raise `ValueError`.\n`best_discount(subtotal: int, rules: Iterable[tuple[int, int]]) -> int` accepts\n`(percent, minimum)` rules and returns the largest single saving, or 0 for\nno rules. Validate subtotal and every rule, even when a previous rule gives\na 100% discount. Never stack savings. Rules have two elements each.\n\n`Cart()` starts empty:\n- `add(sku: str, unit_price: int, quantity: int = 1) -> None` adds quantity\n  to any existing quantity for that SKU. Unit price must be nonnegative,\n  quantity positive, and the price for an existing SKU must match exactly.\n- `remove(sku: str, quantity: int = 1) -> None` removes that many units,\n  deleting the SKU when none remain. Validate positive quantity first;\n  missing SKU raises `KeyError`; excessive quantity raises `ValueError`.\n- `items() -> dict[str, tuple[int, int]]` returns a fresh mapping from SKU\n  to `(unit_price, quantity)`; callers cannot mutate the cart through it.\n- `subtotal() -> int` sums unit_price * quantity.\n- `checkout(rules: Iterable[tuple[int, int]] = (), shipping: int = 0,\n  free_shipping_at: int | None = None) -> dict[str, int]` returns exactly\n  `subtotal`, `discount`, `shipping`, `total`. Use best_discount for discount.\n  Shipping is zero for an empty cart or if the **original subtotal** is at\n  least free_shipping_at; otherwise charge shipping. None disables the\n  threshold. Total is subtotal - discount + charged shipping. Checkout\n  never changes the cart and validates rules even for an empty cart.\n\nReject non-integers (including bools), negative prices/shipping/thresholds,\nand invalid quantities with `ValueError`. All failed mutations leave the\ncart unchanged. SKUs are strings with no further restrictions. No specific\nerror-message wording is required.\n",
+  "sources": [
+    "cart.py",
+    "discount_rules.py"
+  ],
+  "expected": [
+    "test_lb_09.py::test_repeated_adds_accumulate",
+    "test_lb_09.py::test_threshold_inclusive_and_rounding",
+    "test_lb_09.py::test_best_single_rule_with_generator",
+    "test_lb_09.py::test_free_shipping_uses_original_subtotal",
+    "test_lb_09.py::test_combined_cart_flow_and_snapshot",
+    "test_lb_09.py::test_failed_mutations_preserve_accumulated_quantity",
+    "test_lb_09.py::test_rule_and_checkout_validation_preserved"
+  ]
+}

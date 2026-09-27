@@ -1,0 +1,19 @@
+{
+  "id": "m02-09",
+  "title": "Seeded playlist shuffle with artist spacing",
+  "difficulty": "L4",
+  "instructions": "Create a deterministic playlist order that avoids adjacent equal artists.\n\n## Files\n- `playlist.py`: implement `Track` and `prepare_tracks`.\n- `shuffler.py`: implement `shuffle_playlist`, using playlist.py.\n\n`Track` is a frozen dataclass with fields `id: str`, `artist: str`,\n`seconds: int` in that order. Assigning a field raises\n`dataclasses.FrozenInstanceError`. Its constructor only stores fields; validation\nbelongs to `prepare_tracks(tracks) -> list[Track]`. That function consumes a\nfinite iterable, returning a new list in input order with these rules:\nat most 9 tracks, each a Track; id and artist must be nonempty strings\n(whitespace is allowed and preserved); seconds must be a positive integer\nexcluding bool; ids must be unique. Raise ValueError on any violation.\n\n`shuffle_playlist(tracks, seed: int, first: str | None = None) -> list[Track]`\nvalidates via prepare_tracks and requires seed to be an int excluding bool\n(ValueError otherwise). If first is provided it must be a string naming an\nexisting id; invalid/unknown first raises ValueError, including on empty\ninput. Return a permutation of all tracks with no adjacent tracks whose\nartist strings compare equal (case sensitive). When first is provided that\ntrack must lead the result. If no valid order exists raise ValueError. Empty\ninput with first=None returns []. Do not mutate input or global random state.\n\nThe EXACT deterministic algorithm is part of the API:\n1. Copy the prepared input list. If first is set, remove that track and use\n   it as the initial result prefix.\n2. Call `random.Random(seed).shuffle(candidates)` ONCE on the remaining list.\n3. Search depth-first for a full valid permutation. At each position, try\n   unused candidates in that same shuffled order, skipping candidates whose\n   artist equals the previous track's artist. Backtrack on dead ends and\n   return the first complete order. Do not reshuffle during search.\n\nThe limit of 9 makes this small exhaustive search practical. Return a new\nlist; tracks themselves may be reused because they are immutable. No error\nmessage text or validation precedence is prescribed.\n",
+  "sources": [
+    "playlist.py",
+    "shuffler.py"
+  ],
+  "expected": [
+    "test_m02_09.py::test_prepare_snapshot_and_frozen_track",
+    "test_m02_09.py::test_prepare_validation",
+    "test_m02_09.py::test_seeded_order_without_conflicts",
+    "test_m02_09.py::test_backtracking_and_exact_priority",
+    "test_m02_09.py::test_pinned_first_and_case_sensitive_artist",
+    "test_m02_09.py::test_impossible_and_invalid_requests",
+    "test_m02_09.py::test_empty_singleton_and_global_random_isolation"
+  ]
+}

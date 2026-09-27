@@ -1,0 +1,18 @@
+{
+  "id": "m03-05",
+  "title": "Escaped Nested Dictionary Paths",
+  "difficulty": "L3b",
+  "instructions": "Implement `parse_path` and `PathStore` in `paths.py`. Paths address dictionary keys only;\nthere is no list indexing. Values are JSON-like objects (dicts with string keys, lists,\nstrings, numbers, bool and None). A key may contain dots or backslashes.\n\n`parse_path(path: str) -> list[str]` splits on unescaped dots. Backslash may escape only\n`.` or `\\`, producing that literal character in the key. Empty paths/segments, trailing\nbackslashes and any other escape raise `ValueError`. Whitespace is literal. For example\nraw path `r'user.first\\.name'` has keys `['user', 'first.name']`.\n\n`PathStore(data: dict | None = None)` deep-copies data; None means an empty dict.\n- `get(path: str, default=None)` returns a deep copy of the value, or a deep copy of default\n  if any key is absent. Encountering a non-dict before the last key raises `TypeError`.\n  A present None is a value, not a missing key.\n- `set(path: str, value) -> None` creates missing intermediate dictionaries and deep-copies\n  the value. Existing intermediate non-dicts raise `TypeError`. It may replace any final\n  value, including a dictionary. Errors must leave the store unchanged.\n- `delete(path: str) -> bool` deletes an existing final key, returning True. If any key is\n  missing return False. Intermediate non-dicts raise `TypeError`. Do not prune empty parents.\n- `snapshot() -> dict` returns a deep copy of the entire store.\nAll path operations use parse_path and reject invalid syntax before traversal or mutation.\nCaller changes to constructor data, set values, or returned data must never affect the store.\n\n## Files\n- `paths.py`",
+  "sources": [
+    "paths.py"
+  ],
+  "expected": [
+    "test_m03_05.py::test_path_parser_escapes",
+    "test_m03_05.py::test_set_creates_and_replaces",
+    "test_m03_05.py::test_missing_default_and_none",
+    "test_m03_05.py::test_deep_copy_boundaries",
+    "test_m03_05.py::test_delete_does_not_prune",
+    "test_m03_05.py::test_non_dict_traversal_and_atomicity",
+    "test_m03_05.py::test_invalid_syntax_before_mutation"
+  ]
+}

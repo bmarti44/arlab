@@ -1,0 +1,20 @@
+{
+  "id": "m05-09",
+  "title": "Branching in-memory version history",
+  "difficulty": "L4",
+  "instructions": "Implement a small git-like history using two cooperating modules. No filesystem\nI/O is needed; file contents are strings in an in-memory working tree.\n\n## Files\n- `snapshot_store.py`: validated, detached file snapshots.\n- `version_history.py`: editable working tree and parent-linked history.\n\n`snapshot_store.py` API:\n- `validate_path(path: str) -> None`: accept a nonempty relative slash-separated\n  path whose segments are nonempty and neither `.` nor `..`. Reject backslashes\n  anywhere. Invalid paths raise `ValueError`. Other characters, including spaces,\n  are allowed. Assume paths are strings.\n- `SnapshotStore()`, `save(files: dict[str, str]) -> int`, and\n  `load(snapshot_id: int) -> dict[str, str]`: IDs start at 1 and increase by one per\n  successful save, even for identical snapshots. Validate every path as above;\n  non-string contents raise `TypeError`. A failed save consumes no ID. Copy input\n  and output dictionaries. Loading an unknown ID or an ID whose exact type is not\n  `int` raises `KeyError` (including bool). Assume save receives a dict.\n\n`version_history.py` exposes `History()` with a public `head` attribute, initially\n`None`, and these methods:\n- `write(path: str, content: str) -> None`: validate path and string content by the\n  store's rules, then create or replace the file in the working tree.\n- `delete(path: str) -> bool`: validate path; remove the file and return whether it\n  existed.\n- `files() -> dict[str, str]`: a detached copy of the working tree.\n- `commit(message: str) -> int`: strip outer whitespace and require a nonempty\n  message, else raise `ValueError`. Save a snapshot, record the old head as parent,\n  move head to the new ID, and return it. Assume a string message. Empty working\n  trees and commits with unchanged contents are allowed. IDs begin at 1 and are\n  never reused. Invalid commits leave head, working files, and ID allocation alone.\n- `checkout(commit_id: int) -> None`: restore that commit's entire snapshot and\n  set head to it, discarding uncommitted edits. Invalid IDs follow `load`'s rules\n  and leave all state unchanged. Any existing commit remains available, even if\n  it is no longer an ancestor of head.\n- `log(limit: int | None = None) -> list[dict]`: follow parents from head, newest\n  first. Each detached dict has exactly `id`, `message`, and `parent` (an integer\n  ID or `None`). An empty history returns `[]`. `None` means no limit; zero means\n  `[]`; negative limits raise `ValueError`. Assume limit is None or an integer.\n\nAfter checking out an older commit, a new commit has THAT commit as its parent;\n`log()` must follow ancestry, not sort all commits by ID. Work stays in memory.",
+  "sources": [
+    "snapshot_store.py",
+    "version_history.py"
+  ],
+  "expected": [
+    "test_m05_09.py::test_snapshot_copy_and_id_allocation",
+    "test_m05_09.py::test_path_and_store_validation_are_atomic",
+    "test_m05_09.py::test_working_edits_and_deletion",
+    "test_m05_09.py::test_commit_checkout_and_trimmed_messages",
+    "test_m05_09.py::test_branch_follows_parent_and_retains_old_commits",
+    "test_m05_09.py::test_invalid_operations_preserve_head_files_and_ids",
+    "test_m05_09.py::test_log_limits_and_detached_records",
+    "test_m05_09.py::test_empty_and_unchanged_snapshots_are_commits"
+  ]
+}

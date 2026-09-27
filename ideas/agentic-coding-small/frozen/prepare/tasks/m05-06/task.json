@@ -1,0 +1,18 @@
+{
+  "id": "m05-06",
+  "title": "Validated Morse message codec",
+  "difficulty": "L3b",
+  "instructions": "Implement International Morse encoding for ASCII letters A\u2013Z and digits 0\u20139.\n\n## Files\n- `morse.py`\n\nThe `CODES` dictionary in the starter supplies the exact alphabet and must remain\navailable. Implement these public helpers and class methods:\n- `normalize_text(text: str) -> list[str]`: accept ASCII letters (either case),\n  digits, and any character for which `str.isspace()` is true. Reject every other\n  character with `ValueError`, including non-ASCII letters. Return uppercase\n  words after splitting on arbitrary runs of whitespace. Empty/whitespace-only\n  input returns `[]`.\n- `split_morse(message: str) -> list[list[str]]`: parse the wire format described\n  below into words containing code tokens. It validates formatting and that\n  tokens contain only dots/dashes, but does NOT require tokens to exist in CODES.\n  Invalid formatting raises `ValueError`; the empty string returns `[]`.\n- `MorseCodec()` takes no arguments.\n- `encode(text: str) -> str`: use `normalize_text`, replace each character with its\n  code, join characters by one ASCII space, and join words by exactly `\" / \"`.\n  Empty/whitespace-only plaintext encodes as `\"\"`.\n- `decode(message: str) -> str`: use `split_morse`, reject unknown code tokens with\n  `ValueError`, and return uppercase plaintext with one ASCII space between words.\n  The empty string decodes as `\"\"`.\n\nWire format is canonical: nonempty words, nonempty tokens of dots/dashes,\nexactly one ASCII space between tokens, and exactly `\" / \"` between words.\nReject leading/trailing spaces, repeated spaces, tabs/newlines, bare slashes,\nempty words and other characters. Do not silently trim or repair wire messages.\nAll input arguments are strings. There are no punctuation codes.",
+  "sources": [
+    "morse.py"
+  ],
+  "expected": [
+    "test_m05_06.py::test_encode_normalizes_words",
+    "test_m05_06.py::test_decode_and_word_boundaries",
+    "test_m05_06.py::test_full_alphabet_round_trip",
+    "test_m05_06.py::test_empty_inputs",
+    "test_m05_06.py::test_invalid_plaintext",
+    "test_m05_06.py::test_noncanonical_wire_format",
+    "test_m05_06.py::test_unknown_code_is_not_a_format_error"
+  ]
+}

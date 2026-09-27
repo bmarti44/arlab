@@ -1,0 +1,18 @@
+{
+  "id": "m07-02",
+  "title": "T9 dictionary lookup",
+  "difficulty": "L3",
+  "instructions": "Implement `T9Index` in `t9.py` for a mutable dictionary of phone-keypad words.\n\nThe keypad is `2=abc, 3=def, 4=ghi, 5=jkl, 6=mno, 7=pqrs, 8=tuv, 9=wxyz`. Valid words are nonempty strings of ASCII letters only, case insensitive; store and return lowercase words. Invalid words raise `ValueError`. Invalid add/remove calls leave the index unchanged.\n\nAPI (five methods):\n- `T9Index(words=())`: consume an iterable of valid words, merging duplicates after lowercasing. An invalid word raises `ValueError`.\n- `add(word: str) -> bool`: return True if newly inserted, False if already present.\n- `remove(word: str) -> bool`: return True if removed, False if absent; validate even when absent.\n- `lookup(digits: str) -> list[str]`: return all words whose complete encoding equals `digits`, sorted lexicographically.\n- `complete(prefix: str, limit: int = 10) -> list[str]`: return lexicographically sorted words whose encoding starts with `prefix`, truncated to `limit`. This is lexical order of words, not encoding order. Empty prefix matches all words. `limit` must be a nonnegative integer (never a boolean), otherwise raise `ValueError`.\n\nBoth query strings may be empty but otherwise must contain only ASCII digits 2\u20139; invalid query strings raise `ValueError`. Empty `lookup` returns an empty list. All word and query arguments are strings. Returned lists must be independent of the index. Internal storage is your choice.\n\n### Files\n- `t9.py`: implement `T9Index`.\n",
+  "sources": [
+    "t9.py"
+  ],
+  "expected": [
+    "test_m07_02.py::test_collisions_and_normalization",
+    "test_m07_02.py::test_add_remove_and_return_values",
+    "test_m07_02.py::test_prefix_lexical_order_and_limits",
+    "test_m07_02.py::test_empty_queries_and_independent_results",
+    "test_m07_02.py::test_invalid_words_leave_index_intact",
+    "test_m07_02.py::test_invalid_queries_and_limit",
+    "test_m07_02.py::test_full_keypad_and_default_limit"
+  ]
+}

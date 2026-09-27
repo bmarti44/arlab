@@ -1,0 +1,19 @@
+{
+  "id": "m03-09",
+  "title": "Elevator Controller Tick Simulation",
+  "difficulty": "L4",
+  "instructions": "Implement two modules for a deterministic elevator. Floors are integers numbered 0 through\nfloors-1. There is one combined set of floor requests, without passenger direction.\n\nIn `elevator_state.py`:\n- `validate_floor(floor: int, floors: int) -> None`: floors is assumed valid. Raise\n  `ValueError` unless floor is an integer excluding bool in [0, floors).\n- `new_state(floors: int, start: int = 0) -> dict`: floors must be a positive integer\n  excluding bool; validate start too. Return exactly `{'floors': floors, 'floor': start,\n  'direction': 0, 'doors_open': False, 'requests': []}`. Invalid inputs raise `ValueError`.\n\nIn `elevator.py`, implement `step(state: dict, new_requests=()) -> dict`. State is always\nvalid and has exactly the structure above, with direction -1 (down), 0 (idle), or 1 (up),\nboolean doors_open, and a sorted unique list of pending requests. No state validation is\nneeded. new_requests is any iterable of floor integers. Validate all requests using the\nsame floor rules; invalid input raises `ValueError`. Never mutate state or its requests,\neven on success; the returned requests list must be independent.\n\nEvery call is exactly one tick, with these rules in order:\n1. Merge new requests with pending requests, deduplicating.\n2. If doors were open, close them and do nothing else this tick. Preserve direction while\n   requests remain; set direction to 0 if none remain. Requests for the current floor\n   made while doors are open remain pending for the following tick.\n3. Otherwise, if current floor is requested, remove that request and open doors without\n   moving. Preserve direction if other requests remain; otherwise set it to 0.\n4. Otherwise, if no requests remain, stay put with closed doors and direction 0.\n5. Choose travel direction. If already moving, continue in that direction whenever any\n   pending floor lies that way; otherwise reverse. If direction is 0, head toward the\n   nearest pending floor, breaking equal-distance ties toward the lower floor.\n6. Move exactly one floor. If the new floor is requested, remove it and open doors in this\n   same tick. Keep the travel direction if requests remain, else set it to 0.\nAlways return requests sorted ascending and keep floors unchanged. There is no automatic\nreturn to a home floor. New calls during travel may change which floors are visited but\nnever force a reversal while a request remains ahead.\n\n## Files\n- `elevator_state.py`\n- `elevator.py`",
+  "sources": [
+    "elevator_state.py",
+    "elevator.py"
+  ],
+  "expected": [
+    "test_m03_09.py::test_initial_state_and_validation",
+    "test_m03_09.py::test_idle_tie_goes_down_and_arrival_opens",
+    "test_m03_09.py::test_current_floor_and_door_cycle",
+    "test_m03_09.py::test_continue_sweep_then_reverse",
+    "test_m03_09.py::test_finish_closes_then_stays_idle",
+    "test_m03_09.py::test_invalid_requests_do_not_mutate",
+    "test_m03_09.py::test_request_copies_and_downward_sweep"
+  ]
+}

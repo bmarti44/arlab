@@ -1,0 +1,19 @@
+{
+  "id": "m06-08",
+  "title": "Bank teller queue simulation",
+  "difficulty": "L4",
+  "instructions": "Implement two interacting modules, `customers.py` and `bank.py`.\n`customers.py` exports a frozen dataclass `Customer(customer_id: str, arrival: int, duration: int)`\nwith these three fields, and `parse_customers(text: str) -> list[Customer]`:\n- Each nonblank line is exactly `id,arrival,duration`. Strip whitespace around fields. IDs must be\n  nonempty and unique within the input. Arrival and duration must consist only of ASCII digits;\n  leading zeros are allowed. Arrival is nonnegative and duration is positive. Malformed lines,\n  duplicate IDs, or invalid numbers raise `ValueError`. Blank lines are ignored; preserve input order.\n  No quoting or comments are supported. Directly constructed Customers are assumed valid.\n`bank.py` imports the customer module and exports:\n- `simulate(customers: list[Customer], tellers: int) -> list[dict]`. Nonpositive tellers raises\n  `ValueError`, including for an empty customer list. Otherwise process customers by increasing\n  arrival, retaining input order for ties (a single FIFO queue). Tellers are numbered 0 to tellers-1.\n  Each customer starts as soon as a teller can serve them. Among tellers available at that start\n  time, choose the lowest teller number. Service cannot be interrupted. A teller is free exactly\n  at the end of its previous service. Return records in queue order with exactly these keys:\n  `customer_id`, `teller`, `arrival`, `start`, `end`, `wait`; times are integer units,\n  end = start + duration and wait = start - arrival. Do not reorder or mutate the input list.\n- `summarize(records: list[dict], tellers: int) -> dict`. Accept the records from simulate;\n  reject nonpositive tellers with `ValueError`. Return exactly `{\"served\": int, \"total_wait\": int,\n  \"max_wait\": int, \"last_end\": int, \"busy\": list[int]}`. Busy has one entry per teller, summing\n  service durations; unused tellers have zero. On empty records the three time metrics are zero.\nNo real time, sleeping, randomness, or I/O is involved.\n\n## Files\n- `customers.py`\n- `bank.py`\n",
+  "sources": [
+    "customers.py",
+    "bank.py"
+  ],
+  "expected": [
+    "test_m06_08.py::test_parse_fields_blanks_and_order",
+    "test_m06_08.py::test_parser_rejects_invalid_records",
+    "test_m06_08.py::test_single_teller_waits_and_summary",
+    "test_m06_08.py::test_sort_stability_and_input_unchanged",
+    "test_m06_08.py::test_teller_ties_and_exact_release",
+    "test_m06_08.py::test_idle_teller_choice_and_last_end",
+    "test_m06_08.py::test_empty_and_invalid_teller_count"
+  ]
+}
