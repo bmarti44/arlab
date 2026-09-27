@@ -17,3 +17,4 @@
 - M0: accept-M0 PASS after B1 resolved. Sol review round 1: 10 findings fixed. agentic-coding-small pack written; frozen/prepare added (PREPARE-only mount); astra pilot generation p01 started.
 - M1: accept-M1 PASS (31 passed, 11m43s) after sol review fixes; clean-room forged_report case passes. agentic pilot: 10 astra tasks p01, 10/10 validated; full check (pilot probe) running.
 - M4: accept-M4 PASS. digits-label-smoothing/m4: 20 Codex experiments in 0.41 active h, incumbent 0.984 vs baseline 0.964 on validation; verdict not_found_at_this_scale (holdout d+2SE 0.026 < MES 0.05). Friction recorded in docs/ORCHESTRATOR.md.
+- M3: accept-M3 PASS. nanochat-lite/m3b: 28 experiments in 2.90 active h (9.64/h, median 5.2 min, agent share 16% → no speculative proposal needed), 1 keep (optimizer batch 2^16), verdict supported (holdout d=0.0151 ≥ MES 0.01, d−2SE=0.0102 > 0, every seed positive). Kill -9 during agent and during training both resumed cleanly.
