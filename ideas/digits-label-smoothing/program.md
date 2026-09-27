@@ -15,6 +15,7 @@ Runs that take > 1.5× the baseline's wall time fail a guard.
 ## Ideas worth trying (from IDEA.md)
 Label smoothing; hidden width/depth; dropout / weight decay; learning-rate schedule; input normalization.
 ## Rules
+- Never load the digits dataset (or any data) yourself: sklearn.datasets is blocked, and looking labels up is cheating.
 - One change, one hypothesis_tag (reuse an existing tag for the same idea).
 - Read history.md: don't repeat a failed idea unless you change it materially. After 3 discards in a row, try something structurally different.
 - Respect constraints.md. Prefer simple changes; equal results with less code are better.

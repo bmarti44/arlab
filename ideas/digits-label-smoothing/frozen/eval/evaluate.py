@@ -20,9 +20,9 @@ def write(obj):
 
 y = np.load(a.labels)
 try:
-    logits = np.load(f"{a.run}/logits.npy")
-except Exception as e:
-    write({"valid": False, "primary": None, "metrics": {}, "items": None, "message": f"no logits: {e}"})
+    logits = np.asarray(np.load(f"{a.run}/logits.npy", allow_pickle=False), dtype=np.float64)
+except Exception as e:  # missing, an .npz, non-numeric dtype ...
+    write({"valid": False, "primary": None, "metrics": {}, "items": None, "message": f"no usable logits: {e}"})
     raise SystemExit(0)
 if logits.shape != (len(y), 10) or not np.isfinite(logits).all():
     write({"valid": False, "primary": None, "metrics": {}, "items": None, "message": f"bad logits {logits.shape} or non-finite"})

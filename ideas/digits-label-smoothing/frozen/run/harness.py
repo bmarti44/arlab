@@ -14,6 +14,7 @@ ap.add_argument("--split", required=True)
 a = ap.parse_args()
 torch.set_num_threads(1)
 torch.manual_seed(a.seed)
+sys.modules["sklearn.datasets"] = None  # the eval images ship with sklearn: the surface must learn, not look labels up
 sys.path.insert(0, "/work")
 import model as surface  # noqa: E402  (the editable surface)
 
