@@ -13,9 +13,13 @@ def answer_text(decoded: str) -> str:
     return decoded.strip().split("\n")[0].strip()
 
 
+_TOKEN = re.compile(r"(?<![a-z0-9])-?\d+(?:\.\d+)?%?|[a-z0-9]+")
+
+
 def normalize(s: str) -> str:
-    """lowercase, punctuation -> space, drop articles, number words -> digits, collapse whitespace."""
-    toks = re.sub(r"[^a-z0-9]+", " ", s.lower()).split()
+    """lowercase; tokens = signed numbers with their % sign, or alphanumeric words (other punctuation separates);
+    drop articles; number words -> digits. "-3", "3%" and "3.5" stay different from "3"."""
+    toks = _TOKEN.findall(s.lower())
     return " ".join(_NUM.get(t, t) for t in toks if t not in ("a", "an", "the"))
 
 

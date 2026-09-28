@@ -1,12 +1,11 @@
-"""Frozen RUN entry point for ttt-context. It owns the model, the item loop, the per-item TTT deadline, the weight
-reset and verification, and greedy answering (all in tttlib.run_items); the surface (/work/ttt.py) only supplies
-adapt(model, ctx) and the DOC_IN_CONTEXT flag.
+"""Frozen RUN entry point for ttt-context. It owns the models, the item loop, the per-item TTT deadline, the state
+restore and verification, and greedy answering (all in tttlib.run_items); the surface (/work/ttt.py) only supplies
+adapt(model, ctx) -> {"weights": {name: tensor}, "doc_in_context": bool}.
 
 Outputs in --out (scored by the frozen evaluator, which never trusts a surface number):
   preds.json    {id: [generated token ids]}
-  items.json    {id: {ttt_s, prefill_s, answer_s, load_s, changed_tensors, cache_len, doc_in_context, nonfinite,
-                      reset_ok, probe_diff}}
-  stats.json    SHA-256 of the weights at load and at the end, reset/probe results, timings
+  items.json    {id: {ttt_s, prefill_s, answer_s, changed_tensors, doc_in_context, nonfinite, reset_ok, probe_diff}}
+  stats.json    SHA-256 of the weights at load and of both models at the end, restore/probe results, timings
   budget.json   {"ttt_seconds": total TTT seconds over all items}
 """
 import os
@@ -50,12 +49,13 @@ for p in model.parameters():
     p.requires_grad_(False)
 print(f"model loaded in {time.time() - t0:.1f}s; {len(items)} items, split {a.split}, seed {a.seed}, "
       f"ttt-seconds {a.ttt_seconds}", flush=True)
+dump = json.dump      # bound before any surface code runs
 preds, per, stats = run_items(model, lambda: fresh_import("ttt"), docs, items, ttt_seconds=a.ttt_seconds,
                               seed=a.seed, device=dev, log=lambda s: print(s, flush=True))
 stats |= {"split": a.split, "limit": a.limit, "load_model_s": time.time() - t0 - stats["wall_s"],
           "peak_alloc_gb": torch.cuda.max_memory_allocated() / 1e9 if dev == "cuda" else 0.0}
-json.dump(preds, open(f"{a.out}/preds.json", "w"))
-json.dump(per, open(f"{a.out}/items.json", "w"))
-json.dump(stats, open(f"{a.out}/stats.json", "w"))
-json.dump({"ttt_seconds": sum(v["ttt_s"] for v in per.values())}, open(f"{a.out}/budget.json", "w"))
+dump(preds, open(f"{a.out}/preds.json", "w"))
+dump(per, open(f"{a.out}/items.json", "w"))
+dump(stats, open(f"{a.out}/stats.json", "w"))
+dump({"ttt_seconds": sum(v["ttt_s"] for v in per.values())}, open(f"{a.out}/budget.json", "w"))
 print(json.dumps(stats), flush=True)

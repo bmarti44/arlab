@@ -1,4 +1,5 @@
-"""Frozen, deterministic generator of long synthetic documents with one question each (pure Python, no LLM).
+"""PREPARE-only (mounted at /prepare, never in RUN): frozen, deterministic generator of long synthetic documents
+with one question each (pure Python, no LLM).
 
 A document is the operations log of a fictional depot: ~1,100 timestamped one-line events over several days (crates
 moved between docks, shipments approved/rejected/reviewed, people assigned to teams, teams moving rooms, locker codes
@@ -23,6 +24,10 @@ from __future__ import annotations
 import random
 
 from common import HEAD
+
+# ---- sizes (calibrated in the GPU pilot; a change here changes data_hash -> new data, new tag)
+CONTEXT_TOKENS = 8192      # document prompt length target (chat head + log); every doc is within 128 tokens below it
+N_ITEMS = 400              # items (one question per document) per split: validation and holdout
 
 KINDS = ("state", "hop2", "count", "kv")
 DIFFICULTY = {                      # tune in the GPU pilot so that no_ttt lands at 30-70 % (a change = new data)

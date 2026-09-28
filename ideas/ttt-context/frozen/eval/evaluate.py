@@ -52,32 +52,33 @@ try:
         invalid(f"run used --limit {stats.get('limit')} but evaluation --limit {a.limit}")
     if float(stats["ttt_seconds_limit"]) != a.ttt_seconds:
         invalid(f"run used --ttt-seconds {stats['ttt_seconds_limit']} but evaluation {a.ttt_seconds}")
-    if stats.get("sha_start") != stats.get("sha_end") or not stats.get("sha_start"):
+    if not stats.get("sha_start") or not (stats["sha_start"] == stats.get("sha_end") == stats.get("sha_end_work")):
         invalid("model weights at the end differ from the weights at load (SHA-256)")
     if set(preds) != set(gold) or set(per) != set(gold):
         invalid(f"preds/items must have exactly the {len(gold)} expected ids")
+    from transformers import AutoTokenizer
+    tok = AutoTokenizer.from_pretrained(a.tokenizer)
+    vocab = len(tok)
     for i in gold:
         v, r = preds[i], per[i]
-        if not (isinstance(v, list) and len(v) <= MAX_NEW and all(isinstance(t, int) and 0 <= t < 200_000 for t in v)):
-            invalid(f"{i}: an answer must be a list of <= {MAX_NEW} token ids")
+        if not (type(v) is list and len(v) <= MAX_NEW and all(type(t) is int and 0 <= t < vocab for t in v)):
+            invalid(f"{i}: an answer must be a list of <= {MAX_NEW} token ids in [0, {vocab})")
         if r.get("reset_ok") is not True:
             invalid(f"{i}: weight reset failed (probe diff {r.get('probe_diff')})")
-        if int(r.get("nonfinite", 1)) != 0:
-            invalid(f"{i}: non-finite logits while answering")
+        if type(r.get("nonfinite")) is not int or r["nonfinite"] != 0:
+            invalid(f"{i}: non-finite logits while answering (or a malformed count)")
         for k in ("ttt_s", "prefill_s", "answer_s"):
-            if not (isinstance(r.get(k), (int, float)) and math.isfinite(r[k]) and r[k] >= 0):
+            if not (type(r.get(k)) in (int, float) and math.isfinite(r[k]) and r[k] >= 0):
                 invalid(f"{i}: bad timing {k}={r.get(k)!r}")
+    texts = {i: answer_text(tok.decode(preds[i], skip_special_tokens=False)) for i in gold}
 except SystemExit:
     raise
 except Exception as e:
     invalid(f"malformed run outputs: {e!r}"[:500])
 
-from transformers import AutoTokenizer  # noqa: E402  (only needed once the outputs are well-formed)
-
-tok = AutoTokenizer.from_pretrained(a.tokenizer)
 items, by_kind, over = {}, defaultdict(list), 0
 for i, g in gold.items():
-    s = score(answer_text(tok.decode(preds[i], skip_special_tokens=False)), g["aliases"])
+    s = score(texts[i], g["aliases"])
     if per[i]["ttt_s"] > a.ttt_seconds:
         s, over = 0.0, over + 1
     items[i] = s

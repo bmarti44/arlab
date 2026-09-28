@@ -1,4 +1,5 @@
-"""PREPARE for ttt-context (CPU, offline, deterministic): N_ITEMS long documents + one question each, per split.
+"""PREPARE for ttt-context (CPU, offline, deterministic; mounted at /prepare in PREPARE only, so RUN can neither
+regenerate the documents nor learn the split seeds): N_ITEMS long documents + one question each, per split.
 
 Layout written under --out:
   {validation,holdout}/public/docs.npy, offsets.npy   document prompt tokens (chat head + log), concatenated, int32
@@ -17,8 +18,8 @@ from collections import Counter
 import numpy as np
 from transformers import AutoTokenizer
 
-from common import CONTEXT_TOKENS, MODEL_DIR, N_ITEMS, QUESTION
-from docgen import DIFFICULTY, KINDS, build
+from common import MODEL_DIR, QUESTION
+from docgen import CONTEXT_TOKENS, DIFFICULTY, KINDS, N_ITEMS, build
 
 SPLIT_SEEDS = {"validation": 1_000_000, "holdout": 2_000_000}
 

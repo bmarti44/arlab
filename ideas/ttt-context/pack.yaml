@@ -1,6 +1,7 @@
 name: ttt-context
 image: {base: "nvcr.io/nvidia/pytorch:25.10-py3"}
-prepare: {command: "python /frozen/prepare.py --out /data", timeout_s: 1800}
+# PREPARE code, generator and seeds live in frozen/prepare/ (mounted at /prepare in PREPARE only; RUN cannot regenerate labels)
+prepare: {command: "python /prepare/prepare.py --out /data", timeout_s: 1800}
 run:
   # --ttt-seconds is the per-item wall-clock TTT budget (surface import + adapt, after a device sync), owned by the
   # frozen harness; the evaluator scores an item 0 if it went over. CALIBRATE IN THE GPU PILOT (build/pilot.sh):
@@ -18,7 +19,7 @@ budget: {unit: ttt_seconds, limit: 1600}           # total TTT seconds per run =
 #   the runner's check (PACK-AUTHORING §3) uses the paired item sd measured between the no_ttt reference and the
 #     baseline on the screen seed: sd = 0.3 -> SE = sqrt(0.09/400 + sigma^2) = 0.0180 at sigma = 0.01 (2SE 0.036);
 #     sd = 0.4 -> 0.0224 (2SE 0.045); sd = sqrt(0.2) (no reference) -> 0.0245 (2SE 0.049). Underpowered iff 2SE > 0.05.
-#   If CALIBRATE says underpowered, raise N_ITEMS in frozen/run/common.py (new data, new tag), never the MES.
+#   If CALIBRATE says underpowered, raise N_ITEMS in frozen/prepare/docgen.py (new data, new tag), never the MES.
 metric: {name: accuracy, direction: maximize, mes: 0.05}
 guards:
   - {name: peak_mem_gb, max: 40}                   # 1.7B bf16 + pristine copy + 8K KV + Adam state ~ 15 GB

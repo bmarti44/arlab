@@ -18,7 +18,7 @@ stage 1 (`plastic-agent`); its effect size does not gate stage 1.
 disabled (empty `<think></think>`), the assistant turn prefilled with `Answer:` (a CPU check on 12 items: without it
 the base model often continues the log or starts explaining instead of answering).
 
-**Data (frozen generator `frozen/run/docgen.py`, no LLM, no downloads).** Each item is one document and one question.
+**Data (frozen generator in `frozen/prepare/`, mounted in PREPARE only; no LLM, no downloads).** Each item is one document and one question.
 A document is the operations log of a fictional depot, ~1,100 one-line timestamped events over several days: crates
 moved between docks, shipments approved/rejected/reviewed, people assigned to teams, teams moving rooms, locker codes
 set, and routine filler. All names are pseudo-words drawn per document, so answers cannot come from world knowledge.
@@ -28,18 +28,26 @@ Four question kinds, balanced (kinds cycle state/hop2/count/kv):
 - *count*: how many shipments a person approved (1–6, among rejections/reviews by the same person and approvals by namesakes);
 - *kv*: the latest code of a locker (last of 1–3 settings; near-duplicate locker names with their own codes).
 Answers are 1–6 tokens (a dock name, a room number, a count, a code). Each document is fitted to at most
-`CONTEXT_TOKENS` = 8,192 tokens (pilot: 16K made no_ttt 0.175 and runs ~24 min; 8K chosen) (chat head + log; within 128 tokens of it) by removing random unprotected
-distractor events; the answer is recomputed from the final event list. Validation and holdout come from disjoint seed
-ranges (1,000,000+i and 2,000,000+i), 400 items each (`N_ITEMS`). Difficulty knobs: `DIFFICULTY` in `docgen.py`.
+`CONTEXT_TOKENS` = 8,192 tokens (chat head + log; within 128 tokens of it; pilot: 16K made no_ttt 0.175 and runs
+~24 min, so 8K was chosen) by removing random unprotected distractor events; the answer is recomputed from the final
+event list. Validation and holdout come from disjoint generator seeds, 400 items each (`N_ITEMS`). The generator, its
+seeds, the sizes and the difficulty knobs (`DIFFICULTY`) live in `frozen/prepare/`, which RUN never mounts, so no RUN
+code can regenerate the documents or their answers (astra review, round 1).
 
-**Harness (frozen, `frozen/run/tttlib.py`).** Per item: import `ttt.py` afresh; prefill the document with the base
-weights (not counted as TTT, identical in every arm); call `adapt(model, ctx)` with a deadline of `--ttt-seconds`
-(the import and `adapt` are timed after a device sync); answer greedily (≤ 12 tokens) with the document cache in
-context, the cache `adapt` returned, or no document (`DOC_IN_CONTEXT = False`); then restore every parameter and
-buffer from a pristine copy, clear all module hooks, refuse structural changes (new/replaced modules or parameters,
-a monkeypatched `forward`), and verify the parameters equal the pristine copy exactly and the logits on a fixed probe
-match the untouched model's (within 0.25, bf16 noise; this catches state outside the parameters, e.g. a global
-hook). The SHA-256 of all weights at load and at the end of the run must match.
+**Harness (frozen, `frozen/run/tttlib.py`).** Two copies of the model: ANSWER (never handed to surface code) and
+WORK (the surface's working copy). Per item: reseed every RNG from the item seed; prefill the document on ANSWER with
+the pristine weights (not counted as TTT, identical in every arm) and give the surface its own clone of that cache;
+then, timed between device syncs, import `ttt.py` afresh, call `adapt(WORK, ctx)`, and validate and clone its return
+value `{"weights": {name: tensor}, "doc_in_context": bool}` (literal bool; known names, exact shapes/dtypes, finite).
+Before answering, the harness restores the process state surface code could have touched (global and per-module
+hooks, the class dictionaries of the model's module classes, the dictionaries of the modules the answer path uses,
+the attention/mask registries, sys.modules entries the surface added; a thread left running is refused), checks that
+ANSWER is still pristine, copies in only the returned weights and answers greedily (≤ 12 tokens) from the frozen
+prompt: the stored question tokens after the harness's own document cache, or after the chat head alone. No surface
+code runs while answering, and a surface cannot supply caches or prompts. Afterwards ANSWER and WORK are restored
+(weights, buffers, hooks, instance attributes, config; structural changes or a monkeypatched `forward` crash the run)
+and verified equal to the pristine weights, plus a probe-logit check (within 0.25, bf16 noise). The SHA-256 of both
+models at the end must equal the pristine weights' at load.
 
 **Arms.**
 - *no_ttt* (frozen reference `frozen/run/ref_no_ttt`, the verdict's comparison): document in context, no updates.
@@ -82,9 +90,11 @@ seeds 1–2, and one qTTT-like arm (32 steps, LR 1e-3) to see whether any headro
    mechanism. `program.md` forbids hand-written parsing and code-built targets (targets must be document text or the
    model's own generations); the agent does not see the generator or the data; diffs are in the report. Generic
    question–span token overlap for span selection is allowed on purpose (it is the S-TTT lever).
-2. **In-process surface.** As in every arlab training pack, the surface runs inside the harness process: it could in
-   principle patch the timer or the reset, or read `/data/public` (other items' documents; never answers). The
-   per-item re-import, the reset checks and the end-of-run SHA catch honest mistakes; the proposer is good-faith.
+2. **In-process surface.** As in every arlab training pack, `adapt()` runs inside the harness process. The answer
+   path is protected by a separate ANSWER model, a weights-only return and the state restore above, but deliberate
+   patching of objects the harness does not snapshot (e.g. `torch` itself or the timer) or reading `/data/public`
+   (other items' documents; never answers) remains possible. Forbidden by `program.md`, visible in every kept diff;
+   the proposer is good-faith (PLAN §3.7). A subprocess per item was rejected: it reloads 1.7B weights per item.
 3. **Wall-clock budget on a shared GPU.** Throughput changes shift how many steps fit; σ from 3 seeds absorbs part of
    it and contended runs are re-run. The surface should leave a margin (the baseline stops 0.3 s early).
 4. **Power check optimism.** If the naive baseline barely changes answers, the measured no_ttt-vs-baseline item sd

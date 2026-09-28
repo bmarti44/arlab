@@ -1,10 +1,14 @@
-"""Deterministic CPU checks for ttt-context (run by `arlab check` as root, no GPU; data at /data, surface at /work).
+"""Deterministic CPU checks for ttt-context (run by `arlab check` as root, no GPU; data at /data, surface at /work,
+the whole sealed pack at /pack: the generator is read from /pack/frozen/prepare because RUN never sees it).
 The model-level tests use a tiny random-init Qwen3 (2 layers, d=64, the real vocabulary), never the 1.7B weights."""
+import gc
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
+import threading
 import time
 import types
 
@@ -12,11 +16,12 @@ import numpy as np
 import pytest
 import torch
 
-sys.path[:0] = ["/work", "/eval"]
+sys.path[:0] = ["/work", "/eval", "/pack/frozen/prepare"]
 import docgen  # noqa: E402
 import ttt as surface  # noqa: E402  (the baseline surface at TESTS time)
 import tttlib  # noqa: E402
-from common import ANSWER_PREFIX, CONTEXT_TOKENS, MAX_NEW, MODEL_DIR, N_ITEMS, QUESTION  # noqa: E402
+from common import ANSWER_PREFIX, MAX_NEW, MODEL_DIR, QUESTION  # noqa: E402
+from docgen import CONTEXT_TOKENS, N_ITEMS  # noqa: E402
 from scoring import answer_text, normalize, score  # noqa: E402
 from solver import solve  # noqa: E402
 
@@ -125,11 +130,23 @@ def test_prepared_answers_follow_the_document(tok):
             assert max(ak.count(x) for x in set(ak)) / len(ak) <= max(0.3, 2 / len(ak)), k
 
 
+def test_run_cannot_regenerate_the_data():
+    """The generator, PREPARE and the split seeds are PREPARE-only; nothing RUN mounts (frozen/run) or the agent sees
+    (program.md, IDEA.md) contains them."""
+    run_files = [os.path.join(r, f) for r, _, fs in os.walk("/frozen") for f in fs if "__pycache__" not in r]
+    assert not {"docgen.py", "prepare.py"} & {os.path.basename(f) for f in run_files}, run_files
+    for f in run_files + ["/pack/program.md", "/pack/IDEA.md"]:
+        src = open(f, errors="replace").read()
+        for needle in ("SPLIT_SEEDS", "1_000_000", "2_000_000", "1,000,000", "2,000,000", "docgen", "_ONSETS",
+                       "TEMPLATES", "def replay", "random.Random("):
+            assert needle not in src, (f, needle)
+    assert 'command: "python /prepare/prepare.py' in open("/pack/pack.yaml").read()
+
+
 def test_public_data_has_no_answers():
     for split in SPLITS:
         items = _json(f"{D}/{split}/public/items.json")
         assert all(set(it) == {"id", "q"} for it in items)
-        import os
         assert sorted(os.listdir(f"{D}/{split}/public")) == ["docs.npy", "items.json", "offsets.npy"]
     for f in ("/frozen/harness.py", "/frozen/tttlib.py"):
         src = open(f).read()
@@ -147,6 +164,8 @@ def test_normalize_and_score():
     assert score("Velm or Arro", ["Velm"]) == 0.0 and score("Velm, Velmi", ["Velm"]) == 0.0
     assert score("Crate K-482 is at dock Velm.", ["Velm", "dock Velm"]) == 0.0
     assert score("", ["3"]) == 0.0 and score("48213", ["48123"]) == 0.0 and score("4821", ["48213"]) == 0.0
+    assert score("-3", ["3"]) == 0.0 and score("3%", ["3"]) == 0.0 and score("3.5", ["3"]) == 0.0
+    assert score("(3)", ["3"]) == 1.0 and score("48213.", ["48213"]) == 1.0
     assert answer_text(" 48213<|im_end|>junk") == "48213" and answer_text("\n 8\n\nExplanation: 7") == "8"
     assert score(answer_text("Velm\nArro"), ["Arro"]) == 0.0      # only the first line counts
 
@@ -158,7 +177,7 @@ def _evaluate(tmp_path, preds, per=None, ttt_seconds=4.0, limit=0, **stats):
     ids = list(gold)[:limit] if limit else list(gold)
     per = per or {i: {"ttt_s": 1.0, "prefill_s": 1.0, "answer_s": 0.1, "reset_ok": True, "probe_diff": 0.0,
                       "nonfinite": 0, "changed_tensors": 28, "doc_in_context": True} for i in ids}
-    st = {"ttt_seconds_limit": ttt_seconds, "limit": limit, "sha_start": "x", "sha_end": "x"} | stats
+    st = {"ttt_seconds_limit": ttt_seconds, "limit": limit, "sha_start": "x", "sha_end": "x", "sha_end_work": "x"} | stats
     json.dump(st, open(run / "stats.json", "w"))
     json.dump(preds, open(run / "preds.json", "w"))
     json.dump(per, open(run / "items.json", "w"))
@@ -208,6 +227,13 @@ def test_evaluator_enforces_budget_and_reset(tmp_path, tok):
     assert not _evaluate(tmp_path, missing, per=base)["valid"]
     long = {**preds, ids[2]: [15] * (MAX_NEW + 1)}
     assert not _evaluate(tmp_path, long, per=base)["valid"]
+    assert not _evaluate(tmp_path, preds, per=base, sha_end_work="y")["valid"]       # the surface's copy not restored
+    for bad_tok in (True, 1.0, -1, len(tok), 10**9):                                  # exact ints inside the vocabulary
+        assert not _evaluate(tmp_path, {**preds, ids[2]: [15, bad_tok]}, per=base)["valid"], bad_tok
+    for bad_nf in (0.5, False, "0", None):
+        nf = {i: dict(v) for i, v in base.items()}
+        nf[ids[1]]["nonfinite"] = bad_nf
+        assert not _evaluate(tmp_path, preds, per=nf)["valid"], bad_nf
 
 
 # ---------------------------------------------------------------- the frozen item loop on a tiny model
@@ -219,6 +245,10 @@ def tiny_model(seed=0):
                       tie_word_embeddings=True)
     cfg._attn_implementation = "sdpa"
     m = Qwen3ForCausalLM(cfg).eval()
+    with torch.no_grad():   # larger weights than the default init, so answers depend on the context
+        for p in m.parameters():
+            p.mul_(8 if p.dim() > 1 else 1)
+        m.model.embed_tokens.weight.mul_(0.25)
     for p in m.parameters():
         p.requires_grad_(False)
     return m
@@ -226,37 +256,45 @@ def tiny_model(seed=0):
 
 @pytest.fixture(scope="module")
 def small(tok):
-    """Three small real documents (~600 tokens) with their question prompts."""
+    """Four small real documents (~600 tokens) with their question prompts."""
     docs, items = [], []
-    for i, kind in enumerate(("state", "kv", "count")):
+    for i, kind in enumerate(docgen.KINDS):
         it = docgen.build(500 + i, kind, 600, _count(tok))
         docs.append(np.asarray(tok(it["text"], add_special_tokens=False)["input_ids"]))
         items.append({"id": f"t{i}", "q": tok(QUESTION.format(q=it["question"]), add_special_tokens=False)["input_ids"]})
     return docs, items
 
 
-def _mod(**kw):
-    return types.SimpleNamespace(**({"DOC_IN_CONTEXT": True} | kw))
+def _run(adapt, small, n=None, model=None, ttt_seconds=60, loader=None):
+    """run_items on the small documents with a surface given as an adapt function (or a module loader)."""
+    loader = loader or (lambda: types.SimpleNamespace(adapt=adapt))
+    return tttlib.run_items(model or tiny_model(), loader, small[0][:n], small[1][:n], ttt_seconds=ttt_seconds, seed=1,
+                            device="cpu", log=lambda s: None)
+
+
+def _no_ttt(model, ctx):
+    return {"weights": {}, "doc_in_context": True}
 
 
 def test_prefix_cache_and_greedy_match_full_forward(small):
     model = tiny_model()
     doc = torch.as_tensor(small[0][0]).unsqueeze(0)
     q = torch.as_tensor(small[1][0]["q"]).unsqueeze(0)
-    ctx = tttlib.TTTContext(doc, q, tttlib.prefill(model, doc), 0, time.perf_counter() + 60)
+    cache = tttlib.prefill(model, doc)
+    ctx = tttlib.TTTContext(doc, q, [(lay.keys, lay.values) for lay in cache.layers], 0, time.perf_counter() + 60)
     with torch.no_grad():
         full = model(input_ids=doc, use_cache=False).logits
         for start in (1, 200, doc.shape[1] - 64):
             part = model(input_ids=doc[:, start:start + 64], past_key_values=ctx.prefix_cache(start), use_cache=True).logits
             assert (part - full[:, start:start + 64]).abs().max() < 1e-4, start
-        toks, bad = tttlib.greedy(model, q, ctx.prefix_cache())
+        toks, bad = tttlib.greedy(model, q, tttlib.cache_view(cache, doc.shape[1]))
         seq, ref = torch.cat([doc, q], 1), []
         for _ in range(len(toks)):
             nxt = int(model(input_ids=seq, use_cache=False).logits[0, -1].argmax())
             ref.append(nxt)
             seq = torch.cat([seq, torch.tensor([[nxt]])], 1)
     assert bad == 0 and toks == ref
-    assert ctx.prefix_cache().get_seq_length() == doc.shape[1]  # the harness cache was not extended
+    assert cache.get_seq_length() == doc.shape[1]  # the harness cache was not extended
 
 
 def test_baseline_surface_updates_only_q_proj_and_everything_is_reset(small):
@@ -264,110 +302,147 @@ def test_baseline_surface_updates_only_q_proj_and_everything_is_reset(small):
     ref = {n: p.clone() for n, p in model.named_parameters()}
     seen = {}
 
-    def spy(model, ctx):
-        out = surface.adapt(model, ctx)
-        seen[ctx.seed] = sorted(n for n, p in model.named_parameters() if not torch.equal(p, ref[n]))
+    def spy(work, ctx):
+        assert work is not model                                   # the surface never gets the answering model
+        out = surface.adapt(work, ctx)
+        seen[ctx.seed] = sorted(n for n, p in work.named_parameters() if not torch.equal(p, ref[n]))
+        assert sorted(out["weights"]) == seen[ctx.seed] and out["doc_in_context"] is True
         return out
 
-    preds, per, stats = tttlib.run_items(model, lambda: _mod(adapt=spy), small[0], small[1], ttt_seconds=60, seed=1,
-                                         device="cpu", log=lambda s: None)
+    preds, per, stats = _run(spy, small, model=model)
     q = sorted(n for n in ref if n.endswith("self_attn.q_proj.weight"))
     assert all(v == q for v in seen.values()) and len(q) == 2
     assert all(r["reset_ok"] and r["changed_tensors"] == 2 and r["doc_in_context"] for r in per.values())
-    assert stats["sha_start"] == stats["sha_end"] and stats["all_reset_ok"]
+    assert stats["sha_start"] == stats["sha_end"] == stats["sha_end_work"] and stats["all_reset_ok"]
     assert all(torch.equal(p, ref[n]) and not p.requires_grad for n, p in model.named_parameters())
     assert all(1 <= len(t) <= MAX_NEW for t in preds.values())
 
 
-def test_reset_undoes_a_vandal_surface(small):
-    """A surface that changes every weight, leaves a hook and asks for grads: all of it is gone after the item."""
-    model = tiny_model()
-    ref = {n: p.clone() for n, p in model.named_parameters()}
+def test_returned_weights_are_what_answers(small):
+    """Only the returned weights reach the answer model: zeroing the final norm changes every answer."""
+    base, _, _ = _run(_no_ttt, small, n=2)
 
-    def vandal(model, ctx):
+    def zero_norm(work, ctx):
+        return {"weights": {"model.norm.weight": torch.zeros_like(work.model.norm.weight)}, "doc_in_context": True}
+
+    preds, per, stats = _run(zero_norm, small, n=2)
+    assert all(t[0] == 0 for t in preds.values()) and preds != base          # all-zero logits -> token 0
+    assert all(r["reset_ok"] for r in per.values()) and stats["sha_start"] == stats["sha_end"]
+
+
+def test_surface_code_cannot_touch_answering(small):
+    """Hooks (module and global), class patches, patched harness functions, attention registry entries, instance
+    attributes and config changes made during adapt() are all gone before the frozen answer: answers equal no_ttt's."""
+    base, _, _ = _run(_no_ttt, small)
+    lin_forward = torch.nn.Linear.forward
+
+    def vandal(work, ctx):
         with torch.no_grad():
-            for p in model.parameters():
-                p.add_(0.1)
+            for p in work.parameters():
+                p.add_(0.5)
                 p.requires_grad_(True)
-        model.model.norm.register_forward_hook(lambda m, i, o: o * 3)
-        model.train()
-        return None
-
-    _, per, stats = tttlib.run_items(model, lambda: _mod(adapt=vandal), small[0], small[1], ttt_seconds=60, seed=1,
-                                     device="cpu", log=lambda s: None)
-    assert all(r["reset_ok"] and r["changed_tensors"] == len(ref) for r in per.values())
-    assert stats["sha_start"] == stats["sha_end"] and not model.training
-    assert all(torch.equal(p, ref[n]) and not p.requires_grad for n, p in model.named_parameters())
-    assert not model.model.norm._forward_hooks
-
-
-def test_probe_catches_state_outside_the_parameters(small):
-    """A global forward hook survives the per-module hook reset; the probe-logit check flags the item."""
-    model = tiny_model()
-    handles = []
-
-    def sneaky(model, ctx):
-        head = model.lm_head
-        handles.append(torch.nn.modules.module.register_module_forward_hook(lambda m, i, o: o + 5.0 if m is head else o))
+        forced = lambda m, i, o: torch.full_like(o, -1e4).index_fill_(-1, torch.tensor([42]), 1e4)  # noqa: E731
+        work.lm_head.register_forward_hook(forced)
+        torch.nn.modules.module.register_module_forward_hook(lambda m, i, o: forced(m, i, o) if m.__class__.__name__ ==
+                                                             "Linear" and o.shape[-1] > 1000 else o)
+        torch.nn.Linear.forward = lambda self, x: torch.zeros(*x.shape[:-1], self.out_features, dtype=x.dtype)
+        tttlib.greedy = lambda *a, **k: ([42], 0)
+        import transformers.modeling_utils as mu
+        mu.ALL_ATTENTION_FUNCTIONS["sdpa"] = lambda *a, **k: (_ for _ in ()).throw(RuntimeError("patched"))
+        work.stash = "x"
+        work.model.layers[0].self_attn.scaling = 99.0
+        work.config.rms_norm_eps = 1.0
+        work.train()
+        return {"weights": {}, "doc_in_context": True}
 
     try:
-        _, per, _ = tttlib.run_items(model, lambda: _mod(adapt=sneaky), small[0][:1], small[1][:1], ttt_seconds=60,
-                                     seed=1, device="cpu", log=lambda s: None)
+        preds, per, stats = _run(vandal, small)
     finally:
-        for h in handles:
-            h.remove()
-    r = next(iter(per.values()))
-    assert not r["reset_ok"] and r["probe_diff"] > tttlib.PROBE_TOL
+        torch.nn.Linear.forward = lin_forward
+    assert torch.nn.Linear.forward is lin_forward and tttlib.greedy.__name__ == "greedy"
+    assert preds == base
+    assert all(r["reset_ok"] for r in per.values()) and stats["sha_start"] == stats["sha_end"] == stats["sha_end_work"]
+    assert not torch.nn.modules.module._global_forward_hooks
 
 
-@pytest.mark.parametrize("how", ["replace_module", "monkeypatch"])
-def test_structure_changes_are_refused(small, how):
+def test_no_state_survives_between_items(small, tmp_path, monkeypatch):
+    """Module globals, helper modules, model attributes, parameters and RNG state are fresh for every item."""
+    monkeypatch.syspath_prepend(str(tmp_path))
+    (tmp_path / "surf_helper.py").write_text("SEEN = []\n")
+    (tmp_path / "surf_probe.py").write_text(
+        "import torch\nimport surf_helper\nCOUNT = []\n"
+        "def adapt(model, ctx):\n"
+        "    COUNT.append(1)\n    surf_helper.SEEN.append(ctx.seed)\n"
+        "    assert len(COUNT) == 1 and len(surf_helper.SEEN) == 1\n"
+        "    assert not hasattr(model, 'stash') and model.model.layers[0].self_attn.scaling == 0.25\n"
+        "    assert not model.training and model.config.rms_norm_eps == 1e-6\n"
+        "    g = torch.Generator().manual_seed(ctx.seed)\n"
+        "    assert torch.equal(torch.rand(3), torch.rand(3, generator=g))   # global RNG reseeded per item\n"
+        "    model.stash = 1\n    model.model.layers[0].self_attn.scaling = 5.0\n    model.config.rms_norm_eps = 1.0\n"
+        "    model.train()\n"
+        "    return {'weights': {}, 'doc_in_context': False}\n")
+    _, per, _ = _run(None, small, loader=lambda: tttlib.fresh_import("surf_probe"))
+    assert "surf_helper" not in sys.modules and "surf_probe" not in sys.modules
+    assert all(r["reset_ok"] and not r["doc_in_context"] and r["changed_tensors"] == 0 for r in per.values())
+
+
+@pytest.mark.parametrize("ret", [None, {"weights": {}}, {"weights": {}, "doc_in_context": 1},
+                                 {"weights": {}, "doc_in_context": np.bool_(True)},
+                                 {"weights": {}, "doc_in_context": True, "cache": None},
+                                 {"weights": [], "doc_in_context": True},
+                                 {"weights": {"no.such.weight": torch.zeros(1)}, "doc_in_context": True},
+                                 {"weights": {"model.norm.weight": torch.zeros(3)}, "doc_in_context": True},
+                                 {"weights": {"model.norm.weight": torch.full((64,), float("nan"))}, "doc_in_context": True}])
+def test_bad_return_values_are_refused(small, ret):
+    with pytest.raises((TypeError, KeyError, ValueError)):
+        _run(lambda work, ctx: ret, small, n=1)
+
+
+@pytest.mark.parametrize("how", ["replace_module", "monkeypatch", "thread", "answer_model"])
+def test_tampering_is_refused_or_flagged(small, how):
     model = tiny_model()
 
-    def bad(model, ctx):
-        attn = model.model.layers[0].self_attn
+    def bad(work, ctx):
+        attn = work.model.layers[0].self_attn
         if how == "replace_module":
-            attn.q_proj = torch.nn.Sequential(attn.q_proj)   # e.g. a wrapper module left in place
-        else:
+            attn.q_proj = torch.nn.Sequential(attn.q_proj)   # a wrapper module left in place
+        elif how == "monkeypatch":
             attn.forward = type(attn).forward.__get__(attn)   # same behaviour, but an instance attribute
-        return None
+        elif how == "thread":
+            threading.Thread(target=time.sleep, args=(2,), daemon=True).start()
+        else:  # reach the answering model some other way and change it
+            victim = next(o for o in gc.get_objects() if o is model)
+            with torch.no_grad():
+                victim.model.norm.weight.add_(1.0)
+        return {"weights": {}, "doc_in_context": True}
 
-    with pytest.raises(RuntimeError, match="surface"):
-        tttlib.run_items(model, lambda: _mod(adapt=bad), small[0][:1], small[1][:1], ttt_seconds=60, seed=1,
-                         device="cpu", log=lambda s: None)
+    if how == "answer_model":
+        _, per, _ = _run(bad, small, n=1, model=model)
+        assert not next(iter(per.values()))["reset_ok"]        # -> the evaluator marks the run invalid
+    else:
+        with pytest.raises(RuntimeError, match="surface"):
+            _run(bad, small, n=1, model=model)
 
 
-def test_budget_is_measured_including_import(small):
-    model = tiny_model()
-
-    def slow_adapt(model, ctx):
+def test_budget_includes_import_and_return_validation(small):
+    def slow_adapt(work, ctx):
         assert ctx.time_left() < 0.25
         time.sleep(0.2)
+        return {"weights": {}, "doc_in_context": True}
 
     def slow_import():
         time.sleep(0.15)
-        return _mod(adapt=slow_adapt)
+        return types.SimpleNamespace(adapt=slow_adapt)
 
-    _, per, _ = tttlib.run_items(model, slow_import, small[0][:2], small[1][:2], ttt_seconds=0.3, seed=1,
-                                 device="cpu", log=lambda s: None)
-    assert all(r["ttt_s"] > 0.3 and r["load_s"] >= 0.15 for r in per.values())
+    _, per, _ = _run(None, small, n=2, ttt_seconds=0.3, loader=slow_import)
+    assert all(r["ttt_s"] > 0.35 for r in per.values())
 
 
-def test_no_doc_arm_and_fresh_module_per_item(small, tmp_path, monkeypatch):
-    model = tiny_model()
-    monkeypatch.syspath_prepend(str(tmp_path))
-    (tmp_path / "surf_probe.py").write_text("COUNT = []\nDOC_IN_CONTEXT = False\nPREFILL_DOC = False\n"
-                                            "def adapt(model, ctx):\n    COUNT.append(1)\n    assert len(COUNT) == 1\n"
-                                            "    try:\n        ctx.prefix_cache(1)\n    except RuntimeError:\n        return None\n"
-                                            "    raise AssertionError('no cache expected')\n")
-    _, per, _ = tttlib.run_items(model, lambda: tttlib.fresh_import("surf_probe"), small[0], small[1], ttt_seconds=60,
-                                 seed=1, device="cpu", log=lambda s: None)
-    assert all(r["cache_len"] == 0 and not r["doc_in_context"] and r["prefill_s"] < 0.05 for r in per.values())
-    for name in ("ref_no_ttt", "ref_no_doc"):
-        src = open(f"/frozen/{name}/ttt.py").read()
+def test_reference_arms():
+    for name, doc in (("ref_no_ttt", True), ("ref_no_doc", False)):
         mod = types.ModuleType(name)
-        exec(compile(src, name, "exec"), mod.__dict__)
-        assert mod.adapt(None, None) is None and mod.DOC_IN_CONTEXT == (name == "ref_no_ttt")
+        exec(compile(open(f"/frozen/{name}/ttt.py").read(), name, "exec"), mod.__dict__)
+        assert mod.adapt(None, None) == {"weights": {}, "doc_in_context": doc}
 
 
 def test_harness_and_evaluator_end_to_end(tmp_path):

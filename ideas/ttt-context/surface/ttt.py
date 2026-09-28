@@ -6,23 +6,21 @@ values of the document before each span are the base model's (frozen, from the h
 the span is recomputed per step (the qTTT recipe's mechanics; its span count, steps and LR are left to tuning).
 
 The frozen harness calls, for every item, on a freshly imported copy of this module:
-    adapt(model, ctx) -> None | transformers Cache
-  model  the HF Qwen3ForCausalLM (bf16 on the GPU; eval mode; every parameter frozen). Change parameter VALUES
-         only (in place); do not add/replace modules or parameters, do not monkeypatch. Forward hooks are allowed
-         and are removed after the item. Weights, buffers and hooks are reset by the harness after every item.
+    adapt(model, ctx) -> {"weights": {parameter name: tensor}, "doc_in_context": bool}
+  model  the surface's working copy of the HF Qwen3ForCausalLM (bf16 on the GPU, eval mode, every parameter frozen).
+         Train it however you like (in place); it is restored after every item. It is NOT the model that answers.
   ctx    doc_ids (1, L) and question_ids (1, Q) token tensors, doc_len, device, seed, generator (a torch CPU
          Generator seeded per item: use it for random choices), time_left() (seconds of the TTT budget left),
          prefix_cache(n) (a new cache with the base model's keys/values of document positions [0, n)).
-  return None to answer with the harness's document cache (if DOC_IN_CONTEXT) or with no document (if not);
-         or return a Cache to answer after it (e.g. the document re-encoded with the adapted weights).
-Time from the module import to the end of adapt() (after a device sync) must stay within the per-item budget;
-an item over budget scores 0. Answering (greedy, <= 12 tokens) is frozen.
+  return the updated weights (full tensors, same name/shape/dtype as model.named_parameters(); only these are copied
+         into the frozen answering model) and whether the document stays in context when answering (a literal bool).
+Time from the module import to the validated return value (device synced) must stay within the per-item budget;
+an item over budget scores 0. Answering (greedy, <= 12 tokens, the frozen prompt) runs no code from this file.
 """
 import torch
 import torch.nn.functional as F
 
 DOC_IN_CONTEXT = True        # answer with the document's KV cache in context (False: the question alone)
-PREFILL_DOC = True           # have the harness prefill the document before adapt() (needed for prefix_cache)
 TARGETS = ("q_proj",)        # which weight matrices adapt (suffix match on module names)
 STEPS = 8                    # optimizer steps (stops early if the budget runs out)
 SPAN = 128                   # tokens per training span
@@ -40,9 +38,10 @@ def span_loss(model, ctx, start: int, length: int) -> torch.Tensor:
 
 
 def adapt(model, ctx):
+    named = [(n, p) for n, p in model.named_parameters() if n.endswith(tuple(f"{t}.weight" for t in TARGETS))]
     if STEPS <= 0:
-        return None
-    params = [p for n, p in model.named_parameters() if n.endswith(tuple(f"{t}.weight" for t in TARGETS))]
+        return {"weights": {}, "doc_in_context": DOC_IN_CONTEXT}
+    params = [p for _, p in named]
     masters = [p.detach().float().clone() for p in params]
     opt = torch.optim.Adam(masters, lr=LR, betas=BETAS)
     for p in params:
@@ -63,4 +62,4 @@ def adapt(model, ctx):
                 p.copy_(m)
     for p in params:
         p.requires_grad_(False)
-    return None
+    return {"weights": dict(named), "doc_in_context": DOC_IN_CONTEXT}

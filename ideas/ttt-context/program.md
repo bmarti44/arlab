@@ -13,27 +13,31 @@ ttt.py only: which parameters adapt (q_proj, k_proj/v_proj, o_proj, norms, MLPs,
 weights, a subset of layers), the loss (next-token on spans, spans weighted by relevance, a query-conditioned
 loss, the model's own generated question/answer pairs about the document, self-distillation), span selection
 (random, overlap with the question's tokens, attention of the question to the document, highest-loss spans),
-steps, span length, learning rate, optimizer, schedule, whether the document stays in context, re-encoding the
-document with the adapted weights (return that cache), and early stopping against ctx.time_left().
-Keep the API: adapt(model, ctx) -> None | Cache; constants DOC_IN_CONTEXT, PREFILL_DOC.
+steps, span length, learning rate, optimizer, schedule, whether the document stays in context, and early stopping
+against ctx.time_left(). Keep the API: adapt(model, ctx) -> {"weights": {name: tensor}, "doc_in_context": bool}.
+Only the returned weights (full tensors named as in model.named_parameters()) change the answering model.
 ## What the code does
-For every item the frozen harness imports ttt.py afresh, prefills the document with the base weights, then calls
-adapt(model, ctx). ctx has doc_ids (1, L), question_ids, doc_len, device, generator (per-item seed), time_left()
-and prefix_cache(n) (base-model keys/values of document positions < n; do not write into it in place).
+For every item the frozen harness reseeds the RNGs, imports ttt.py afresh, prefills the document with the base
+weights, then calls adapt(model, ctx) on a working copy of the model (not the one that answers). ctx has doc_ids
+(1, L), question_ids, doc_len, device, generator (per-item seed), time_left() and prefix_cache(n) (base-model
+keys/values of document positions < n, from your own copy of the cache).
 The baseline updates q_proj of all 28 layers with 8 Adam steps (fp32 master copies, LR 1e-4) of next-token loss
 on random 128-token spans, reading the frozen base keys/values before each span (qTTT mechanics), then answers
-with the document in context. After adapt(), the harness answers greedily (12 tokens max, the assistant turn
-starts with "Answer:"), then restores every weight, buffer and hook, and verifies the restore.
+with the document in context. The harness then copies the returned weights into its own answering model and
+answers greedily from the frozen prompt (12 tokens max, the assistant turn starts with "Answer:"); none of your code
+runs while it answers. It restores everything afterwards and verifies the restore.
 ## Budget and guards
-- Time from the import of ttt.py to the end of adapt() (device synced) must be <= the per-item budget
+- Time from the import of ttt.py to the validated return value (device synced) must be <= the per-item budget
   (currently 4 s). An item over budget scores 0. Check ctx.time_left() before each step.
-- Change parameter values only (in place). New or replaced modules/parameters, or a monkeypatched forward(),
-  crash the run. Forward hooks are allowed; the harness removes them after each item.
+- The document's keys/values used for answering are the base model's (one prefill, qTTT-style): returned weights
+  act on the question and answer tokens only, or on everything if doc_in_context is False.
+- Change parameter values only (in place). New or replaced modules/parameters, a monkeypatched forward(), a thread
+  left running, or a malformed return value crash the run. Hooks are allowed during adapt() only.
 - Peak memory <= 40 GB. Non-finite logits or a failed weight restore make the run invalid.
 ## Ideas worth trying (from IDEA.md)
 Question-aware span selection (spans that share rare tokens with the question, or that the question's queries
 attend to most) instead of random spans (random spans can hurt: S-TTT); more steps with shorter spans; a higher
-LR for q_proj; adapting k_proj too and re-encoding the document; a query-conditioned loss (the question
+LR for q_proj; adapting k_proj/v_proj or MLPs too; a query-conditioned loss (the question
 followed by a candidate span); training on the model's own generated Q/A pairs about the document; fewer layers
 (upper half) to save time for more steps; keeping answers terse (a loss that does not teach log continuation).
 ## Rules
