@@ -1,0 +1,3 @@
+rustbpe==0.1.0
+tiktoken>=0.11.0
+pyarrow>=21.0.0
