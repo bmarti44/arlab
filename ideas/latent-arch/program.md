@@ -12,28 +12,38 @@ adaptive depth, extra latent positions, recurrent/linear-attention state) beat t
 and equal wall-clock training time?
 ## What you may change
 model.py and train.py: any causal architecture in pure PyTorch and its training recipe (optimizer, LR, schedules over
-`progress`, accumulation, loss shaping that does not key on token ids). Keep the API: build(config) -> state,
-train_step(state, (x, y), step, progress) -> loss, save(state, path), load(path, device) -> model whose
-forward(idx) returns causal logits (B, T, 8192) for the same T. The baseline is nanochat-lite's tuned 6×384 GPT.
+`progress`, accumulation, loss shaping that does not key on token ids). Keep the API: build(config) -> state with
+state["model"] = the nn.Module that is checkpointed; train_step(state, (x, y), step, progress) -> loss;
+make_model(config) -> the same architecture (config: vocab_size, seq_len, device) whose forward(idx) returns causal
+logits (B, T, 8192) for the same T. The baseline is nanochat-lite's tuned 6×384 GPT.
 ## What the code does
-The frozen harness starts the clock BEFORE importing train.py; import, build, torch.compile, every train_step and
-save count against 330 s of wall clock (GPU synchronized at every deadline check). Each batch is 64×1024 tokens:
-58 rows of web text + 6 rows of packed programs (~9 % of tokens), rows shuffled, plain next-token loss.
+A frozen supervisor starts the clock BEFORE train.py is imported (in a separate trainer process); import, build,
+torch.compile, every train_step and the checkpoint write count against 330 s of wall clock. The trainer stops at
+the deadline; the supervisor kills it 30 s later no matter what, and then the run is invalid. Each batch is 64×1024
+tokens: 58 rows of web text + 6 rows of packed programs (~9 % of tokens), rows shuffled, plain next-token loss.
 `progress` = elapsed / budget. Anything that costs more per token (K passes, extra positions, slow scans) sees
-proportionally fewer tokens: nothing inside the budget is free. The evaluator loads your checkpoint eagerly
-(no torch.compile) and scores raw logits itself.
+proportionally fewer tokens: nothing inside the budget is free. The checkpoint is written by frozen code: every
+parameter and buffer of state["model"] (nothing else survives). The evaluator rebuilds the model with make_model(),
+loads those tensors, and runs it eagerly in a sandboxed process that only receives token ids and cannot read any
+file except the Python install and your two files; it scores the returned logits itself.
 ## Guards (a run that fails one is discarded; invalid runs are worse)
 - val_bpb (web text) ≤ 1.03× baseline; acc_id ≥ 0.90× baseline.
-- params_m (parameters + floating buffers of the loaded model) ≤ 1.05× baseline (~27.7 M): loops must reuse weights.
+- params_m (every element of every checkpointed tensor, any dtype, buffers included) ≤ 1.05× baseline (~27.7 M):
+  loops must reuse weights.
 - infer_flops_tok (FLOPs counted per token on the actual inputs, so adaptive depth is counted where it happens)
   ≤ 2.0× baseline; infer_s (timed eval forward) ≤ 2.5×; RUN wall time ≤ 1.3×; peak memory ≤ 40 GB.
 - Invalid: non-finite loss/logits, wrong logit shape, a non-causal model (text or program rows), any op outside
-  torch's aten/prims (no custom Triton/CUDA kernels, no torch.library ops, no fla), train_seconds > 360, weights
-  that change after save.
+  torch's aten/prims (no custom Triton/CUDA kernels, no torch.library ops, no fla), a trainer killed at the
+  deadline, a checkpoint that changed after the deadline.
 ## Forbidden (bounded by rules and diff review)
 - No special-casing the format: never branch on specific token ids or hand-code the program syntax (digits,
   `=`, `;`, `?`). The vocabulary is secretly permuted, so hard-coded ids point at random tokens anyway.
   Adaptive compute must be learned from content.
+- No symbolic computation: never parse, interpret or execute the programs outside learned network computation
+  (no hand-written interpreter, arithmetic unit, lookup tables keyed on inputs, or decoding hidden states back to
+  tokens to reason over them), in training or in forward.
+- forward must be a pure function of its input: no caches or state carried across calls, no timing- or
+  shape-dependent special paths, no kernels launched outside torch ops (FLOPs must be countable).
 - Train only on the batches the harness hands you: no generating synthetic programs, no reading files, the
   environment or the network, no touching the harness, its clock or its globals.
 ## Ideas worth trying (IDEA.md)

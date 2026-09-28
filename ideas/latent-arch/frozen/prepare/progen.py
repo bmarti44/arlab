@@ -41,9 +41,13 @@ def n_pieces(d: dict = DIFFICULTY) -> int:
     return 4 * d["n_const"] + 6 * (d["n_stmt"] - d["n_const"]) + 2
 
 
-def make_program(rng: random.Random, k: int, d: dict = DIFFICULTY) -> dict:
+def make_program(rng: random.Random, k: int, d: dict = DIFFICULTY, max_depth: int | None = None) -> dict:
     """One program whose queried variable has depth exactly k. Statements: (v, op, a, b) with op in
-    {"c", "+", "-"}; for "c" a is the constant; otherwise a is a variable and b a variable or an int constant."""
+    {"c", "+", "-"}; for "c" a is the constant; otherwise a is a variable and b a variable or an int constant.
+    max_depth: no statement at all (distractors included) is deeper than this (training and ID programs: 6)."""
+    if max_depth is not None and k > max_depth:
+        raise ValueError(f"k={k} > max_depth={max_depth}")
+    cap = 10 ** 9 if max_depth is None else max_depth - 1   # operands of any operation have depth <= cap
     n_ops = d["n_stmt"] - d["n_const"]
     if not 1 <= k <= n_ops:
         raise ValueError(f"k={k} impossible with {n_ops} operations")
@@ -61,8 +65,8 @@ def make_program(rng: random.Random, k: int, d: dict = DIFFICULTY) -> dict:
             stmt = (v, "c", rng.randint(0, d["mod"] - 1), None)
             depth[v] = 0
         else:
-            u = chain[-1] if slot == "C" else rng.choice(list(depth))
-            lim = depth[u] if slot == "C" else 10 ** 9  # the chain's second operand must not deepen the chain
+            u = chain[-1] if slot == "C" else rng.choice([x for x in depth if depth[x] <= cap])
+            lim = depth[u] if slot == "C" else cap  # the chain's second operand must not deepen the chain
             cands = [w for w in depth if w != u and depth[w] <= lim]
             op = rng.choice("+-")
             if cands and rng.random() < d["p_bin"]:
@@ -157,7 +161,7 @@ def annotate(p: dict, d: dict = DIFFICULTY) -> dict:
 
 
 def generate(seed: int, n: int, k_range: tuple[int, int], balanced: bool = False, seen: set | None = None,
-             d: dict = DIFFICULTY) -> list[dict]:
+             d: dict = DIFFICULTY, max_depth: int | None = None) -> list[dict]:
     """n annotated programs, fully determined by seed (and `seen`). balanced: k cycles through k_range (equal counts).
     seen: normalized hashes already used (other splits); such programs are redrawn, new hashes are added."""
     rng = random.Random(seed)
@@ -167,7 +171,7 @@ def generate(seed: int, n: int, k_range: tuple[int, int], balanced: bool = False
     for i in range(n):
         k = lo + i % (hi - lo + 1) if balanced else rng.randint(lo, hi)
         while True:
-            p = make_program(rng, k, d)
+            p = make_program(rng, k, d, max_depth)
             h = norm_hash(p)
             if h not in seen:
                 break
@@ -176,15 +180,20 @@ def generate(seed: int, n: int, k_range: tuple[int, int], balanced: bool = False
     return out
 
 
-def counterfactual(p: dict, rng: random.Random, d: dict = DIFFICULTY) -> dict:
-    """The same program with the chain-root constant shifted by a nonzero delta (mod 100)."""
+def counterfactual(p: dict, rng: random.Random, d: dict = DIFFICULTY, tries: int = 20) -> dict | None:
+    """The same program with the chain-root constant shifted by a nonzero delta (mod 100) such that the ANSWER
+    changes (roots whose contribution cancels are rejected); None if no tried delta changes it."""
     by_var = {s[0]: i for i, s in enumerate(p["stmts"])}
     root = p["query"]
     while p["stmts"][by_var[root]][1] != "c":
         root = p["stmts"][by_var[root]][2]
     i = by_var[root]
-    delta = rng.choice([x for x in range(-9, 10) if x])
-    stmts = list(p["stmts"])
-    v, _, c, _ = stmts[i]
-    stmts[i] = (v, "c", (c + delta) % d["mod"], None)
-    return annotate({"stmts": stmts, "query": p["query"], "k": p["k"]}, d)
+    for _ in range(tries):
+        delta = rng.choice([x for x in range(-9, 10) if x])
+        stmts = list(p["stmts"])
+        v, _, c, _ = stmts[i]
+        stmts[i] = (v, "c", (c + delta) % d["mod"], None)
+        twin = annotate({"stmts": stmts, "query": p["query"], "k": p["k"]}, d)
+        if twin["answer"] != p["answer"]:
+            return twin
+    return None

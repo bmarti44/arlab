@@ -1,119 +1,124 @@
-"""Frozen RUN entry point for latent-arch: owns the data mixture, batch shape, seeded order and the wall-clock budget.
+"""Frozen RUN entry point for latent-arch: a trusted SUPERVISOR that never imports the surface.
 
-The timer starts BEFORE the surface (/work/train.py + /work/model.py) is imported: import, build, torch.compile, every
-train_step and save all count. Before each deadline check the GPU is synchronized, so queued work cannot hide.
-After the deadline no batch is handed out; the surface's save() is timed too.
-
-Each batch is 64 rows x 1024 tokens: TEXT_ROWS random windows of the relabelled climbmix stream + PROG_ROWS rows of
-packed programs (a random program start, BOS-aligned, ~12 programs per row), in a seeded random row order.
-Plain (x, y) next-token pairs; the surface cannot tell rows apart except by learning to.
+It starts trainer.py (the only process that runs surface code) in its own session, waits until the trainer has
+loaded torch and the data, then starts the clock (CLOCK_MONOTONIC) and sends the deadline. Surface import, build,
+torch.compile, every train_step and the checkpoint write all count. The trainer stops cooperatively at the deadline;
+the supervisor kills its whole process group at deadline + GRACE_S no matter what the surface did to its own clock.
+train_seconds is measured here, from go to the trainer's done message. Then every remaining descendant is killed
+(this process is a subreaper, so double-forked helpers cannot escape), and only then are the checkpoint validated
+(flat {name: tensor} dict, weights-only) and budget.json / stats.json written.
 
 Outputs in --out:
-  model.pt       whatever surface.save() writes (the evaluator loads it with the surface's load())
-  budget.json    {"train_seconds": t}   (runner: invalid if > budget.limit)
-  stats.json     steps, tokens seen, timings, nan_at, checkpoint sha256 and the tensor hash of load(model.pt)
+  model.pt       data-only checkpoint {name: tensor} of every parameter and buffer of the surface's model
+  budget.json    {"train_seconds": t}   (runner: invalid if > budget.limit = 360)
+  stats.json     supervisor facts (trusted: train_seconds, killed, checkpoint sha256 / tensor hash / element count,
+                 stray processes) + the trainer's own report under "trainer" (informational only)
 """
-import os
-os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
 import argparse
 import json
-import math
+import os
+import select
+import signal
+import subprocess
 import sys
 import time
 
-import numpy as np
-import torch
+from common import GRACE_S, SEQ_LEN, count_elements, file_sha256, load_checkpoint, tensors_hash
+from sandbox import become_subreaper, kill_descendants
 
-from common import PROG_ROWS, SEQ_LEN, TEXT_ROWS, VOCAB, file_sha256, tensor_hash
-
-ap = argparse.ArgumentParser()
-ap.add_argument("--out", required=True)
-ap.add_argument("--seed", type=int, required=True)
-ap.add_argument("--split", required=True)          # unused: RUN never sees eval data
-ap.add_argument("--train-seconds", type=float, required=True)
-ap.add_argument("--data", default="/data/train")
-ap.add_argument("--work", default="/work")
-ap.add_argument("--smoke", action="store_true", help="tests only: CPU, 3 text + 1 program rows of 128 tokens")
-a = ap.parse_args()
-dev = "cpu" if a.smoke else "cuda"
-text_rows, prog_rows, seq_len = (3, 1, 128) if a.smoke else (TEXT_ROWS, PROG_ROWS, SEQ_LEN)
-batch = text_rows + prog_rows
+TRAINER = os.path.join(os.path.dirname(os.path.abspath(__file__)), "trainer.py")
+STARTUP_S, MAX_LINE = 300.0, 1 << 20
 
 
-def sync():
-    if dev == "cuda":
-        torch.cuda.synchronize()
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--out", required=True)
+    ap.add_argument("--seed", type=int, required=True)
+    ap.add_argument("--split", required=True)          # unused: RUN never sees eval data
+    ap.add_argument("--train-seconds", type=float, required=True)
+    ap.add_argument("--data", default="/data/train")
+    ap.add_argument("--work", default="/work")
+    ap.add_argument("--grace", type=float, default=GRACE_S, help="tests only (never in pack.yaml)")
+    ap.add_argument("--smoke", action="store_true", help="tests only: CPU, 3 text + 1 program rows of 128 tokens")
+    a = ap.parse_args()
+    become_subreaper()
+    ckpt = f"{a.out}/model.pt"
+    for f in ("model.pt", "budget.json", "stats.json"):
+        if os.path.lexists(f"{a.out}/{f}"):
+            os.remove(f"{a.out}/{f}")
+    cmd = [sys.executable, "-B", TRAINER, "--seed", str(a.seed), "--train-seconds", str(a.train_seconds),
+           "--data", a.data, "--work", a.work, "--ckpt", ckpt] + (["--smoke"] if a.smoke else [])
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH",)}
+    p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, start_new_session=True, env=env)
+    buf = b""
+
+    def recv(deadline):
+        nonlocal buf
+        fd = p.stdout.fileno()
+        while b"\n" not in buf:
+            left = deadline - time.monotonic()
+            if left <= 0 or not select.select([fd], [], [], left)[0]:
+                return {"op": "timeout"}
+            chunk = os.read(fd, 1 << 16)
+            if not chunk:
+                return {"op": "exited"}
+            buf += chunk
+            if len(buf) > MAX_LINE:
+                return {"op": "error", "msg": "message too long"}
+        line, buf = buf.split(b"\n", 1)
+        try:
+            return json.loads(line)
+        except ValueError:
+            return {"op": "error", "msg": "malformed message"}
+
+    status, report = "ok", {}
+    msg = recv(time.monotonic() + STARTUP_S)
+    if msg.get("op") != "ready":
+        status, report = "startup_failed", msg
+        t0 = t_end = time.monotonic()
+    else:
+        t0 = time.monotonic()
+        deadline = t0 + a.train_seconds
+        p.stdin.write((json.dumps({"op": "go", "t0": t0, "deadline": deadline}) + "\n").encode())
+        p.stdin.flush()
+        msg = recv(deadline + a.grace)
+        t_end = time.monotonic()
+        if msg.get("op") == "done":
+            report = msg
+        elif msg.get("op") == "timeout":
+            status = "killed"
+            print(f"SUPERVISOR: no checkpoint by budget + {a.grace:.0f} s; killing the trainer", flush=True)
+        else:
+            status, report = "trainer_failed", msg
+    try:
+        os.killpg(p.pid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+    rc = p.wait()
+    strays = kill_descendants()
+    train_s = t_end - t0
+    stats = {"status": status, "train_seconds": train_s, "killed": status == "killed", "trainer_rc": rc,
+             "stray_processes_killed": strays, "seed": a.seed, "seq_len": 128 if a.smoke else SEQ_LEN, "trainer": report}
+    if status == "ok":
+        if os.path.islink(ckpt) or not os.path.isfile(ckpt):
+            stats["status"] = "no_checkpoint"
+        else:
+            try:
+                ck = load_checkpoint(ckpt)
+                stats.update(model_sha256=file_sha256(ckpt), tensors_hash=tensors_hash(ck), n_elements=count_elements(ck))
+            except ValueError as e:
+                stats["status"] = f"bad_checkpoint: {e}"
+    for name, obj in (("budget.json", {"train_seconds": train_s}), ("stats.json", stats)):
+        if os.path.lexists(f"{a.out}/{name}.tmp"):   # the trainer could have planted a symlink there
+            os.remove(f"{a.out}/{name}.tmp")
+        with open(f"{a.out}/{name}.tmp", "w") as f:
+            json.dump(obj, f)
+        os.replace(f"{a.out}/{name}.tmp", f"{a.out}/{name}")
+    print(json.dumps(stats), flush=True)
+    if status in ("startup_failed", "trainer_failed"):   # a surface crash is a crash (the runner's status "crash")
+        print(report.get("msg", report), file=sys.stderr)
+        sys.exit(1)
 
 
-text = np.memmap(f"{a.data}/tokens.bin", dtype=np.uint16, mode="r")
-progs = np.memmap(f"{a.data}/programs.bin", dtype=np.uint16, mode="r")
-starts = np.load(f"{a.data}/program_starts.npy")
-starts = starts[starts <= len(progs) - seq_len - 1]
-rng = np.random.default_rng(a.seed)
-torch.manual_seed(a.seed)
-if dev == "cuda":
-    torch.cuda.manual_seed(a.seed)
-buf = torch.empty((batch, seq_len + 1), dtype=torch.long)
-if dev == "cuda":
-    buf = buf.pin_memory()
-
-
-def next_batch():
-    t0s = rng.integers(0, len(text) - seq_len - 1, text_rows)
-    p0s = starts[rng.integers(0, len(starts), prog_rows)]
-    rows = [text[s:s + seq_len + 1] for s in t0s] + [progs[s:s + seq_len + 1] for s in p0s]
-    order = rng.permutation(batch)
-    buf.copy_(torch.from_numpy(np.stack([rows[i] for i in order]).astype(np.int64)))
-    xy = buf.to(dev, non_blocking=True)
-    return xy[:, :-1], xy[:, 1:]
-
-
-# ------------------------------------------------------------------ the clock starts here, before the surface import
-t0 = time.time()
-sys.path.insert(0, a.work)
-import train as surface  # noqa: E402  (the editable surface)
-
-state = surface.build({"vocab_size": VOCAB, "seq_len": seq_len, "batch": batch, "device": dev, "seed": a.seed,
-                       "train_seconds": a.train_seconds})
-sync()
-build_s = time.time() - t0
-step, nan_at, first_step_s, recent = 0, None, None, []
-while True:
-    sync()
-    el = time.time() - t0
-    if el >= a.train_seconds:
-        break
-    x, y = next_batch()
-    loss = surface.train_step(state, (x, y), step, el / a.train_seconds)
-    step += 1
-    lv = float(loss)
-    if first_step_s is None:
-        first_step_s = time.time() - t0
-    recent = (recent + [lv])[-50:]
-    if not math.isfinite(lv):
-        nan_at = step
-        print(f"non-finite loss at step {step}; stopping", flush=True)
-        break
-    if step % 50 == 0:
-        print(f"step {step} {el:.0f}s loss {sum(recent) / len(recent):.4f}", flush=True)
-sync()
-loop_end_s = time.time() - t0
-surface.save(state, f"{a.out}/model.pt")
-sync()
-train_s = time.time() - t0
-json.dump({"train_seconds": train_s}, open(f"{a.out}/budget.json", "w"))
-tokens = step * batch * seq_len
-print(f"trained {step} steps ({tokens} tokens) in {train_s:.1f}s (build {build_s:.1f}s, first step at "
-      f"{first_step_s or 0:.1f}s, {tokens / max(loop_end_s - (first_step_s or 0), 1e-9):.0f} tok/s after it)", flush=True)
-
-# ------------------------------------------------------------------ after the deadline: integrity fingerprints only
-sha = file_sha256(f"{a.out}/model.pt")
-del state
-model = surface.load(f"{a.out}/model.pt", dev)
-stats = {"train_steps": step, "tokens_seen": tokens, "program_tokens_seen": step * prog_rows * seq_len,
-         "train_seconds": train_s, "build_s": build_s, "first_step_s": first_step_s, "loop_end_s": loop_end_s,
-         "save_s": train_s - loop_end_s, "overrun_s": max(0.0, loop_end_s - a.train_seconds), "nan_at": nan_at,
-         "train_loss_last50": sum(recent) / max(1, len(recent)), "model_sha256": sha, "tensor_hash": tensor_hash(model),
-         "batch": [text_rows, prog_rows, seq_len], "seed": a.seed}
-json.dump(stats, open(f"{a.out}/stats.json", "w"))
-print(json.dumps(stats), flush=True)
+if __name__ == "__main__":
+    main()

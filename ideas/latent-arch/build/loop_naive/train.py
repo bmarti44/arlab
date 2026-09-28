@@ -1,18 +1,19 @@
 """latent-arch surface, part 2: optimizer, schedule and the API the frozen harness calls (baseline = m3b's recipe).
 
-API (frozen harness / evaluator):
-  build(config) -> state            config: vocab_size, seq_len, batch, device, seed, train_seconds
+API (frozen trainer / evaluator worker):
+  build(config) -> state            config: vocab_size, seq_len, batch, device, seed, train_seconds;
+                                    state["model"] is the nn.Module whose parameters + buffers are checkpointed
   train_step(state, (x, y), step, progress) -> loss     progress = elapsed wall clock / training budget (0..1)
-  save(state, path);  load(path, device) -> model whose forward(idx) returns causal logits (B, T, vocab_size)
-The harness owns the clock: import, build, torch.compile and every train_step count against the budget.
+  make_model(config) -> nn.Module   config: vocab_size, seq_len, device; same architecture, forward(idx) returns
+                                    causal logits (B, T, vocab_size); weights come from the checkpoint
+The supervisor owns the clock: import, build, torch.compile, every train_step and the checkpoint write count.
 m3b's schedules over step/total_steps are re-expressed over progress (identical shapes).
 """
 import random
-from dataclasses import asdict
 
 import torch
 
-from model import GPT, LOOPS_TRAIN, GPTConfig, model_config
+from model import GPT, LOOPS_TRAIN, model_config
 
 # ---------------------------------------------------------------------------- hyperparameters (m3b keep)
 TOTAL_BATCH_SIZE = 2**16  # tokens per optimizer step (one harness batch of 64 x 1024 tokens)
@@ -189,13 +190,9 @@ def train_step(state, batch, step, progress):
     return loss.detach()
 
 
-def save(state, path):
-    torch.save({"config": asdict(state["cfg"]), "model": state["model"].state_dict()}, path)
-
-
-def load(path, device):
-    ck = torch.load(path, map_location=device, weights_only=True)
-    model = GPT(GPTConfig(**ck["config"])).to(device)
+def make_model(config):
+    """The evaluator's constructor: the same architecture build() trains (weights are then overwritten from the
+    data-only checkpoint by frozen code). config: vocab_size, seq_len, device."""
+    model = GPT(model_config(config["vocab_size"], config["seq_len"])).to(config["device"])
     model.to_bf16_embeddings()
-    model.load_state_dict(ck["model"])
     return model

@@ -47,7 +47,7 @@ RAW = "/tmp/raw"
 
 # ---- programs
 N_TRAIN = 2_000_000
-N_ID, N_DEPTH, N_EXT, N_CF = 2000, 2000, 500, 500      # per eval split
+N_ID, N_DEPTH, N_EXT, N_CF = 2000, 2000, 500, 500      # per eval split (N_CF: 50 per k in 1..10)
 SEEDS = {"validation": 2001, "holdout": 3001, "train": 1001}
 GROUPS = {"id": 0, "depth": 1, "ext": 2, "cf": 3}
 
@@ -181,27 +181,37 @@ def main():
     evals = {}
     for split in ("validation", "holdout"):
         s = SEEDS[split]
-        g = {"id": progen.generate(s * 10 + 1, N_ID, progen.ID_K, balanced=True, seen=seen),
+        g = {"id": progen.generate(s * 10 + 1, N_ID, progen.ID_K, balanced=True, seen=seen, max_depth=progen.TRAIN_K[1]),
              "depth": progen.generate(s * 10 + 2, N_DEPTH, progen.DEPTH_K, balanced=True, seen=seen),
              "ext": progen.generate(s * 10 + 3, N_EXT, progen.EXT_K, balanced=True, seen=seen)}
         main = g["id"] + g["depth"]
         rng = random.Random(s * 10 + 4)
         g["cf"], cf_of = [], []
-        for j in range(0, len(main), len(main) // N_CF):  # every 8th main item gets a counterfactual twin
-            while True:
-                c = progen.counterfactual(main[j], rng)
-                h = progen.norm_hash(c)
-                if h not in seen:
+        ks = sorted({p["k"] for p in main})
+        for k in ks:  # N_CF / #k random originals per depth stratum, each with a twin whose answer differs
+            pool = [j for j, p in enumerate(main) if p["k"] == k]
+            rng.shuffle(pool)
+            taken = 0
+            for j in pool:
+                if taken == N_CF // len(ks):
                     break
-            seen.add(h)
-            g["cf"].append({**c, "hash": h})
-            cf_of.append(j)
+                c = progen.counterfactual(main[j], rng)
+                if c is None:
+                    continue
+                h = progen.norm_hash(c)
+                if h in seen:
+                    continue
+                seen.add(h)
+                g["cf"].append({**c, "hash": h})
+                cf_of.append(j)
+                taken += 1
+            assert taken == N_CF // len(ks), f"not enough counterfactual twins at k={k}"
         evals[split] = (g, cf_of)
     eval_hashes = set(seen)
     rng = random.Random(SEEDS["train"])
     train, train_k, dup_eval, dup_train = [], [], 0, 0  # train programs as bytes of piece ids (prompt + answer)
     while len(train) < N_TRAIN:
-        p = progen.make_program(rng, rng.randint(*progen.TRAIN_K))
+        p = progen.make_program(rng, rng.randint(*progen.TRAIN_K), max_depth=progen.TRAIN_K[1])
         h = progen.norm_hash(p)
         if h in seen:
             dup_eval += h in eval_hashes

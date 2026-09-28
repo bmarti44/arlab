@@ -1,12 +1,13 @@
 """Deterministic CPU checks for latent-arch (run by `arlab check` as root, no GPU; data at /data, surface at /work,
 the sealed pack at /pack, frozen/run at /frozen, frozen/eval at /eval). The generator is read from
-/pack/frozen/prepare because RUN never sees it."""
+/pack/frozen/prepare because RUN never sees it. Fake surfaces are written to tmp dirs and run through the real
+supervisor (--smoke, CPU) and the real evaluator (--device cpu --limit N)."""
 import json
 import os
 import pickle
 import subprocess
 import sys
-import textwrap
+import time
 
 import numpy as np
 import pytest
@@ -19,8 +20,8 @@ WORK = os.environ.get("LA_WORK", "/work")
 sys.path.insert(0, os.environ.get("LA_PREPARE", "/pack/frozen/prepare"))
 sys.path.insert(0, EVAL)
 import progen  # noqa: E402
-import evalcore  # noqa: E402
-from common import VOCAB, file_sha256, tensor_hash  # noqa: E402
+import meter  # noqa: E402
+from common import VOCAB, count_elements, file_sha256, load_checkpoint, tensors_hash  # noqa: E402
 
 L = 1 + progen.n_pieces()  # prompt tokens: BOS + statements + `q?`
 
@@ -76,6 +77,33 @@ def test_depth_on_hand_made_programs():
         assert progen.evaluate(p["stmts"])[p["query"]] == ans, text
 
 
+def test_training_programs_have_no_statement_deeper_than_six():
+    import random
+    rng = random.Random(0)
+    for _ in range(50_000):
+        p = progen.make_program(rng, rng.randint(*progen.TRAIN_K), max_depth=progen.TRAIN_K[1])
+        assert max(progen.depths(p["stmts"]).values()) <= progen.TRAIN_K[1]
+    rng = random.Random(0)   # without the cap, distractors do get deeper (what the cap is for)
+    assert max(max(progen.depths(progen.make_program(rng, 6)["stmts"]).values()) for _ in range(5000)) > 6
+
+
+def test_counterfactual_twins_change_the_answer():
+    import random
+    rng = random.Random(0)
+    n_none = 0
+    for p in progen.generate(11, 1000, (1, 10), balanced=True):
+        c = progen.counterfactual(p, rng)
+        if c is None:
+            n_none += 1
+            continue
+        assert c["answer"] != p["answer"] and c["k"] == p["k"] and c["query"] == p["query"]
+        diff = [(x, y) for x, y in zip(p["stmts"], c["stmts"]) if x != y]
+        assert len(diff) == 1 and diff[0][0][1] == "c"                 # exactly one constant changed
+    p = progen.parse("a=5;b=a+3;c=b-a;c?")                           # the root cancels: no valid twin
+    assert progen.counterfactual(progen.annotate({**p, "k": 2}), rng) is None
+    assert n_none < 400
+
+
 def test_normalized_hash_is_alpha_invariant():
     p = progen.parse("a=5;b=a+3;c=b-9;c?")
     assert progen.norm_hash(p) == progen.norm_hash(progen.parse("x=5;q=x+3;m=q-9;m?"))
@@ -96,7 +124,11 @@ def test_splits_sized_and_depth_ranges(info):
             assert len(k) == cnt and k.min() == lo and k.max() == hi
             assert np.bincount(k)[lo:hi + 1].max() - np.bincount(k)[lo:hi + 1].min() <= 1   # balanced
         cf = d["group"] == 3
-        assert cf.sum() == n["cf"] and (d["group"][d["cf_of"][cf]] < 2).all()
+        orig = d["cf_of"][cf]
+        assert cf.sum() == n["cf"] and (d["group"][orig] < 2).all()
+        assert (d["value"][cf] != d["value"][orig]).all()                  # every twin changes the answer
+        assert np.bincount(d["k"][orig], minlength=11)[1:11].tolist() == [n["cf"] // 10] * 10   # 50 per k 1..10
+        assert len(set(orig.tolist())) == len(orig) and sorted(orig.tolist()) != list(orig)   # random, not strided
     tk = np.load(f"{D}/audit/train_k.npy")
     assert len(tk) == info["n_train_programs"] and tk.min() == progen.TRAIN_K[0] and tk.max() == progen.TRAIN_K[1]
 
@@ -111,6 +143,8 @@ def test_eval_programs_decode_to_their_labels(codec):
             assert text == str(d["text"][i])
             p = progen.parse(text)
             assert progen.depths(p["stmts"])[p["query"]] == d["k"][i]
+            if d["group"][i] == 0:                                           # ID items: the training distribution
+                assert max(progen.depths(p["stmts"]).values()) <= progen.TRAIN_K[1]
             assert progen.evaluate(p["stmts"])[p["query"]] == d["value"][i]
             assert codec["to_piece"][int(d["answer"][i])] == str(d["value"][i])   # one-token answer
             assert progen.norm_hash(p) == int(d["hash"][i])
@@ -137,7 +171,8 @@ def test_splits_hash_disjoint_and_train_never_contains_eval(codec):
         text = _text(codec, train[j, 1:L])
         p = progen.parse(text)
         assert progen.norm_hash(p) not in ev
-        assert progen.depths(p["stmts"])[p["query"]] == tk[j] <= progen.TRAIN_K[1]
+        dep = progen.depths(p["stmts"])
+        assert dep[p["query"]] == tk[j] and max(dep.values()) <= progen.TRAIN_K[1]     # no statement deeper than 6
         assert codec["to_piece"][int(train[j, L])] == str(progen.evaluate(p["stmts"])[p["query"]])
 
 
@@ -184,19 +219,37 @@ def test_run_cannot_see_private_data_or_generator():
         for f in fs:
             if f.endswith(".py"):
                 src = open(os.path.join(root, f)).read()
-                assert "private" not in src and "progen" not in src and "audit" not in src, f
-    h = open(f"{FROZEN}/harness.py").read()
-    assert h.index("t0 = time.time()") < h.index("import train as surface")   # timer starts before the import
+                assert "private" not in src and "progen" not in src and "audit/" not in src, f
+    h, tr = open(f"{FROZEN}/harness.py").read(), open(f"{FROZEN}/trainer.py").read()
+    assert "import train" not in h                                       # the supervisor never imports the surface
+    assert tr.index("go = json.loads") < tr.index("import train as surface")   # clock runs before the surface import
 
 
-# ---------------------------------------------------------------- harness: budget and timer (CPU smoke config)
-def _harness(tmp_path, work, seconds, name="out"):
+def test_checkpoint_loader_accepts_only_flat_tensor_dicts(tmp_path):
+    good = {"w": torch.zeros(3), "idx": torch.arange(5), "flag": torch.ones(2, dtype=torch.bool)}
+    torch.save(good, tmp_path / "g.pt")
+    ck = load_checkpoint(str(tmp_path / "g.pt"))
+    assert count_elements(ck) == 10 and tensors_hash(ck) == tensors_hash(good)
+    for i, bad in enumerate([{"w": 1.0}, {"w": {"x": torch.zeros(1)}}, [torch.zeros(1)], {1: torch.zeros(1)},
+                             {"w": torch.nn.Parameter(torch.zeros(1))}]):
+        torch.save(bad, tmp_path / f"b{i}.pt")
+        with pytest.raises(ValueError):
+            load_checkpoint(str(tmp_path / f"b{i}.pt"))
+    with open(tmp_path / "p.pt", "wb") as f:
+        pickle.dump(Looped, f)                                           # arbitrary pickles never unpickle
+    with pytest.raises(ValueError):
+        load_checkpoint(str(tmp_path / "p.pt"))
+
+
+# ---------------------------------------------------------------- RUN: trusted supervisor, budget, checkpoint
+def _harness(tmp_path, work, seconds, name="out", grace=None, ok=True):
     out = tmp_path / name
     out.mkdir()
-    r = subprocess.run([sys.executable, f"{FROZEN}/harness.py", "--out", str(out), "--seed", "1", "--split", "validation",
-                        "--train-seconds", str(seconds), "--data", f"{D}/train", "--work", str(work), "--smoke"],
-                       capture_output=True, text=True, timeout=600)
-    assert r.returncode == 0, r.stderr[-2000:]
+    cmd = [sys.executable, f"{FROZEN}/harness.py", "--out", str(out), "--seed", "1", "--split", "validation",
+           "--train-seconds", str(seconds), "--data", f"{D}/train", "--work", str(work), "--smoke"]
+    r = subprocess.run(cmd + (["--grace", str(grace)] if grace is not None else []), capture_output=True, text=True,
+                       timeout=600)
+    assert (r.returncode == 0) == ok, r.stderr[-3000:]
     return out, json.load(open(out / "budget.json")), json.load(open(out / "stats.json"))
 
 
@@ -205,96 +258,122 @@ def _evaluate(tmp_path, run, work, limit=24, name="m.json"):
     r = subprocess.run([sys.executable, f"{EVAL}/evaluate.py", "--run", str(run), "--out", str(out), "--data",
                         f"{D}/validation/private", "--work", str(work), "--device", "cpu", "--limit", str(limit)],
                        capture_output=True, text=True, timeout=900)
-    assert r.returncode == 0, r.stderr[-2000:]
+    assert r.returncode == 0, r.stderr[-3000:]
     return json.load(open(out))
 
 
 def test_baseline_surface_smoke_run_and_evaluate(tmp_path):
     out, budget, stats = _harness(tmp_path, WORK, 8)
-    assert 8 <= budget["train_seconds"] <= 8 + 30 and stats["train_steps"] >= 1 and stats["nan_at"] is None
+    assert stats["status"] == "ok" and 8 <= budget["train_seconds"] <= 8 + 30
+    assert stats["trainer"]["train_steps"] >= 1 and stats["trainer"]["nan_at"] is None
+    ck = load_checkpoint(str(out / "model.pt"))
+    assert "cos" in ck and "sin" in ck                                   # non-persistent buffers are state too
     m = _evaluate(tmp_path, out, WORK)
     assert m["valid"], m["message"]
     mm = m["metrics"]
     assert len(m["items"]) == 48 and set(m["items"].values()) <= {0.0, 1.0}
     assert abs(m["primary"] - 0.5 * (mm["acc_id"] + mm["acc_depth"])) < 1e-12
-    assert 25 < mm["params_m"] < 28 and mm["infer_flops_tok"] > 2e7 and mm["val_bpb"] > 0
-    with open(out / "model.pt", "ab") as f:          # any change to the checkpoint after the deadline
+    assert mm["params_m"] == count_elements(ck) / 1e6 and 26 < mm["params_m"] < 27
+    assert mm["flops_tok_text"] > 2e7 and mm["flops_tok_prog"] > 2e7 and mm["val_bpb"] > 0
+    with open(out / "model.pt", "ab") as f:                              # any change to the checkpoint after the deadline
         f.write(b"\0")
     assert not _evaluate(tmp_path, out, WORK, name="t.json")["valid"]
 
 
-SLOW = """
-import time
+FAKE = """
+import os, sys, time
 import torch
 time.sleep({import_s})
 class M(torch.nn.Module):
     def __init__(self):
         super().__init__()
         self.w = torch.nn.Parameter(torch.zeros(1))
+        self.register_buffer("table", torch.zeros({n_int}, dtype=torch.int64))
     def forward(self, idx):
-        return torch.zeros(*idx.shape, 8192) + self.w
+        return torch.zeros(*idx.shape, 8192) + self.w + 0 * self.table[:1].float()
 def build(config):
+    {build}
     return {{"model": M()}}
 def train_step(state, batch, step, progress):
     time.sleep({step_s})
     return torch.tensor(1.0)
-def save(state, path):
-    torch.save(state["model"].state_dict(), path)
-def load(path, device):
-    m = M()
-    m.load_state_dict(torch.load(path, weights_only=True))
-    return m
+def make_model(config):
+    return M()
 """
 
 
+def _fake(tmp_path, name, import_s=0, step_s=0.0, n_int=1, build="pass"):
+    w = tmp_path / f"w_{name}"
+    w.mkdir()
+    (w / "train.py").write_text(FAKE.format(import_s=import_s, step_s=step_s, n_int=n_int, build=build))
+    return w
+
+
 def test_timer_counts_import_and_stops_slow_steps(tmp_path):
-    w = tmp_path / "w1"
-    w.mkdir()
-    (w / "train.py").write_text(SLOW.format(import_s=0, step_s=1.0))
-    _, budget, stats = _harness(tmp_path, w, 3.5, "o1")
-    assert stats["train_steps"] == 4 and 4.0 <= budget["train_seconds"] < 4.9   # steps start at ~0,1,2,3; none after 3.5
-    w2 = tmp_path / "w2"
-    w2.mkdir()
-    (w2 / "train.py").write_text(SLOW.format(import_s=3, step_s=0.2))
-    _, budget, stats = _harness(tmp_path, w2, 2, "o2")
-    assert stats["train_steps"] == 0 and budget["train_seconds"] >= 3        # the import alone used the budget
+    _, budget, stats = _harness(tmp_path, _fake(tmp_path, "slow", step_s=1.0), 3.5, "o1")
+    assert stats["trainer"]["train_steps"] == 4 and 4.0 <= budget["train_seconds"] < 5.0   # steps at ~0,1,2,3
+    _, budget, stats = _harness(tmp_path, _fake(tmp_path, "imp", import_s=3, step_s=0.2), 2, "o2")
+    assert stats["trainer"]["train_steps"] == 0 and budget["train_seconds"] >= 3        # the import used the budget
 
 
-def test_evaluator_rejects_overrun_budget(tmp_path):
-    w = tmp_path / "w"
-    w.mkdir()
-    (w / "train.py").write_text(SLOW.format(import_s=0, step_s=0.0))
+def test_supervisor_kills_a_trainer_that_ignores_the_deadline(tmp_path):
+    w = _fake(tmp_path, "clock", build="time.monotonic = lambda: 0.0; time.time = lambda: 0.0")
+    t = time.monotonic()
+    out, budget, stats = _harness(tmp_path, w, 2, "o", grace=1.5)
+    assert stats["status"] == "killed" and stats["killed"] and not (out / "model.pt").exists()
+    assert 3.4 <= budget["train_seconds"] <= 4.5 and time.monotonic() - t < 60
+    m = _evaluate(tmp_path, out, w, limit=8)
+    assert not m["valid"] and "killed" in m["message"]
+
+
+DAEMON = ("import os\n    if os.fork() == 0:\n        os.setsid()\n        if os.fork() == 0:\n"
+          "            out = os.path.dirname(sys.argv[sys.argv.index('--ckpt') + 1])\n"
+          "            while True:\n                open(out + '/budget.json', 'w').write('{\"train_seconds\": 0.5}')\n"
+          "                time.sleep(0.05)\n        os._exit(0)\n    os.wait()")
+
+
+def test_supervisor_owns_budget_json_and_kills_escaped_helpers(tmp_path):
+    out, budget, stats = _harness(tmp_path, _fake(tmp_path, "daemon", build=DAEMON), 2, "o")
+    assert stats["status"] == "ok" and stats["stray_processes_killed"] >= 1 and budget["train_seconds"] >= 2
+    time.sleep(0.5)
+    assert json.load(open(out / "budget.json"))["train_seconds"] == budget["train_seconds"]   # nothing rewrites it
+
+
+def test_evaluator_rejects_overrun_budget_and_counts_all_tensor_state(tmp_path):
+    w = _fake(tmp_path, "int", n_int=1_000_000)
     out, _, _ = _harness(tmp_path, w, 1)
-    assert _evaluate(tmp_path, out, w, limit=8)["valid"]
-    json.dump({"train_seconds": 361.0}, open(out / "budget.json", "w"))
-    m = _evaluate(tmp_path, out, w, limit=8, name="m2.json")
-    assert not m["valid"] and "train_seconds" in m["message"]
+    m = _evaluate(tmp_path, out, w, limit=8)
+    assert m["valid"], m["message"]
+    assert m["metrics"]["params_m"] == 1.000001                          # the int64 buffer counts like parameters
+    budget = json.load(open(out / "budget.json"))
+    for bad in (361.0, budget["train_seconds"] - 0.5):                   # over the limit / not the supervisor's number
+        json.dump({"train_seconds": bad}, open(out / "budget.json", "w"))
+        assert not _evaluate(tmp_path, out, w, limit=8, name="m2.json")["valid"]
 
 
-# ---------------------------------------------------------------- evaluator on hand-made models
+# ---------------------------------------------------------------- EVALUATE: sandboxed worker, scoring on raw logits
 ORACLE = """
+import os
 import numpy as np
 import torch
-d = np.load("{data}/validation/private/programs.npz")
+d = np.load(os.path.join(os.path.dirname(os.path.abspath(__file__)), "table.npz"))
 L = d["tokens"].shape[1]
 DEF = int(d["tokens"][0, 0])  # BOS: never an answer
 TABLE = {{tuple(r[:L - {shift}].tolist()): int(a) for r, a in zip(d["tokens"], d["answer"])}}
 class Oracle(torch.nn.Module):
-    '''Causal lookup: when the last {n} tokens are an eval prompt (minus {shift}), put logit 10 on its answer
-    (and {decoy} on BOS; everything else defaults to BOS).'''
+    # causal lookup: when the last L-{shift} tokens are an eval prompt (minus {shift}), logit 10 on its answer
     def forward(self, idx):
         out = torch.zeros(*idx.shape, 8192)
         out[..., DEF] = 1.0
-        rows = idx.tolist()
         n = L - {shift}
-        for b, r in enumerate(rows):
+        for b, r in enumerate(idx.tolist()):
             for t in range(n - 1, len(r)):
                 a = TABLE.get(tuple(r[t - n + 1:t + 1]))
                 if a is not None:
                     out[b, t, a] = 10.0
                     out[b, t, DEF] = {decoy}
         return out
-def load(path, device):
+def make_model(config):
     return Oracle()
 """
 PEEK = """
@@ -304,34 +383,91 @@ class Peek(torch.nn.Module):
         z = torch.zeros(*idx.shape, 8192)
         z[..., 0] = idx.float().mean(1, keepdim=True)
         return z
-def load(path, device):
+def make_model(config):
     return Peek()
+"""
+EVIL = """
+import os, sys, json
+import torch
+LOOT = {{}}
+def attempt(name, fn):
+    try:
+        fn()
+        LOOT[name] = True
+    except Exception as e:
+        print("blocked", name, repr(e)[:120], file=sys.stderr)
+def steal_answers():
+    import numpy as np
+    d = np.load("{data}/validation/private/programs.npz")
+    LOOT["table"] = {{tuple(r.tolist()): int(a) for r, a in zip(d["tokens"], d["answer"])}}
+def patch_scorer():
+    import evalcore
+    evalcore.accuracy_report = lambda *a, **k: {{"metrics": {{"accuracy": 1.0}}, "items": {{}}}}
+def forge_result():
+    open("{out}", "w").write(json.dumps({{"valid": True, "primary": 1.0, "metrics": {{}}, "items": {{}}}}))
+def parent_memory():
+    open("/proc/%d/mem" % os.getppid(), "rb").read(1)
+def parent_environ():
+    open("/proc/%d/environ" % os.getppid(), "rb").read(1)
+def network():
+    import socket
+    s = socket.socket()
+    s.settimeout(1)
+    s.connect(("127.0.0.1", 9))
+for name, fn in [("steal", steal_answers), ("patch", patch_scorer), ("forge", forge_result),
+                 ("mem", parent_memory), ("environ", parent_environ), ("net", network)]:
+    attempt(name, fn)
+sys.modules["__main__"].__dict__["accuracy_report"] = None   # reaches only the worker's own __main__
+class Evil(torch.nn.Module):
+    def forward(self, idx):
+        out = torch.zeros(*idx.shape, 8192)
+        for b, r in enumerate(idx.tolist()):
+            out[b, :, r[0]] = 1.0                                   # default: BOS (never an answer)
+            a = LOOT.get("table", {{}}).get(tuple(r))
+            if a is not None:
+                out[b, -1, a] = 10.0
+        return out
+def make_model(config):
+    assert not LOOT, "an attack succeeded: " + ",".join(LOOT)
+    return Evil()
 """
 
 
-def _fake_run(tmp_path, name, src, model):
+def _fake_run(tmp_path, name, src, files=None, n_limit=40):
     w = tmp_path / f"w_{name}"
     w.mkdir()
     (w / "train.py").write_text(src)
+    for f, obj in (files or {}).items():
+        np.savez(w / f, **obj)
     run = tmp_path / f"run_{name}"
     run.mkdir()
     torch.save({}, run / "model.pt")
     json.dump({"train_seconds": 330.0}, open(run / "budget.json", "w"))
-    json.dump({"nan_at": None, "model_sha256": file_sha256(str(run / "model.pt")), "tensor_hash": tensor_hash(model)},
-              open(run / "stats.json", "w"))
-    return _evaluate(tmp_path, run, w, limit=40, name=f"{name}.json")
+    json.dump({"status": "ok", "train_seconds": 330.0, "seq_len": 1024, "model_sha256": file_sha256(str(run / "model.pt")),
+               "tensors_hash": tensors_hash({}), "trainer": {"nan_at": None}}, open(run / "stats.json", "w"))
+    return _evaluate(tmp_path, run, w, limit=n_limit, name=f"{name}.json")
 
 
 def test_evaluator_scores_the_answer_position_only(tmp_path):
-    m = _fake_run(tmp_path, "oracle", ORACLE.format(shift=0, n="L", decoy=0.0, data=D), torch.nn.Module())
-    assert m["valid"] and m["primary"] == 1.0 and m["metrics"]["cf_both"] == 1.0 and m["metrics"]["acc_ext"] == 1.0
+    d = _npz("validation")
+    table = {"table.npz": {"tokens": d["tokens"], "answer": d["answer"]}}
+    m = _fake_run(tmp_path, "oracle", ORACLE.format(shift=0, decoy=0.0), table)
+    assert m["valid"], m["message"]
+    assert m["primary"] == 1.0 and m["metrics"]["cf_both"] == 1.0 and m["metrics"]["acc_ext"] == 1.0
     assert m["metrics"]["infer_flops_tok"] == 0 and m["metrics"]["params_m"] == 0
-    early = _fake_run(tmp_path, "early", ORACLE.format(shift=1, n="L-1", decoy=0.0, data=D), torch.nn.Module())
+    early = _fake_run(tmp_path, "early", ORACLE.format(shift=1, decoy=0.0), table)
     assert early["valid"] and early["primary"] == 0.0        # answer one position early (after `q`, before `?`)
-    decoy = _fake_run(tmp_path, "decoy", ORACLE.format(shift=0, n="L", decoy=20.0, data=D), torch.nn.Module())
+    decoy = _fake_run(tmp_path, "decoy", ORACLE.format(shift=0, decoy=20.0), table)
     assert decoy["valid"] and decoy["primary"] == 0.0        # argmax over the FULL vocabulary
-    peek = _fake_run(tmp_path, "peek", PEEK, torch.nn.Module())
+    peek = _fake_run(tmp_path, "peek", PEEK)
     assert not peek["valid"] and "causal" in peek["message"]
+
+
+def test_worker_cannot_read_labels_patch_the_scorer_or_forge_results(tmp_path):
+    out = tmp_path / "evil.json"
+    m = _fake_run(tmp_path, "evil", EVIL.format(data=os.path.abspath(D), out=out))
+    assert m["valid"], m["message"]                            # every attack failed (make_model asserts that) ...
+    assert m["primary"] == 0.0 and m["metrics"]["acc_ext"] == 0.0   # ... and the scores are the honest ones
 
 
 class Looped(torch.nn.Module):
@@ -349,11 +485,11 @@ class Looped(torch.nn.Module):
 
 
 def test_flop_counter_counts_loops_and_flags_custom_ops():
-    x = [np.random.default_rng(0).integers(0, VOCAB, (2, 32))]
-    f1, f2, f3 = (evalcore.probe(Looped(k), x, "cpu")["flops_per_token"] for k in (1, 2, 3))
+    x = torch.as_tensor(np.random.default_rng(0).integers(0, VOCAB, (2, 32)))
+    f1, f2, f3 = (meter.metered(Looped(k), x)[1] / x.numel() for k in (1, 2, 3))
     core = 2 * 16 * 16
     assert f2 - f1 == core and f3 - f2 == core and f1 == core + 2 * 16 * VOCAB
-    assert not evalcore.probe(Looped(1), x, "cpu")["bad_ops"]
+    assert not meter.metered(Looped(1), x)[2]
 
     @torch.library.custom_op("latentarch_test::double", mutates_args=())
     def double(t: torch.Tensor) -> torch.Tensor:
@@ -367,7 +503,7 @@ def test_flop_counter_counts_loops_and_flags_custom_ops():
         def forward(self, idx):
             return double(super().forward(idx))
 
-    assert any("latentarch_test" in op for op in evalcore.probe(Custom(1), x, "cpu")["bad_ops"])
+    assert any("latentarch_test" in op for op in meter.metered(Custom(1), x)[2])
     q = torch.randn(1, 2, 16, 8)
 
     class Attn(torch.nn.Module):   # SDPA on CPU is counted like the CUDA kernels
@@ -375,4 +511,4 @@ def test_flop_counter_counts_loops_and_flags_custom_ops():
             torch.nn.functional.scaled_dot_product_attention(q, q, q, is_causal=True)
             return torch.zeros(*idx.shape, VOCAB)
 
-    assert evalcore.probe(Attn(), x, "cpu")["flops"] == 4 * 1 * 2 * 16 * 16 * 8
+    assert meter.metered(Attn(), x)[1] == 4 * 1 * 2 * 16 * 16 * 8

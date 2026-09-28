@@ -228,3 +228,38 @@ Seeds: calibration [1–5], screen 1, confirm [2, 3], holdout [101, 102, 103].
   rejected), FLOP counter counts a 2× Python loop as 2× and flags a non-`aten` op, causality check rejects a
   future-peeking model, relabelling round-trip, a surface that hard-codes a token id loses accuracy under relabelling,
   harness deadline stops a slow `train_step` and marks > 360 s invalid.
+
+## As built / known limits (v0 build + hardening after the astra review)
+
+- **Programs.** Every program has exactly 2 constants + 12 operations (83 prompt tokens, 84 with the answer), so
+  length and position carry no depth signal. Pieces are written as single token ids (never re-tokenized); the one
+  number the BPE did not merge ("79") uses `<|reserved_1|>` (`info.json: piece_fallback`). **No statement of any
+  training program (distractors included) is deeper than 6**, and ID eval programs follow the same rule; DEPTH/EXT
+  items are only limited by their chain. Counterfactual twins: 50 random originals per k in 1..10, each twin's
+  answer differs from the original's (roots whose contribution cancels are skipped).
+- **Where secrets live.** The vocabulary permutation and tokenizer are in `audit/` (read by the pack tests only; never
+  mounted into RUN or EVALUATE). There is no `public/`.
+- **RUN.** `frozen/run/harness.py` is a supervisor that never imports the surface: it starts `trainer.py` (the only
+  process with surface code), starts CLOCK_MONOTONIC after the trainer has loaded torch and the data, kills the
+  trainer's process group at budget + 30 s, is a subreaper (kills every leftover descendant before writing), and
+  alone writes `budget.json` and `stats.json`. The checkpoint is written by frozen trainer code as a flat
+  `{name: tensor}` dict of every parameter and buffer of `state["model"]`; the supervisor validates it
+  (`weights_only` load, dense tensors only) and records its sha256, tensor hash and element count.
+- **EVALUATE.** `evaluate.py` never imports surface code. The surface's `make_model(config)` + the checkpoint run in
+  `frozen/run/worker.py`, a separate process under Landlock (readable: Python install, /usr, /etc, /proc, /sys, the
+  worker dir and /work; read/write: /dev for the GPU and a private scratch dir; no eval data, evaluator code or
+  result dir; no TCP; no ptrace-style access to the evaluator). It receives token ids as bytes and returns float32
+  logits via a memfd; labels, scoring and the result file stay in the evaluator. `val_bpb` and the program argmax
+  are computed by the evaluator from those logits (the `arlab.lib.lm` helpers are not used, same math).
+  FLOPs and the op audit cover every scored forward (all text rows and all programs, actual shapes);
+  `infer_flops_tok` = mean of the per-token counts on text and on programs. The causality check compares original
+  rows (scoring worker) with perturbed-future rows in a *fresh* worker, so a cache cannot connect them.
+  `params_m` = all elements of all checkpoint tensors (any dtype) / 1e6 (baseline ≈ 27.7 M: 26.35 M parameters +
+  1.31 M rotary buffers).
+- **Known limits (not enforced by code; bounded by program.md and by the orchestrator's review of every kept or
+  finalized diff).** (1) Kernels launched outside the PyTorch dispatcher (raw Triton/CUDA launches) are invisible
+  to the FLOP counter and op audit; `infer_s` is the backstop. (2) The FLOP counter and op audit run inside the
+  worker process, next to the surface, which could in principle tamper with them. (3) A symbolic interpreter
+  inside the surface (relabelling is obfuscation: the token roles are learnable from training data) is forbidden
+  by program.md, not detected. (4) `make_model()` runs in EVALUATE with a 120 s limit and no data access; it could
+  still do data-free precomputation. (5) Landlock + CUDA in the worker is tested on CPU only until the GPU PROBE.

@@ -1,88 +1,123 @@
-"""Frozen scoring and measurement code for latent-arch EVALUATE (importable by the pack tests).
-
-Everything is computed here from the raw logits of the loaded model; nothing the surface reports is trusted.
+"""Trusted side of latent-arch EVALUATE (importable by the pack tests): the client for the sandboxed model worker
+(/frozen/worker.py) and the scoring math. Labels, scores and the result file never leave this process; the worker
+only ever receives token ids (as bytes) and returns logits through a memfd.
 """
 from __future__ import annotations
 
+import json
+import mmap
+import os
+import select
+import shutil
+import signal
+import site
+import subprocess
+import sys
+import tempfile
 import time
 
 import numpy as np
 import torch
-import torch.utils.flop_counter as fcm
-from torch.utils._python_dispatch import TorchDispatchMode
 
+import common
 from common import VOCAB
 
-ALLOWED_NS = ("aten", "prims")
+WORKER = os.path.join(os.path.dirname(os.path.abspath(common.__file__)), "worker.py")
+STARTUP_S, BUILD_S, FWD_S, MAX_LINE = 180.0, 120.0, 120.0, 1 << 20
 
 
-def logits(model, x: torch.Tensor) -> torch.Tensor:
-    """model(x) under the same autocast the LM scorer uses (bf16 on CUDA, none on CPU); shape-checked, fp32."""
-    with torch.autocast(x.device.type, dtype=torch.bfloat16, enabled=x.device.type == "cuda"):
-        lg = model(x)
-    if not isinstance(lg, torch.Tensor) or lg.dim() != 3 or tuple(lg.shape) != (*x.shape, VOCAB):
-        raise ValueError(f"model(x) must return logits (B, T, {VOCAB}) for x {tuple(x.shape)}; "
-                         f"got {getattr(lg, 'shape', type(lg))}")
-    return lg.float()
+class WorkerFailure(Exception):
+    pass
 
 
-@torch.no_grad()
-def predict(model, tokens: np.ndarray, device: str, batch: int = 128) -> tuple[np.ndarray, float]:
-    """Full-vocabulary argmax at the LAST position of each prompt (BOS + program + `q?`), one forward pass, no
-    generated tokens. All prompts have the same length. Returns (predicted ids, seconds for the timed passes)."""
-    x_all = torch.as_tensor(np.asarray(tokens, dtype=np.int64), device=device)
-    logits(model, x_all[:min(batch, len(x_all))])  # warm-up, not timed
-    if device == "cuda":
-        torch.cuda.synchronize()
-    t0 = time.time()
-    out = []
-    for i in range(0, len(x_all), batch):
-        last = logits(model, x_all[i:i + batch])[:, -1]
-        if not torch.isfinite(last).all():
-            raise ValueError("non-finite logits at the answer position")
-        out.append(last.argmax(-1))
-    if device == "cuda":
-        torch.cuda.synchronize()
-    return torch.cat(out).cpu().numpy(), time.time() - t0
+class Worker:
+    """One sandboxed model process: build(config) once, then forward(x) -> float32 logits (copied out of the memfd)."""
+
+    def __init__(self, work: str, ckpt: str, device: str, deny: list, max_floats: int, worker: str = WORKER):
+        self.scratch = tempfile.mkdtemp(prefix="la-worker-")
+        os.chmod(self.scratch, 0o777)
+        self.size = max(4 * max_floats, mmap.PAGESIZE)
+        self.fd = os.memfd_create("la-logits")
+        os.ftruncate(self.fd, self.size)
+        self.mm = mmap.mmap(self.fd, self.size)
+        env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "HF_HOME")}
+        env.update(HOME=self.scratch, TMPDIR=self.scratch, PYTHONDONTWRITEBYTECODE="1", PYTHONUSERBASE=site.USER_BASE)
+        cmd = [sys.executable, "-B", worker, "--work", work, "--ckpt", ckpt, "--device", device,
+               "--memfd", str(self.fd), "--memfd-size", str(self.size), "--scratch", self.scratch]
+        cmd += [x for d in deny for x in ("--deny", d)]
+        self.p = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, pass_fds=(self.fd,),
+                                  start_new_session=True, cwd=self.scratch, env=env)
+        self.buf = b""
+        self.hello = self._recv(time.monotonic() + STARTUP_S, "startup")
+
+    def _recv(self, deadline: float, what: str) -> dict:
+        fd = self.p.stdout.fileno()
+        while b"\n" not in self.buf:
+            left = deadline - time.monotonic()
+            if left <= 0:
+                raise WorkerFailure(f"timeout: {what}")
+            if select.select([fd], [], [], left)[0]:
+                chunk = os.read(fd, 1 << 16)
+                if not chunk:
+                    raise WorkerFailure(f"model worker exited during {what} (rc={self.p.wait()})")
+                self.buf += chunk
+                if len(self.buf) > MAX_LINE:
+                    raise WorkerFailure("message too long")
+        line, self.buf = self.buf.split(b"\n", 1)
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            raise WorkerFailure(f"malformed message during {what}")
+        if msg.get("op") == "error":
+            raise WorkerFailure(f"surface raised during {what}:\n{msg.get('msg')}")
+        return msg
+
+    def _send(self, data: bytes):
+        try:
+            self.p.stdin.write(data)
+            self.p.stdin.flush()
+        except BrokenPipeError:
+            raise WorkerFailure(f"model worker exited (rc={self.p.poll()})")
+
+    def build(self, config: dict) -> dict:
+        self._send((json.dumps({"op": "build", "config": config}) + "\n").encode())
+        msg = self._recv(time.monotonic() + BUILD_S, "make_model(config) + checkpoint load")
+        if msg.get("op") != "ready":
+            raise WorkerFailure(f"unexpected message {str(msg)[:200]}")
+        return msg
+
+    def forward(self, x: np.ndarray, last: bool = False) -> tuple[torch.Tensor, int, list]:
+        x = np.ascontiguousarray(x, dtype=np.int32)
+        B, T = x.shape
+        self._send((json.dumps({"op": "fwd", "shape": [B, T], "last": last}) + "\n").encode() + x.tobytes())
+        msg = self._recv(time.monotonic() + FWD_S, f"forward of {B}x{T} tokens")
+        want = [B, 1 if last else T, VOCAB]
+        if msg.get("op") != "out" or msg.get("shape") != want:
+            raise WorkerFailure(f"bad reply {str(msg)[:200]} (expected logits {want})")
+        n = B * want[1] * VOCAB
+        lg = torch.from_numpy(np.frombuffer(self.mm, dtype=np.float32, count=n).copy()).view(*want)
+        flops, bad = msg.get("flops"), msg.get("bad_ops")
+        if type(flops) is not int or flops < 0 or not isinstance(bad, list):
+            raise WorkerFailure("bad meter report")
+        return lg, flops, [str(b) for b in bad]
+
+    def close(self):
+        try:
+            os.killpg(self.p.pid, signal.SIGKILL)
+        except (ProcessLookupError, PermissionError):
+            pass
+        self.p.wait()
+        self.mm.close()
+        os.close(self.fd)
+        shutil.rmtree(self.scratch, ignore_errors=True)
 
 
-class OpAudit(TorchDispatchMode):
-    """Records every dispatched op outside the aten/prims namespaces (custom kernels, torch.library ops, ...)."""
-
-    def __init__(self):
-        super().__init__()
-        self.bad: set[str] = set()
-        self.n_ops = 0
-
-    def __torch_dispatch__(self, func, types, args=(), kwargs=None):
-        self.n_ops += 1
-        if getattr(func, "namespace", None) not in ALLOWED_NS:
-            self.bad.add(str(func))
-        return func(*args, **(kwargs or {}))
-
-
-def _sdpa_cpu_flops(q, k, v, *args, out_shape=None, **kwargs) -> int:
-    return fcm.sdpa_flop_count(q, k, v)
-
-
-# FlopCounterMode counts SDPA on CUDA (flash / efficient / cudnn) but not the CPU kernel; count it the same way.
-CUSTOM_FLOPS = {torch.ops.aten._scaled_dot_product_flash_attention_for_cpu: _sdpa_cpu_flops}
-
-
-@torch.no_grad()
-def probe(model, inputs: list[np.ndarray], device: str) -> dict:
-    """Counted FLOPs per scored token over the probe inputs (each a (B, T) int array), plus the op audit."""
-    audit = OpAudit()
-    counter = fcm.FlopCounterMode(display=False, custom_mapping=CUSTOM_FLOPS)
-    tokens = 0
-    with counter, audit:
-        for arr in inputs:
-            x = torch.as_tensor(np.asarray(arr, dtype=np.int64), device=device)
-            logits(model, x)
-            tokens += x.numel()
-    flops = counter.get_total_flops()
-    return {"flops": int(flops), "tokens": tokens, "flops_per_token": flops / max(tokens, 1),
-            "bad_ops": sorted(audit.bad), "n_ops": audit.n_ops}
+def nll_sum(lg: torch.Tensor, y: torch.Tensor, tb: torch.Tensor) -> tuple[float, int, bool]:
+    """Frozen cross-entropy from raw logits: (nats over byte-bearing targets, bytes, all finite)."""
+    lp = torch.log_softmax(lg.float(), dim=-1)
+    nll = -lp.gather(-1, y.unsqueeze(-1)).squeeze(-1)
+    b = tb[y]
+    return float((nll * (b > 0)).sum()), int(b.sum()), bool(torch.isfinite(nll[b > 0]).all())
 
 
 def accuracy_report(pred: np.ndarray, d: dict, idx: np.ndarray) -> dict:

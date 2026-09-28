@@ -1,4 +1,9 @@
-"""Frozen constants and integrity helpers shared by the RUN harness, EVALUATE and the pack tests."""
+"""Frozen constants and checkpoint helpers shared by the RUN supervisor, its trainer child, the EVALUATE worker,
+the evaluator and the pack tests.
+
+The checkpoint is DATA ONLY: a flat {name: tensor} dict of every parameter and buffer (persistent or not, any dtype)
+of the surface's model, written by frozen code and read with torch.load(weights_only=True).
+"""
 from __future__ import annotations
 
 import hashlib
@@ -8,7 +13,8 @@ import torch
 VOCAB = 8192
 SEQ_LEN = 1024
 TEXT_ROWS, PROG_ROWS = 58, 6          # rows per 64 x 1024 training batch (programs ~9 % of tokens)
-MAX_OVERRUN_S = 30                    # the last train_step may end at most this far past the budget
+GRACE_S = 30                          # the supervisor kills the trainer at budget + GRACE_S (budget.limit = 330 + 30)
+MAX_CKPT_TENSORS = 100_000
 
 
 def file_sha256(path: str) -> str:
@@ -19,21 +25,38 @@ def file_sha256(path: str) -> str:
     return h.hexdigest()
 
 
-def tensor_hash(model: torch.nn.Module) -> str:
-    """sha256 over every parameter and buffer (names, dtypes, shapes, bytes) of a loaded model."""
+def model_tensors(model: torch.nn.Module) -> dict:
+    """Every parameter and buffer (including non-persistent ones) as detached CPU tensors."""
+    out = {}
+    for name, t in list(model.named_parameters()) + list(model.named_buffers()):
+        out[name] = t.detach().to("cpu", copy=True).contiguous()
+    return out
+
+
+def load_checkpoint(path: str) -> dict:
+    """Trusted loader: weights_only unpickling; must be a flat {str: Tensor} dict. Raises ValueError otherwise."""
+    try:
+        ck = torch.load(path, map_location="cpu", weights_only=True)
+    except Exception as e:
+        raise ValueError(f"checkpoint is not a weights-only tensor file: {e!r}"[:500])
+    if not isinstance(ck, dict) or len(ck) > MAX_CKPT_TENSORS:
+        raise ValueError("checkpoint must be a flat dict {name: tensor}")
+    for k, v in ck.items():
+        if not isinstance(k, str) or type(v) is not torch.Tensor or v.is_sparse or v.is_quantized:
+            raise ValueError(f"checkpoint entry {k!r} is not a dense tensor")
+    return ck
+
+
+def tensors_hash(ck: dict) -> str:
+    """sha256 over names, dtypes, shapes and bytes of a {name: tensor} dict."""
     h = hashlib.sha256()
-    for name, t in sorted(list(model.named_parameters()) + list(model.named_buffers()), key=lambda kv: kv[0]):
-        t = t.detach().contiguous().cpu()
+    for name in sorted(ck):
+        t = ck[name].detach().contiguous().cpu()
         h.update(f"{name}|{t.dtype}|{tuple(t.shape)}".encode())
         h.update(t.reshape(-1).view(torch.uint8).numpy().tobytes())
     return h.hexdigest()
 
 
-def count_params(model: torch.nn.Module) -> int:
-    """Parameters + floating-point buffers (shared tensors counted once)."""
-    seen, n = set(), 0
-    for t in list(model.parameters()) + [b for b in model.buffers() if b.is_floating_point()]:
-        if id(t) not in seen:
-            seen.add(id(t))
-            n += t.numel()
-    return n
+def count_elements(ck: dict) -> int:
+    """All tensor state, every dtype (integer buffers and encoded weights count like parameters)."""
+    return sum(t.numel() for t in ck.values())
