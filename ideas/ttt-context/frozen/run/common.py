@@ -4,7 +4,7 @@
 MODEL_DIR = "/hf/hub/models--Qwen--Qwen3-1.7B/snapshots/70d244cc86ccca08cf5af4e1e306ecf908b1ad5e"
 
 # ---- sizes (CALIBRATE IN THE GPU PILOT; a change here changes data_hash -> new data, new tag)
-CONTEXT_TOKENS = 16384     # document prompt length target (chat head + log); every doc is within 128 tokens below it
+CONTEXT_TOKENS = 8192      # document prompt length target (chat head + log); every doc is within 128 tokens below it
 N_ITEMS = 400              # items (one question per document) per split: validation and holdout
 
 # Qwen3 chat format with thinking disabled (what apply_chat_template(enable_thinking=False) produces).

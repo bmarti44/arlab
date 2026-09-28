@@ -26,11 +26,12 @@ from common import HEAD
 
 KINDS = ("state", "hop2", "count", "kv")
 DIFFICULTY = {                      # tune in the GPU pilot so that no_ttt lands at 30-70 % (a change = new data)
-    "state_moves": (3, 5),          # moves of the asked crate (the last one is the answer)
+                                    # pilot 1 (16K, moves 3-5, count 1-6, 2 decoys): no_ttt 0.175 (n=40)
+    "state_moves": (2, 3),          # moves of the asked crate (the last one is the answer)
     "hop2_assigns": (1, 2),         # team assignments of the asked person (the last one counts)
     "hop2_rooms": (1, 2),           # room moves of that team (the last one is the answer)
     "count_approvals": (1, 6),      # approvals by the asked person (= the answer)
-    "kv_sets": (1, 3),              # code settings of the asked locker (the last one is the answer)
+    "kv_sets": (1, 2),              # code settings of the asked locker (the last one is the answer)
     "near_duplicates": 2,           # confusable entities per question, each with 1-2 events of its own
 }
 N_PEOPLE, N_TEAMS, N_DOCKS, N_CRATES, N_LOCKERS = 32, 10, 8, 48, 24

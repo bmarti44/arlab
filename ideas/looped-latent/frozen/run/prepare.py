@@ -1,7 +1,7 @@
 """PREPARE for looped-latent (CPU, offline, deterministic): program-tracing problems from progen + an OASST2 text sample.
 
 Layout written under --out:
-  train/tokens.npy, offsets.npy, prompt_len.npy   N_TRAIN problems (steps 2-8), prompt + answer tokens
+  train/tokens.npy, offsets.npy, prompt_len.npy   N_TRAIN problems (TRAIN_STEPS), prompt + answer tokens
   {validation,holdout}/public/items.json          {"main": [{id, prompt}], "hard": [...]}: prompt token ids only
   {validation,holdout}/public/text.npy            N_TEXT OASST2 rows of TEXT_LEN+1 tokens (retention guard)
   {validation,holdout}/private/answers.json       {"main": {id: {answer, steps, code}}, "hard": {...}}
@@ -24,7 +24,7 @@ from progen import DIFFICULTY, HARD_STEPS, ID_STEPS, TRAIN_STEPS, code_hash, gen
 
 N_TRAIN = 100_000     # far more than one 11-min run sees (~40k); the harness samples a seeded permutation
 N_EVAL = 2_000        # per split (validation, holdout); power arithmetic in pack.yaml
-N_HARD = 1_000        # per split, steps 9-12 (guard only)
+N_HARD = 1_000        # per split, HARD_STEPS (guard only)
 N_TEXT, TEXT_LEN = 256, 256
 SEEDS = {"validation": 2001, "holdout": 3001, "hard_validation": 4001, "hard_holdout": 5001, "train": 1001, "text": 7}
 

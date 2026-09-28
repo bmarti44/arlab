@@ -2,7 +2,7 @@
 You make ONE change per call. The runner (not you) runs the experiment, git and the ledger.
 You cannot run the experiment yourself and cannot see the evaluator or the data; do not try.
 ## Goal
-maximize accuracy: exact match of Qwen3-1.7B's short greedy answer to one question about one long (~16K-token)
+maximize accuracy: exact match of Qwen3-1.7B's short greedy answer to one question about one long (~8K-token)
 synthetic document, after test-time training (TTT) on that document within a fixed per-item wall-clock budget.
 Documents are logs of fictional events; questions need state tracking (latest value after several updates),
 two-hop lookups, counting, or picking the right entity among near-duplicates. Answers are 1-6 tokens.

@@ -4,7 +4,7 @@ prepare: {command: "python /frozen/prepare.py --out /data", timeout_s: 1800}
 run:
   # --ttt-seconds is the per-item wall-clock TTT budget (surface import + adapt, after a device sync), owned by the
   # frozen harness; the evaluator scores an item 0 if it went over. CALIBRATE IN THE GPU PILOT (build/pilot.sh):
-  #   RUN ~ 60 s + N_ITEMS x (prefill_s + ttt_s + answer_s + ~0.05 s reset); estimate at 16K: 400 x (2 + 4 + 0.3) ~ 45 min.
+  #   RUN ~ 60 s + N_ITEMS x (prefill_s + ttt_s + answer_s + ~0.05 s reset); pilot at 16K: prefill 1.7 s, baseline ttt 1.5 s, answer 0.3 s per item; 8K is roughly half.
   # Keep --ttt-seconds identical in run and evaluate, and budget.limit = N_ITEMS x it.
   command: "python /frozen/harness.py --out /out --seed {seed} --split {split} --ttt-seconds 4"
   timeout_s: 4500
@@ -21,7 +21,7 @@ budget: {unit: ttt_seconds, limit: 1600}           # total TTT seconds per run =
 #   If CALIBRATE says underpowered, raise N_ITEMS in frozen/run/common.py (new data, new tag), never the MES.
 metric: {name: accuracy, direction: maximize, mes: 0.05}
 guards:
-  - {name: peak_mem_gb, max: 40}                   # 1.7B bf16 + pristine copy + 16K KV + Adam state ~ 15 GB
+  - {name: peak_mem_gb, max: 40}                   # 1.7B bf16 + pristine copy + 8K KV + Adam state ~ 15 GB
 # No train_s ratio guard: the per-item --ttt-seconds is the compute budget (the baseline uses ~1-2 s of it).
 seeds: {calibration: [1, 2, 3], screen: 1, confirm: [2], holdout: [101, 102]}
 references:

@@ -1,7 +1,7 @@
 """Frozen EVALUATE for looped-latent: exact-match accuracy of the greedy answers against private answers, plus the
 guard metrics. Scores come only from raw outputs (generated token ids, per-token NLLs from frozen code).
 
-Primary: accuracy on the 2-8-step set (items = one 0/1 per problem). Guards (pack.yaml): hard_acc (9-12 steps),
+Primary: accuracy on the ID-step set (progen.ID_STEPS) (items = one 0/1 per problem). Guards (pack.yaml): hard_acc (progen.HARD_STEPS),
 text_nll (OASST2 retention), depth_ratio (effective depth, inference cost), trainable_m.
 """
 import argparse

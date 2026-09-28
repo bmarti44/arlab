@@ -4,7 +4,7 @@ A problem is a short program over a few integer variables (arithmetic mod 100, s
 loops) that ends in `print(v)`; the answer is the printed value (0..99), found by executing the program.
 `steps` counts the statements after the initial assignments (a `for` or `if` block is one step).
 
-DIFFICULTY is the knob the owner tunes in the GPU pilot (target: the no-loop baseline B1 at 40-70% on 2-8 steps).
+DIFFICULTY is the knob the owner tunes in the GPU pilot (target: the no-loop baseline B1 at 40-70% on ID_STEPS).
 Changing it changes frozen/run/ and therefore the data_hash: a new data dir and a new campaign tag.
 """
 from __future__ import annotations
@@ -17,15 +17,15 @@ import random
 DIFFICULTY = {
     "n_vars": 3,          # variables per program
     "names": "abcdxyzmnk",  # pool the variable names are drawn from
-    "const_max": 9,       # constants in updates are 1..const_max
-    "ops": "+-*",         # binary ops in assignments ("*" only ever multiplies by a constant 2..const_max)
-    "p_swap": 0.10,       # per-step probabilities; the rest are plain assignments
+    "const_max": 5,       # constants in updates are 1..const_max
+    "ops": "+-",         # binary ops in assignments ("*" only ever multiplies by a constant 2..const_max)
+    "p_swap": 0.20,       # per-step probabilities; the rest are plain assignments
     "p_if": 0.15,
-    "p_for": 0.10,
+    "p_for": 0.0,
     "for_n": 3,           # iterations of each `for _ in range(for_n)` block
     "p_chain": 0.7,       # probability that a step reads the variable written by the previous step
 }
-TRAIN_STEPS, ID_STEPS, HARD_STEPS = (2, 8), (2, 8), (9, 12)
+TRAIN_STEPS, ID_STEPS, HARD_STEPS = (1, 6), (1, 6), (7, 10)  # pilot 1 (2-8 steps, '*', const 9): B1 = 0.156
 
 
 def _expr(rng: random.Random, d: dict, src: str, others: list[str]) -> str:

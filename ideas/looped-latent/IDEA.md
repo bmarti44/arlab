@@ -16,8 +16,8 @@ hybrid-think checkpoint used with thinking disabled (empty `<think></think>`, an
 programs over 3 variables: arithmetic mod 100, swaps, small `if/else`, `for _ in range(3)` blocks, ending in
 `print(v)`. The prompt asks for the printed value; the target is just the number and `<|im_end|>` (≤ 6 generated
 tokens, greedy, so there is no room for written reasoning). Answers come from executing the program. Splits, each
-from its own generator seed, hash-deduplicated across splits: train 100,000 (2–8 steps); validation 2,000 and holdout
-2,000 (2–8 steps); a hard guard set of 1,000 per split (9–12 steps, never trained on). The difficulty knobs are the
+from its own generator seed, hash-deduplicated across splits: train 100,000 (1–6 steps); validation 2,000 and holdout
+2,000 (1–6 steps); a hard guard set of 1,000 per split (7–10 steps, never trained on). The difficulty knobs are the
 `DIFFICULTY` constant in `progen.py`; they are tuned in the GPU pilot so B1 lands at 40–70 % on validation.
 
 **Arms.** *B1 = the baseline surface* (no loop, K = 1): LoRA r16 on every attention and MLP projection of all 28
@@ -28,7 +28,7 @@ model at init. Because the budget is wall-clock, B1 sees more examples than a lo
 RESEARCH.md). B0 (base model zero-shot, `--train-seconds 0`) is a pilot reference only: the untrained chat model
 explains instead of answering, so it scores ~0 under the answer-only format.
 
-**Metric.** Exact-match accuracy of the greedy answer on the 2–8-step set (validation in the loop, holdout in
+**Metric.** Exact-match accuracy of the greedy answer on the 1–6-step set (validation in the loop, holdout in
 FINALIZE), one 0/1 item per problem (item pack). The evaluator decodes the generated token ids itself and compares
 the stripped text to the gold number; hedges, words or punctuation score 0.
 

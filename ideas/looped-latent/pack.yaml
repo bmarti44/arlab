@@ -20,7 +20,7 @@ guards:
   - {name: depth_ratio, min: 1.05}                   # every keep must really loop at eval (baseline = 1.0)
   - {name: depth_ratio, max: 2.0}                    # inference cost <= 2x base (hooked decoder-layer calls / 28)
   - {name: text_nll, max_ratio_vs_baseline: 1.02}    # OASST2 retention: <= +2% NLL vs the no-loop arm
-  # hard set (9-12 steps, 1000 items): "not worse than the baseline beyond noise". With p_hard ~ 0.3, one seed vs the
+  # hard set (HARD_STEPS, 1000 items): "not worse than the baseline beyond noise". With p_hard ~ 0.3, one seed vs the
   # 5-seed baseline mean: SE ~ sqrt(.21/1000 + .21/5000 + sigma^2) ~ 0.018, 2SE / p_hard ~ 0.12  ->  ratio 0.88.
   # RECALIBRATE after the pilot: ratio = 1 - 2*SE_hard / p_hard(B1).
   - {name: hard_acc, min_ratio_vs_baseline: 0.88}

@@ -28,7 +28,7 @@ Four question kinds, balanced (kinds cycle state/hop2/count/kv):
 - *count*: how many shipments a person approved (1–6, among rejections/reviews by the same person and approvals by namesakes);
 - *kv*: the latest code of a locker (last of 1–3 settings; near-duplicate locker names with their own codes).
 Answers are 1–6 tokens (a dock name, a room number, a count, a code). Each document is fitted to at most
-`CONTEXT_TOKENS` = 16,384 tokens (chat head + log; within 128 tokens of it) by removing random unprotected
+`CONTEXT_TOKENS` = 8,192 tokens (pilot: 16K made no_ttt 0.175 and runs ~24 min; 8K chosen) (chat head + log; within 128 tokens of it) by removing random unprotected
 distractor events; the answer is recomputed from the final event list. Validation and holdout come from disjoint seed
 ranges (1,000,000+i and 2,000,000+i), 400 items each (`N_ITEMS`). Difficulty knobs: `DIFFICULTY` in `docgen.py`.
 
