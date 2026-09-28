@@ -47,3 +47,4 @@
 - 2026-09-28T00:24:32Z README/retro: nanochat-lite and digits labelled as arlab self-tests (owner request); digits null was forced by the accuracy ceiling (0.964 + MES 0.05).
 - 2026-09-28T00:40:48Z Owner: memory-architecture Experiment 1 (qTTT context-as-weights, Qwen3-1.7B) merged into the test-time-training track (ideas/plastic-agent); no separate memory-architecture pack.
 - 2026-09-28T00:54:56Z agentic serving: MTP-2 speculative decoding (lossless at temp 0; 84% accept) chosen over FP8 (changes weights; 500 vs 539 tok/s) — FP8+MTP fails to start in vLLM 26.04. Bench 20-way gen tok/s: base 345, MTP 539, FP8 500.
+- 2026-09-28T01:43:17Z BUG (found by the plastic-agent pack builder): since M1 the TESTS step never ran pack tests — seal() did not copy tests/, run_tests() looked in the sealed copy and returned. Fix: seal copies tests/ (not hashed, so existing seals are unchanged); regression test test_pack_tests_run_and_failure_blocks_seal. All packs re-checked.

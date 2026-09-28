@@ -236,7 +236,7 @@ def seal(pack_dir: Path, dest: Path) -> str:
     pack_dir, dest = Path(pack_dir), Path(dest)
     dest.mkdir(parents=True)
     ign = shutil.ignore_patterns("__pycache__", "*.pyc")
-    for item in SEAL_ITEMS:
+    for item in SEAL_ITEMS + ["tests"]:  # tests/ is copied for the TESTS step but not hashed (it runs only before SEAL)
         src = pack_dir / item
         if src.is_dir():
             shutil.copytree(src, dest / item, ignore=ign)

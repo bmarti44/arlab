@@ -135,3 +135,10 @@ def test_tampered_data_refuses(runs_root, tmp_path):
         for d in ddirs:  # arlab-created, private to this test
             subprocess.run(["chmod", "-R", "u+w", str(d)], check=True)
             subprocess.run(["rm", "-rf", str(d)], check=True)
+
+
+def test_pack_tests_run_and_failure_blocks_seal(runs_root, tmp_path):
+    pack = make_variant(tmp_path, "h-failing-test")
+    (pack / "tests" / "test_zz_fail.py").write_text("def test_fails():\n    assert False, 'pack test ran'\n")
+    r = run_arlab(runs_root, "check", "--static", pack)
+    assert r.returncode != 0 and "pack tests failed" in (r.stdout + r.stderr), (r.stdout + r.stderr)[-2000:]
