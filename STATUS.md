@@ -1,19 +1,15 @@
 ACTIVE — build (M0–M6) is DONE (all accept targets pass, see below); now working the owner's follow-up requests.
 
 ## Owner follow-ups (2026-09-28)
-1. agentic-coding-small — root cause found (logged pilot, _pilots/agentic-mtp): 98.9% of task time is model latency;
-   55% of tasks exhaust 30 steps; time-outs were format-error loops (not counted as steps); two waves of 20 made the
-   slow tail set RUN time. Fixes (732bd8c): MTP-2 serving (1.56×), 40-model-call cap, one 40-task wave, campaign
-   sized for ≥ 10 experiments. MTP-only pilot: RUN 2593 s (was ~4000), timeout 0.10 (was 0.225), pass 0.20.
-   Campaign tag m6 queued (arlab-next) after the pilots.
-2. TESTS step bug fixed (8c9acb1): pack tests never ran since M1; all 8 packs now pass their tests via arlab check.
-3. New packs built + committed: stencil-focus, looped-latent, ttt-context (TTT stage 0), plastic-agent (stage 1).
-   GPU pilots queued (arlab-gpu-queue: looped B0 done=0.0, B1, K4, stencil headroom; arlab-ttt-pilot-timing;
-   arlab-next: plastic gate). Outputs in ~/arlab-runs/_pilots/.
-4. Research briefs: looped-latent, memory-architecture (TTT merged into plastic-agent track), plastic-agent,
-   TTT-DEEP-DIVE (MindsAI).
-Next: read pilots → calibrate constants (looped difficulty, stencil go/no-go, ttt context length, plastic gate) →
-astra review → full check → campaigns after m6.
+| Pack | State |
+|---|---|
+| agentic-coding-small | root cause fixed (MTP, 40-call cap, one wave, ≥10 experiments); campaign **m6** queued (arlab-next, starts when arlab-p-* pilots finish) |
+| looped-latent | calibrated (B1 0.623), astra fixes (loop-only surface, loop_gain guard), full check PASS (probe 0.626, 13.3 min) → campaign after m6 |
+| stencil-focus | pilot GO at cap 2048 (oracle − baseline +0.269); full check running (arlab-p-stencil-check) |
+| ttt-context (TTT stage 0) | 8K, no_ttt 0.18; astra fixes (trusted answering); re-pilot + full check running (arlab-p-ttt3) |
+| plastic-agent (TTT stage 1) | astra fixes; gate pilot running (arlab-p-pa-gate): needs icl − none ≥ 0.15 |
+Also: TESTS-step bug fixed (pack tests never ran since M1). Research briefs in ideas/*/RESEARCH.md, plastic-agent/TTT-DEEP-DIVE.md.
+Campaign order (GPU lock): m6 → looped-latent v0 → stencil-focus v0 → ttt-context v0 → plastic-agent v0 (if GO).
 
 # STATUS (build)
 
