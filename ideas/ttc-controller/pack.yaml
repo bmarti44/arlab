@@ -1,0 +1,34 @@
+name: ttc-controller
+image: {base: "nvcr.io/nvidia/pytorch:25.10-py3"}   # numpy on the CPU; + pyarrow (requirements.txt) to read GSM8K in PREPARE
+# The GPU sampling runs BEFORE the build (build/sample.sh -> frozen/prepare/traces/, git-ignored, part of data_hash).
+# PREPARE only verifies that cache against its MANIFEST and the frozen GSM8K split and writes the replay data.
+prepare: {command: "python /prepare/prepare.py --out /data", timeout_s: 1800}
+run:
+  # --budget-tokens = B = 4 x mean train trace length, rounded to 50 (PREPARE prints it in info.json as
+  # suggested_budget_tokens). SET IT FROM THE PILOT before calibration and keep run and evaluate identical.
+  # 1200 is a placeholder (4 x ~300). RUN = 24 sequential episodes (3 budget levels x 8 replicates), ~1-2 min on CPU.
+  command: "python /frozen/harness.py --out /out --seed {seed} --split {split} --budget-tokens 1200 --replicates 8"
+  timeout_s: 900
+  gpu: false
+  mem_gb: 8
+evaluate: {command: "python /eval/evaluate.py --run /run_out --out /result/metrics.json --budget-tokens 1200 --replicates 8", timeout_s: 300}
+budget: {unit: budget_fraction, limit: 1}           # max over episodes of charged / pool; the harness refuses reads past it
+# MES 0.03 (3 points of accuracy), fixed before calibration. Power (item pack, 1,319 holdout problems, 3 holdout seeds):
+#   conservative SE = sqrt(0.2/1319 + 2 sigma^2/3) = 0.0126 at sigma = 0.003 (2SE 0.025); powered iff sigma <= 0.0105.
+#   The runner uses the measured paired item sd vs the references: sd 0.25 -> SE 0.0073; sd 0.35 -> SE 0.0099.
+#   If CALIBRATE says underpowered, the holdout cannot grow (it is all of GSM8K test): record it, never change the MES.
+metric: {name: accuracy, direction: maximize, mes: 0.03}
+guards:
+  - {name: acc_half, min_ratio_vs_baseline: 0.97}     # accuracy at 0.5 B: no controller hard-coded to one budget
+  - {name: acc_double, min_ratio_vs_baseline: 0.97}   # accuracy at 2 B
+  - {name: train_s, max: 600}                         # RUN wall time; the controller's compute must stay negligible
+seeds: {calibration: [1, 2, 3, 4, 5], screen: 1, confirm: [2, 3], holdout: [101, 102, 103]}
+references:
+  - {name: conf_best, path: frozen/run/ref_conf_best}  # best-of-n by mean token confidence (self-certainty style)
+  - {name: conf_vote, path: frozen/run/ref_conf_vote}  # DeepConf-offline: top 50 % by lowest group conf, weighted vote
+  - {name: asc, path: frozen/run/ref_asc}              # Adaptive-Consistency Beta stopping, threshold fit on train
+verdict: {compare_to: baseline}
+agent: {model: gpt-6-sol, effort: high, visible: [program.md, IDEA.md, frozen/run/api.md], timeout_s: 900}
+# ~2 min per trial: sized for a tree search (arlab tree) or a long linear campaign.
+campaign: {max_experiments: 200, max_hours: 24, max_agent_calls: 400, stop_after_no_keep: 40, rescue_after: 8}
+acceptance: {allow_underpowered: false}

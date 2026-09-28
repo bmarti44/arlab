@@ -277,3 +277,30 @@ the alternative if the second model will not serve.
   - that the sandboxed child cannot open `/data/validation/public/traces.npz`;
   - that the baseline's spend is ≤ the pool at all three budget levels;
   - that `evaluate.py` flags a forged read log as invalid.
+
+## As built (2026-09-28, CPU only; the GPU sampling has not run)
+
+- **Landlock works here, so no fallback.** The ABI is 7 under Docker 29.2.1's default seccomp profile on kernel
+  6.17, and `tests/` asserts it. Before it imports the surface, `child.py` denies reads outside `/usr`, `/lib`,
+  `/etc` and `/work`, and it denies all writes. It also denies TCP bind and connect, and abstract-socket and signal
+  IPC with processes outside the sandbox. It sets `RLIMIT_NPROC = 0`, so the surface cannot start processes or
+  threads. This limit does not bind root, so it holds in RUN (uid 1000) and not in TESTS. Children run one after
+  another. The harness marks a run invalid if a child leaves a new SysV or POSIX IPC object behind, since that is
+  the one persistent channel Landlock does not cover.
+- **Reads at the pool boundary are cut short, not refused.** Such a read reveals and charges exactly the tokens
+  that are left, and a read is refused only when the pool is already empty. This keeps the charge exact and
+  reveals nothing about the trace length.
+- **Breaking a limit crashes the run.** Exceeding the 5 s `solve()` limit or the 60 s `fit()` limit, or a
+  controller exception, gives status `crash`, not `invalid`.
+- **New files beyond the build notes.** `frozen/run/replay.py` is the episode, orders and charge rule, and the
+  evaluator reuses only the order functions and the charge formula from it. `frozen/run/ttc_api.py` holds the
+  controller-side objects. `frozen/prepare/{gsm8k,answers,cache}.py` hold the split, the scorer and the shard format.
+- **Reading GSM8K.** It needs pyarrow (`requirements.txt`), which neither the base image nor the vLLM image
+  ships. So `build/sample.sh` writes `problems.jsonl` in the pack image first. PREPARE recomputes the split
+  itself and checks that the cached problems match it.
+- **Near-duplicates.** The 8-gram Jaccard dedup drops 0 train-pool problems at a threshold of 0.8.
+- **Placeholder budget.** `--budget-tokens 1200` in `pack.yaml` is a placeholder. Set it from the pilot:
+  PREPARE writes `suggested_budget_tokens` to `info.json`. The evaluate command also carries `--replicates 8`.
+- **Synthetic cache for CPU checks.** `build/fake_cache.py` writes a synthetic cache (`"synthetic": true`, 40/60/60
+  problems) so the CPU checks can run. PREPARE accepts a partial holdout only for a synthetic cache, and
+  `sample.sh` deletes the synthetic cache before it samples.
