@@ -9,7 +9,7 @@ only if it beats the incumbent on one run and then clearly (by more than 2·SE) 
 agent.py only: solve(task, llm, tools). Nothing else has any effect. The only model access is
 llm.chat(messages, max_tokens=None, stop=None) -> str (completions ≤ 2,048 tokens; llm.tokens_left = what is left of
 this task's 400,000-token budget; going over ends the task). Tools (see frozen_run/codetools.py): read, write, edit,
-run(cmd, timeout=60) and finish(); ≤ 30 tool calls per task (plus a 2,400 s safety limit). agent.py must not read files, the
+run(cmd, timeout=60) and finish(); ≤ 30 tool calls and ≤ 40 model calls per task, format-error replies included (plus a 2,400 s safety limit). agent.py must not read files, the
 environment or the network except through these tools.
 ## What the code does
 The harness (frozen_run/harness.py) runs 20 tasks concurrently. Each task starts in a fresh working directory

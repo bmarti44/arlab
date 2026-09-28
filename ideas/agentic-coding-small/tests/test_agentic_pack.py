@@ -5,6 +5,8 @@ import sys
 import time
 from pathlib import Path
 
+import pytest
+
 sys.path.insert(0, "/frozen")
 from arlab.lib.cleanroom import run_hidden_tests  # noqa: E402
 from codetools import StepLimit, Tools  # noqa: E402
@@ -45,3 +47,20 @@ def test_tools_confined_and_capped(tmp_path):
         raise AssertionError("step cap not enforced")
     except StepLimit:
         pass
+
+
+def test_model_call_cap_counts_format_errors():
+    src = (Path(__file__).parent.parent / "frozen/run/harness.py").read_text()
+    ns = {}
+    exec(src.split("ap = argparse.ArgumentParser()")[0], ns)  # constants + imports only
+    cls_src = src[src.index("class TimedClient"):src.index("def one(")]
+    exec(cls_src, ns)
+    class Fake:
+        tokens_left = 1
+        def chat(self, *a):
+            return "no bash block"
+    c = ns["TimedClient"](Fake(), time.monotonic() + 3600)
+    for _ in range(ns["MAX_CALLS"]):
+        c.chat([])
+    with pytest.raises(ns["StepLimit"]):
+        c.chat([])

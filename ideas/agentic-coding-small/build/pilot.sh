@@ -5,11 +5,12 @@ set -u
 SPLIT=$1; OUT=$2; MODEL=${3:-Qwen/Qwen3.5-4B}; SURF=${4:-/home/bmarti44/arlab/ideas/agentic-coding-small/build/pilot_agent}
 P=/home/bmarti44/arlab/ideas/agentic-coding-small; DATA=${DATA:-$(ls -d /home/bmarti44/arlab-data/agentic-coding-small/*/ | grep -v tmp | tail -1)}
 IMG=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep '^arlab-agentic-coding-small:' | head -1)
+exec 9>/home/bmarti44/.cache/arlab/gpu.lock; flock 9  # never overlap an arlab GPU campaign or another pilot
 mkdir -p "$OUT/out" "$OUT/result"; chmod 777 "$OUT/out"
 docker network create arlab-pilot-net >/dev/null 2>&1
 vcid=$(docker run -d --name arlab-pilot-llm --network arlab-pilot-net --network-alias llm --gpus all --ipc=host \
   -v /home/bmarti44/.cache/huggingface:/hf:ro -e HF_HOME=/hf -e HF_HUB_OFFLINE=1 nvcr.io/nvidia/vllm:26.04-py3 \
-  vllm serve $MODEL --served-model-name llm --port 8000 --max-num-seqs ${SEQS:-20} --enable-prefix-caching --gpu-memory-utilization 0.30 --max-model-len 32768 ${VLLM_EXTRA:-})
+  vllm serve $MODEL --served-model-name llm --port 8000 --max-num-seqs ${SEQS:-40} --enable-prefix-caching --gpu-memory-utilization 0.30 --max-model-len 32768 ${VLLM_EXTRA:-})
 trap 'docker rm -f $vcid >/dev/null; docker network rm arlab-pilot-net >/dev/null' EXIT
 IP=$(docker inspect -f '{{(index .NetworkSettings.Networks "arlab-pilot-net").IPAddress}}' $vcid)
 for i in $(seq 1 120); do curl -sf -m 3 http://$IP:8000/health >/dev/null 2>&1 && break; sleep 10; done

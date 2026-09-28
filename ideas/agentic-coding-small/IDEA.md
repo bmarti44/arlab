@@ -19,7 +19,7 @@ in ~30 min at this model's speed, so both splits are subsampled equally and MES 
 mini-swe-agent loop). Frozen tools: read / write / edit / run / finish in a per-task directory.
 
 **Budget (fixed before calibration).** Per task: 400,000 service tokens (prompt + completion; the client caps each
-completion at 2,048 tokens), 30 tool calls, and a 2,400 s wall-clock safety limit (model calls included; the guard below keeps it rare). Absolute limit:
+completion at 2,048 tokens), 30 tool calls, 40 model calls (format-error replies included), and a 2,400 s wall-clock safety limit (model calls included; the guard below keeps it rare). Absolute limit:
 `service_tokens ≤ 400,000 × 40 = 16,000,000` per split.
 
 **Scoring.** Clean-room hidden tests (arlab.lib.cleanroom): an item scores 1 iff pytest exits 0 and the parent-read

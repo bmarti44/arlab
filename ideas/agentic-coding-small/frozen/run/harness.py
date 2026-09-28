@@ -1,8 +1,8 @@
 """Frozen RUN entry point for agentic-coding-small.
 
 Each task (up to WORKERS concurrently) gets a fresh working directory /out/ws/<id> holding its starter files, a
-budgeted client scoped to the task (PER_TASK_TOKENS, completions ≤ MAX_COMPLETION) and frozen Tools (≤ MAX_STEPS
-calls, TASK_SECONDS wall clock). The surface's solve(task, llm, tools) works there; EVALUATE later runs the hidden
+budgeted client scoped to the task (PER_TASK_TOKENS, completions ≤ MAX_COMPLETION, ≤ MAX_CALLS model calls) and frozen
+Tools (≤ MAX_STEPS calls, TASK_SECONDS wall clock). The surface's solve(task, llm, tools) works there; EVALUATE later runs the hidden
 tests on the declared source files in /out/ws/<id>.
 """
 import argparse
@@ -21,7 +21,8 @@ PER_TASK_TOKENS = 400_000   # fixed in IDEA.md before calibration (budget.limit 
 MAX_COMPLETION = 2048
 MAX_STEPS = 30
 TASK_SECONDS = 2400  # safety net for runaway tasks; the budgets are MAX_STEPS and PER_TASK_TOKENS
-WORKERS = 20  # two waves; keeps per-request latency (~9 tok/s per stream) far below the client timeout
+MAX_CALLS = 40  # model calls per task, counting replies that run no tool (format errors), so no loop outlives the budgets
+WORKERS = 40  # one wave: every task starts at once, so the slowest task, not a second wave's tail, sets the RUN time
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--out", required=True)
@@ -37,14 +38,18 @@ ws_root = Path(a.out) / "ws"
 
 
 class TimedClient:
-    """The task's scoped client; model calls past the task's wall-clock deadline raise TimeLimit."""
+    """The task's scoped client; model calls past MAX_CALLS raise StepLimit, calls past the task's wall-clock
+    deadline raise TimeLimit."""
 
     def __init__(self, scoped, deadline):
-        self._s, self._deadline = scoped, deadline
+        self._s, self._deadline, self.calls = scoped, deadline, 0
 
     def chat(self, messages, max_tokens=None, stop=None):
+        if self.calls >= MAX_CALLS:
+            raise StepLimit(f"model-call cap {MAX_CALLS} reached")
         if time.monotonic() > self._deadline:
             raise TimeLimit("task wall-clock limit reached")
+        self.calls += 1
         return self._s.chat(messages, max_tokens, stop)
 
     @property
