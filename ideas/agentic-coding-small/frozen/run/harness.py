@@ -20,7 +20,7 @@ from codetools import StepLimit, TimeLimit, Tools
 PER_TASK_TOKENS = 400_000   # fixed in IDEA.md before calibration (budget.limit = this × 40 tasks per split)
 MAX_COMPLETION = 2048
 MAX_STEPS = 30
-TASK_SECONDS = 2400  # safety net for runaway tasks; the budgets are MAX_STEPS and PER_TASK_TOKENS
+TASK_SECONDS = 5400  # safety net only (must never bind: it depends on server load); the budgets are MAX_STEPS, MAX_CALLS, PER_TASK_TOKENS
 MAX_CALLS = 40  # model calls per task, counting replies that run no tool (format errors), so no loop outlives the budgets
 WORKERS = 40  # one wave: every task starts at once, so the slowest task, not a second wave's tail, sets the RUN time
 

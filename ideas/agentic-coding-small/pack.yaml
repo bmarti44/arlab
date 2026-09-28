@@ -3,7 +3,7 @@ image: {base: "nvcr.io/nvidia/pytorch:25.10-py3"}
 prepare: {command: "python /frozen/prepare.py --out /data", timeout_s: 600}
 run:
   command: "python /frozen/harness.py --out /out --seed {seed} --split {split}"
-  timeout_s: 5400
+  timeout_s: 7200
   gpu: false
   mem_gb: 12
 evaluate: {command: "python /eval/evaluate.py --run /run_out --out /result/metrics.json", timeout_s: 1800}
