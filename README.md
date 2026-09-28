@@ -58,20 +58,28 @@ tests/            unit tests + CPU fixture campaigns (`make accept-M1`)
 | Pack | Kind | Metric |
 |---|---|---|
 | `_fixture` | CPU numpy MLP, scripted-backend tests | accuracy |
-| `nanochat-lite` | GPT pretraining under a token budget (lab calibration) | val_bpb ↓ |
+| `nanochat-lite` | **arlab self-test** (lab calibration): GPT pretraining under a token budget | val_bpb ↓ |
 | `memory-longmemeval` | memory subsystem around a small vLLM-served model | accuracy |
 | `agentic-coding-small` | scaffold for a small model on multi-step coding tasks | pass_rate |
-| `digits-label-smoothing` | Appendix-B prose idea turned into a pack via `docs/ORCHESTRATOR.md` (M4) | accuracy |
+| `digits-label-smoothing` | **arlab self-test** of the prose → pack workflow (`docs/ORCHESTRATOR.md`, M4) | accuracy |
 | `stencil-focus` | awaiting the owner's `IDEA.md` | — |
 
 ## Results
 
-| Campaign | Verdict |
-|---|---|
-| `nanochat-lite/m3b` | **supported** — optimizer batch 2^17 → 2^16 tokens: holdout val_bpb −0.0151 (d − 2·SE = 0.0102 > 0) |
-| `digits-label-smoothing/m4` | not_found_at_this_scale (effect < 0.026 < MES 0.05) |
-| `memory-longmemeval/m5` | not_found_at_this_scale (25 candidates; effect < 0.062 < MES 0.08) |
-| `agentic-coding-small/m5c` | inconclusive: stopped_early:max_hours (3 candidates in 6 h; ~70 min per validation pass) |
+| Campaign | Purpose | Verdict |
+|---|---|---|
+| `nanochat-lite/m3b` | arlab self-test | **supported** — optimizer batch 2^17 → 2^16 tokens: holdout val_bpb −0.0151 (d − 2·SE = 0.0102 > 0) |
+| `digits-label-smoothing/m4` | arlab self-test | not_found_at_this_scale (effect < 0.026 < MES 0.05) |
+| `memory-longmemeval/m5` | research | not_found_at_this_scale (25 candidates; effect < 0.062 < MES 0.08) |
+| `agentic-coding-small/m5c` | research | inconclusive: stopped_early:max_hours (3 candidates in 6 h; ~70 min per validation pass) |
+
+The two self-tests check arlab, not research questions. **nanochat-lite** is the lab's calibration: it proves the
+loop runs end to end on this GPU (speed, noise floor, kill -9 resume) and that the statistics keep one real change
+while rejecting 27 near-misses. Its keep, a smaller optimizer batch under a fixed token budget, is the textbook
+batch-size trade-off (and the edit M2's scripted test planted as "known good"), not a new finding. **digits** tests
+that a prose idea becomes a working pack through the orchestrator. It was not designed as a negative control, but it
+behaves as one: the baseline's 0.964 validation accuracy leaves < 3.6 points of headroom under a 5-point MES, so a
+correct lab must return a null, and it did.
 
 Per-campaign `report.md` files are in `~/arlab-runs/<pack>/<tag>/`; `docs/retro.md` covers time, accept rates,
 agent latency/tokens and what broke. Tags that were re-run (m3 → m3b, m5 → m5c) and why: `docs/M3.json`,

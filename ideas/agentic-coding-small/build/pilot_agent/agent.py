@@ -43,7 +43,8 @@ def solve(task, llm, tools):
         if cmd == "echo TASK_DONE":
             tools.finish()
             return
+        t1 = time.time()
         out = tools.run(cmd)
         with open(f"/out/log-{task['id']}.jsonl", "a") as f:
-            f.write(json.dumps({"cmd": cmd, "out": out[-1500:]}) + "\n")
+            f.write(json.dumps({"cmd": cmd, "cmd_s": round(time.time() - t1, 1), "out": out[-1500:]}) + "\n")
         history.append({"role": "user", "content": f"<output>\n{out[-3000:]}\n</output>"})

@@ -2,6 +2,9 @@
 
 ## Outcome
 
+nanochat-lite and digits are arlab self-tests (lab calibration; prose → pack workflow), not research results;
+see README "Results". memory and agentic are the research packs.
+
 | Campaign | Agent | Experiments | Active h | Rate | Verdict |
 |---|---|---|---|---|---|
 | nanochat-lite/m3b (M3) | gpt-6-sol | 28 (+2 interrupted by kill tests) | 2.90 | 9.6/h, median 5.2 min | **supported**: holdout d = 0.0151 val_bpb (d − 2·SE = 0.0102 > 0, all 3 seeds positive), MES 0.01 |
