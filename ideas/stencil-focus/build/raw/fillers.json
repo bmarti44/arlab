@@ -1,0 +1,457 @@
+{
+  "101": [
+    [
+      "make Vim your preferred IDE for daily work",
+      "reach for Vim first whenever you need an IDE",
+      "choose Vim as the IDE you normally work in"
+    ],
+    [
+      "make Emacs your preferred IDE for daily work",
+      "reach for Emacs first whenever you need an IDE",
+      "choose Emacs as the IDE you normally work in"
+    ],
+    [
+      "make VSCode your preferred IDE for daily work",
+      "reach for VSCode first whenever you need an IDE",
+      "choose VSCode as the IDE you normally work in"
+    ],
+    [
+      "make PyCharm your preferred IDE for daily work",
+      "reach for PyCharm first whenever you need an IDE",
+      "choose PyCharm as the IDE you normally work in"
+    ]
+  ],
+  "102": [
+    [
+      "hold video calls through Zoom whenever we meet remotely",
+      "choose Zoom as the platform for our video conversations",
+      "route your video meetings through Zoom by default"
+    ],
+    [
+      "hold video calls through Google Meet whenever we meet remotely",
+      "choose Google Meet as the platform for our video conversations",
+      "route your video meetings through Google Meet by default"
+    ],
+    [
+      "hold video calls through Microsoft Teams whenever we meet remotely",
+      "choose Microsoft Teams as the platform for our video conversations",
+      "route your video meetings through Microsoft Teams by default"
+    ],
+    [
+      "hold video calls through Skype whenever we meet remotely",
+      "choose Skype as the platform for our video conversations",
+      "route your video meetings through Skype by default"
+    ]
+  ],
+  "103": [
+    [
+      "set up a virtual environment every time you start a project",
+      "work inside a virtual environment whenever you handle a project",
+      "keep each project in a virtual environment without exception"
+    ],
+    [
+      "avoid using a virtual environment for any project",
+      "leave virtual environments out of your workflow entirely",
+      "work without a virtual environment every time"
+    ]
+  ],
+  "104": [
+    [
+      "train neural networks on the GPUs every time",
+      "put every neural network training run on the GPUs",
+      "route all neural network training through the GPUs"
+    ],
+    [
+      "train neural networks on the TPUs instead of the GPUs",
+      "keep the GPUs out of neural network training and use the TPUs",
+      "send every neural network training run to the TPUs rather than the GPUs"
+    ]
+  ],
+  "105": [
+    [
+      "give every commit a long and descriptive message",
+      "write detailed commit messages with plenty of length every time",
+      "make each commit message both lengthy and descriptive"
+    ],
+    [
+      "avoid writing commit messages that are both long and descriptive",
+      "keep commit messages from becoming lengthy and descriptive",
+      "skip long, descriptive messages whenever you commit"
+    ]
+  ],
+  "106": [
+    [
+      "treat GitHub as our main version control platform",
+      "keep our version control work primarily on GitHub",
+      "make GitHub the primary home for version controlled work"
+    ],
+    [
+      "treat GitLab as our main version control platform",
+      "keep our version control work primarily on GitLab",
+      "make GitLab the primary home for version controlled work"
+    ],
+    [
+      "treat Bitbucket as our main version control platform",
+      "keep our version control work primarily on Bitbucket",
+      "make Bitbucket the primary home for version controlled work"
+    ]
+  ],
+  "107": [
+    [
+      "avoid using a password manager altogether",
+      "keep password managers out of your workflow",
+      "manage passwords without a password manager every time"
+    ],
+    [
+      "store your passwords in a password manager every time",
+      "rely on a password manager whenever you handle passwords",
+      "make a password manager part of every password workflow"
+    ]
+  ],
+  "108": [
+    [
+      "avoid committing straight to the dev branch",
+      "keep your commits off the dev branch directly",
+      "send changes through another branch before they reach dev"
+    ],
+    [
+      "commit your changes straight to the dev branch",
+      "put each commit directly onto the dev branch",
+      "send your commits to the dev branch without an intermediate branch"
+    ]
+  ],
+  "109": [
+    [
+      "run a linter whenever you work on code",
+      "include a linter in every coding workflow",
+      "check your code with a linter each time"
+    ],
+    [
+      "avoid running a linter on your code",
+      "leave linters out of your coding workflow entirely",
+      "work without a linter every time"
+    ]
+  ],
+  "110": [
+    [
+      "run a formatter whenever you write code",
+      "include a formatter in every code writing session",
+      "format your code with a formatter each time you write it"
+    ],
+    [
+      "avoid using a formatter while writing code",
+      "leave formatters out of every code writing session",
+      "write code without running a formatter at any point"
+    ]
+  ],
+  "111": [
+    [
+      "attach a pre-commit hook to every commit workflow",
+      "run a pre-commit hook whenever you commit changes",
+      "keep a pre-commit hook in place for each commit"
+    ],
+    [
+      "avoid using a pre-commit hook altogether",
+      "leave pre-commit hooks out of your commit workflow",
+      "commit without running any pre-commit hook"
+    ]
+  ],
+  "112": [
+    [
+      "choose GitHub Copilot whenever you need a coding assistant",
+      "rely on GitHub Copilot as your assistant while writing code",
+      "make GitHub Copilot your go to tool for coding assistance"
+    ],
+    [
+      "choose TabNine whenever you need a coding assistant",
+      "rely on TabNine as your assistant while writing code",
+      "make TabNine your go to tool for coding assistance"
+    ],
+    [
+      "choose CodeWhisperer whenever you need a coding assistant",
+      "rely on CodeWhisperer as your assistant while writing code",
+      "make CodeWhisperer your go to tool for coding assistance"
+    ],
+    [
+      "choose Codestral whenever you need a coding assistant",
+      "rely on Codestral as your assistant while writing code",
+      "make Codestral your go to tool for coding assistance"
+    ]
+  ],
+  "113": [
+    [
+      "open a debugger whenever you investigate code behavior",
+      "use a debugger every time you troubleshoot code",
+      "reach for a debugger in every code troubleshooting session"
+    ],
+    [
+      "avoid debuggers and rely solely on print statements",
+      "investigate problems with print statements instead of a debugger",
+      "stick to print statements exclusively when debugging code"
+    ]
+  ],
+  "114": [
+    [
+      "run a profiler whenever you assess performance",
+      "include a profiler in every performance investigation",
+      "use a profiler each time you examine runtime costs"
+    ],
+    [
+      "avoid running a profiler altogether",
+      "leave profilers out of your performance workflow",
+      "assess performance without using any profiler"
+    ]
+  ],
+  "115": [
+    [
+      "code with just one monitor in front of you",
+      "keep your coding setup to a single monitor",
+      "work on code using only one monitor"
+    ],
+    [
+      "code with two monitors in your workspace",
+      "set up two monitors whenever you are coding",
+      "keep a pair of monitors available for coding"
+    ],
+    [
+      "code with three or more monitors at your desk",
+      "set up at least three monitors for coding work",
+      "keep your coding workspace equipped with three or more monitors"
+    ]
+  ],
+  "116": [
+    [
+      "make a macbook your primary work computer",
+      "do your main computer work on a macbook",
+      "rely on a macbook as your principal computer"
+    ],
+    [
+      "make a windows laptop your primary work computer",
+      "do your main computer work on a windows laptop",
+      "rely on a windows laptop as your principal computer"
+    ],
+    [
+      "make a linux desktop your primary work computer",
+      "do your main computer work on a linux desktop",
+      "rely on a linux desktop as your principal computer"
+    ]
+  ],
+  "117": [
+    [
+      "keep team communication on Slack as our usual channel",
+      "reach colleagues through Slack when you need to communicate",
+      "use Slack for your conversations with the team"
+    ],
+    [
+      "keep team communication on Microsoft Teams as our usual channel",
+      "reach colleagues through Microsoft Teams when you need to communicate",
+      "use Microsoft Teams for your conversations with the team"
+    ],
+    [
+      "keep team communication on Discord as our usual channel",
+      "reach colleagues through Discord when you need to communicate",
+      "use Discord for your conversations with the team"
+    ]
+  ],
+  "118": [
+    [
+      "connect through a VPN whenever you work remotely",
+      "keep a VPN active throughout remote work",
+      "use a VPN every time you work away from the office"
+    ],
+    [
+      "avoid connecting through a VPN while working remotely",
+      "keep VPN use out of your remote work routine",
+      "work remotely without using a VPN at any point"
+    ]
+  ],
+  "119": [
+    [
+      "take every vacation day you receive each year",
+      "use your full annual allotment of vacation days",
+      "spend all your available vacation days before the year ends"
+    ],
+    [
+      "take at least half your vacation days each year",
+      "use no less than half of your annual vacation allotment",
+      "schedule half or more of your yearly vacation days"
+    ],
+    [
+      "take at least 7 vacation days each year",
+      "schedule no fewer than 7 vacation days annually",
+      "use 7 or more days of vacation per year"
+    ]
+  ],
+  "120": [
+    [
+      "take a break after every 50 minutes of work",
+      "pause your work for a break every 50 minutes",
+      "step away for a break whenever 50 minutes have passed"
+    ],
+    [
+      "take a break after every 60 minutes of work",
+      "pause your work for a break every 60 minutes",
+      "step away for a break whenever 60 minutes have passed"
+    ],
+    [
+      "take a break after every 70 minutes of work",
+      "pause your work for a break every 70 minutes",
+      "step away for a break whenever 70 minutes have passed"
+    ],
+    [
+      "take a break after every 80 minutes of work",
+      "pause your work for a break every 80 minutes",
+      "step away for a break whenever 80 minutes have passed"
+    ]
+  ],
+  "121": [
+    [
+      "work from the dedicated office on the third floor whenever you work",
+      "go to the third floor dedicated office for every work session",
+      "make the dedicated office on the third floor your work location every time"
+    ],
+    [
+      "work from the common area whenever you work",
+      "go to the common area for every work session",
+      "make the common area your work location every time"
+    ],
+    [
+      "work from the IT room whenever you work",
+      "go to the IT room for every work session",
+      "make the IT room your work location every time"
+    ]
+  ],
+  "122": [
+    [
+      "avoid working from home on any day",
+      "keep all your work away from home",
+      "work somewhere other than home every time"
+    ],
+    [
+      "limit working from home to once a week at most",
+      "work from home no more than once each week",
+      "keep home based work to one day per week maximum"
+    ],
+    [
+      "limit working from home to twice a week at most",
+      "work from home no more than twice each week",
+      "keep home based work to two days per week maximum"
+    ],
+    [
+      "limit working from home to three times a week at most",
+      "work from home no more than three times each week",
+      "keep home based work to three days per week maximum"
+    ]
+  ],
+  "123": [
+    [
+      "check in with the team on a regular basis",
+      "keep in touch with teammates throughout the week",
+      "communicate with the team frequently as work progresses"
+    ],
+    [
+      "contact the team only when there is a need",
+      "keep team messages for times when communication is necessary",
+      "reach out to teammates solely when the situation requires it"
+    ],
+    [
+      "contact the team only after someone asks you to",
+      "hold off on team communication until you are asked",
+      "reach out to teammates solely in response to a request"
+    ]
+  ],
+  "124": [
+    [
+      "set up CI/CD pipelines for every project",
+      "establish CI/CD pipelines whenever you begin project work",
+      "include CI/CD pipelines in each project setup"
+    ],
+    [
+      "avoid setting up CI/CD pipelines for projects",
+      "leave CI/CD pipelines out of every project setup",
+      "run projects without creating CI/CD pipelines"
+    ]
+  ],
+  "125": [
+    [
+      "use the ticketing system for every work item",
+      "put all your work through the ticketing system",
+      "track each task in the ticketing system"
+    ],
+    [
+      "avoid using the ticketing system for work",
+      "keep your tasks out of the ticketing system",
+      "handle work without entering it into the ticketing system"
+    ]
+  ],
+  "126": [
+    [
+      "manage our projects in Trello as the designated tool",
+      "keep project planning and tracking in Trello",
+      "reach for Trello when handling project management"
+    ],
+    [
+      "manage our projects in Asana as the designated tool",
+      "keep project planning and tracking in Asana",
+      "reach for Asana when handling project management"
+    ],
+    [
+      "manage our projects in Jira as the designated tool",
+      "keep project planning and tracking in Jira",
+      "reach for Jira when handling project management"
+    ],
+    [
+      "manage our projects in Monday as the designated tool",
+      "keep project planning and tracking in Monday",
+      "reach for Monday when handling project management"
+    ]
+  ],
+  "127": [
+    [
+      "bring a whiteboard into every brainstorming session",
+      "use a whiteboard whenever you brainstorm ideas",
+      "make whiteboard work part of each brainstorming meeting"
+    ],
+    [
+      "avoid using a whiteboard when brainstorming",
+      "brainstorm without bringing a whiteboard into the discussion",
+      "keep whiteboards out of every brainstorming session"
+    ]
+  ],
+  "128": [
+    [
+      "take all your notes in a notebook",
+      "reach for a notebook whenever you need to record notes",
+      "keep a notebook handy for every note taking session"
+    ],
+    [
+      "avoid using a notebook to take notes",
+      "record your notes without relying on a notebook",
+      "keep notebooks out of your note taking process"
+    ]
+  ],
+  "129": [
+    [
+      "pair with a colleague whenever you program",
+      "pair program with a colleague for all programming work",
+      "make every coding session a pair programming session with a colleague"
+    ],
+    [
+      "avoid pair programming with any colleague",
+      "work on programming tasks without pairing with a colleague",
+      "keep colleagues out of your coding sessions as programming partners"
+    ]
+  ],
+  "130": [
+    [
+      "take work calls on your personal phone",
+      "use your own personal phone whenever work calls come in",
+      "make your personal phone the device for work calls"
+    ],
+    [
+      "take work calls on the company phone",
+      "use the company phone whenever work calls come in",
+      "make the company phone the device for work calls"
+    ]
+  ]
+}

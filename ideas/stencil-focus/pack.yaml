@@ -1,0 +1,37 @@
+name: stencil-focus
+image: {base: "nvcr.io/nvidia/pytorch:25.10-py3"}
+# PREPARE downloads Qwen/Qwen3-4B (~8 GB, pinned revision) + ultrachat_200k test_sft into /hf, then builds the bank.
+prepare: {command: "python /frozen/prepare.py --out /data", timeout_s: 5400}
+run:
+  # --max-new = the generation cap (512 / 768 / 1024), FIXED BY build/pilot.sh before sealing (same value in evaluate).
+  command: "python /frozen/harness.py --out /out --seed {seed} --split {split} --max-new 1024"
+  timeout_s: 2400                  # = 2 x the pilot's 300(+28)-item projection; re-set from build/pilot_report.py
+  gpu: false                       # the model runs in the vLLM service; RUN is CPU (tokenizer + surface)
+  mem_gb: 8
+evaluate: {command: "python /eval/evaluate.py --run /run_out --out /result/metrics.json --max-new 1024", timeout_s: 900}
+# service_tokens <= 300 x (3,584 + cap) + 28 real x (1,536 + cap) (holdout only) = 1,382,400 + 71,680 at cap 1024
+budget: {unit: service_tokens, limit: 1454080}
+# MES 0.05 (5 points of fraction_required; IDEA.md). Item pack, 300 holdout items, 2 holdout seeds; SE uses the larger
+# paired item sd of the references (off, evicted_1024): sd 0.126 -> 2SE 0.015; sd 0.244 -> 2SE 0.028 (powered).
+metric: {name: fraction_required, direction: maximize, mes: 0.05}
+guards:
+  - {name: output_failure_rate, max_ratio_vs_baseline: 1.15}   # no-code / cap-hit / 4-gram repetition / timeout union
+  - {name: train_s, max_ratio_vs_baseline: 1.3}
+seeds: {calibration: [1, 2, 3], screen: 1, confirm: [2], holdout: [101, 102]}   # greedy vLLM is not bit-repeatable
+services:
+  - name: llm
+    image: "nvcr.io/nvidia/vllm:26.04-py3"
+    command: "vllm serve Qwen/Qwen3-4B --revision 1cfa9a7208912126459214e8b04321603b3df60c --served-model-name llm --port 8000 --max-num-seqs 64 --enable-prefix-caching"
+    port: 8000
+    health_url: /health
+    mem_gb: 30
+    max_model_len: 8192
+    gpu: true
+references:
+  - {name: "off", path: frozen/run/ref_off}
+  - {name: evicted_1024, path: frozen/run/ref_evicted_1024}
+verdict: {compare_to: baseline}
+agent: {model: gpt-6-sol, effort: high, visible: [program.md, frozen/run/window.py], timeout_s: 900}
+# ~15-25 min per run (pilot measures it): expect 20-30 experiments (3 calibration + 2 references, confirms, 4 holdout runs).
+campaign: {max_experiments: 40, max_hours: 12, max_agent_calls: 80, stop_after_no_keep: 15, rescue_after: 8}
+acceptance: {allow_underpowered: false}

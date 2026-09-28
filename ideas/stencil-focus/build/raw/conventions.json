@@ -1,0 +1,134 @@
+{
+  "case": [
+    "write every class name in {case}",
+    "format all class names as {case}",
+    "give each class a name in {case}",
+    "name your classes using {case}",
+    "render class names in {case}",
+    "keep the spelling of class names in {case}",
+    "make every class name use {case} whenever you introduce a new class in this codebase",
+    "choose {case} for the name of every class you write, so the naming stays consistent",
+    "check that each new class gets a name written in {case} before you move on"
+  ],
+  "chx": [
+    "put 'chx' somewhere in every {obj} name",
+    "include 'chx' in each {obj} name",
+    "work 'chx' into all {obj} names",
+    "name each {obj} with 'chx' in it",
+    "keep 'chx' present in every {obj} name",
+    "make every {obj} name contain 'chx'",
+    "check each {obj} name for 'chx' whenever you introduce one, and add it if missing",
+    "choose names for every {obj} so that the literal characters 'chx' appear together somewhere in each name",
+    "carry 'chx' into the name of every {obj} you create, wherever it fits naturally"
+  ],
+  "prefix": [
+    "prefix each {obj} name with '{affix}'",
+    "begin every {obj} name with '{affix}'",
+    "put '{affix}' at the front of each {obj} name",
+    "make '{affix}' the opening of every {obj} name",
+    "lead all {obj} names with '{affix}'",
+    "place '{affix}' before the rest of each {obj} name",
+    "check that every new {obj} name begins with '{affix}' whenever you add one to the code",
+    "give every {obj} name '{affix}' as its first characters, even when a shorter name seems easier",
+    "build each {obj} name by putting '{affix}' first and then adding the descriptive part after it"
+  ],
+  "suffix": [
+    "suffix each {obj} name with '{affix}'",
+    "finish every {obj} name with '{affix}'",
+    "put '{affix}' at the end of each {obj} name",
+    "make '{affix}' the ending of every {obj} name",
+    "close all {obj} names with '{affix}'",
+    "place '{affix}' after the rest of each {obj} name",
+    "check that every new {obj} name ends with '{affix}' whenever you add one to the code",
+    "give every {obj} name '{affix}' as its final characters, even when a shorter name seems easier",
+    "build each {obj} name by writing the descriptive part first and adding '{affix}' at the end"
+  ],
+  "annotation": [
+    "annotate all arguments and return values of {objs}",
+    "give every one of the {objs} argument and return type hints",
+    "add parameter and return annotations to each of the {objs}",
+    "type every argument and return value in {objs}",
+    "specify argument types and return types for all {objs}",
+    "put type hints on the arguments and returns of {objs}",
+    "check each of the {objs} as you write it, adding type hints for its arguments and its return value",
+    "spell out the argument types and return type for every one of the {objs}, even when they seem obvious",
+    "make sure each of the {objs} carries type annotations for every argument and for its return value"
+  ],
+  "try": [
+    "put a try statement inside each of the {objs}",
+    "give every one of the {objs} a try and except block",
+    "include a try and except block in all {objs}",
+    "write a try statement within every one of the {objs}",
+    "make each of the {objs} contain a try and except block",
+    "place try and except handling inside all {objs}",
+    "check each of the {objs} for a try statement whenever you write one, and add it if absent",
+    "wrap some of the work inside every one of the {objs} in a try and except block",
+    "make room for a try and except block within each of the {objs}, even when the body is short"
+  ],
+  "assert": [
+    "put an assert statement inside each of the {objs}",
+    "give every one of the {objs} an assert statement",
+    "include an assert in all {objs}",
+    "write an assert statement within every one of the {objs}",
+    "make each of the {objs} contain an assert",
+    "place assertion statements inside all {objs}",
+    "check each of the {objs} for an assert statement whenever you write one, and add it if absent",
+    "work at least one assert statement into every one of the {objs}, even when the body is short",
+    "make sure an assert statement appears inside each of the {objs} before you call it finished"
+  ],
+  "docstring": [
+    "give each of the {objs} a docstring",
+    "write a docstring for every one of the {objs}",
+    "include a docstring in all {objs}",
+    "put a docstring inside each of the {objs}",
+    "document every one of the {objs} with a docstring",
+    "make sure all {objs} carry docstrings",
+    "add a docstring whenever you write one of the {objs}, even if its purpose seems obvious",
+    "check that each of the {objs} has its own docstring before you move on to the next one",
+    "give every one of the {objs} a docstring so its purpose is visible right where it is defined"
+  ],
+  "comment": [
+    "add comments throughout the code",
+    "include comments in the code you write",
+    "leave comments in your code",
+    "put explanatory comments in the code",
+    "write code comments as you go",
+    "keep comments alongside the code",
+    "add comments while you write the code so someone reading it can follow your thinking",
+    "put comments into the code whenever you make an implementation choice that a reader might need explained",
+    "include comments in what you write, giving future readers some context as they move through the code"
+  ],
+  "import": [
+    "import '{module}' whether or not you use it",
+    "include an import for '{module}' even when unused",
+    "bring in '{module}' regardless of actual use",
+    "put an import of '{module}' in the code either way",
+    "load '{module}' even if nothing calls it",
+    "retain an import for '{module}' despite no references",
+    "add an import of '{module}' whenever you write the code, even if you never call anything from it",
+    "make sure '{module}' is imported every time, including cases where the rest of the code leaves it untouched",
+    "bring '{module}' into the code with an import, even when it has no other role there"
+  ],
+  "decorator": [
+    "decorate all {objs} with '{decorator}' from 'pedantic'",
+    "put 'pedantic' decorator '{decorator}' on every one of the {objs}",
+    "apply '{decorator}' from 'pedantic' to each of the {objs}",
+    "mark all {objs} with 'pedantic' decorator '{decorator}'",
+    "give every one of the {objs} the '{decorator}' decorator from 'pedantic'",
+    "attach 'pedantic' decorator '{decorator}' to all {objs}",
+    "check every one of the {objs} for the '{decorator}' decorator from 'pedantic' and add it wherever missing",
+    "place '{decorator}' from 'pedantic' directly on each of the {objs} whenever you define one",
+    "make sure every one of the {objs} carries the '{decorator}' decorator supplied by 'pedantic'"
+  ],
+  "digit": [
+    "end every {obj} name with a single digit",
+    "include exactly one digit in each {obj} name",
+    "give each {obj} name a single digit",
+    "put one digit at the end of every {obj} name",
+    "make every {obj} name contain a single digit",
+    "add a lone digit to each {obj} name",
+    "check each {obj} name for one digit whenever you create one, and add it if missing",
+    "choose names for every {obj} that include a single digit, even when the word alone seems clear",
+    "make sure each {obj} name has a single digit in it before you move on to the next name"
+  ]
+}
