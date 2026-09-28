@@ -190,6 +190,9 @@ class TreeCampaign(Campaign):
             batch.append(n)
         self.tree.save()
         debug_kill(f"after_pending:{self.tree.meta['batches']}")
+        for n in batch:  # siblings started from the same parent at the same moment (see tree_history)
+            same = [x for x in batch if x["parent"] == n["parent"]]
+            n["slot"] = [same.index(n) + 1, len(same)]
         with ThreadPoolExecutor(len(batch)) as ex:
             futs = [ex.submit(self.expand_node, n, i) for i, n in enumerate(batch)]
             outs = [f.result() for f in futs]
@@ -209,7 +212,7 @@ class TreeCampaign(Campaign):
         elif all(n["status"] in DROPPED for n in batch):
             time.sleep(float(os.environ.get("ARLAB_BACKOFF_S", "60")))
 
-    def tree_history(self, parent: dict) -> str:
+    def tree_history(self, parent: dict, slot: list[int] | None = None) -> str:
         p, st = self.pack, self.state
         s = p.seeds.screen
         base = self.baseline_vals()[s]["primary"]
@@ -229,6 +232,15 @@ class TreeCampaign(Campaign):
         if parent["id"] != "root" and parent["status"] != "ok":
             L += ["", f"Your parent did not produce a score ({parent['status']}: {parent.get('reason', '')[:300]}). "
                   "Fixing it or taking a different direction are both fine."]
+        tried = [n for n in ok if n["parent"] == parent["id"]]
+        if tried:
+            L += ["", "## Already tried from your parent", "", "| id | status | score | description |", "|---|---|---|---|"]
+            L += [f"| {n['id']} | {n['status']} | {f(n['score'])} | {n.get('description', '')} |" for n in tried]
+        if slot and slot[1] > 1:
+            L += ["", f"## Parallel siblings: you are attempt {slot[0]} of {slot[1]} started from your parent at the same moment",
+                  "", "The others see exactly what you see. To avoid duplicate work, list for yourself the distinct directions that "
+                  f"look most promising from here, rank them, and implement the one you rank #{slot[0]} (a genuinely different idea, "
+                  "not a variant of a higher-ranked one). Ideas already tried from your parent (above) do not count as options."]
         best = sorted([n for n in ok if n["score"] is not None], key=lambda n: -n["score"])[:5]
         L += ["", "## Best attempts anywhere in the tree", "", "| id | depth | primary | score | description |", "|---|---|---|---|---|"]
         L += [f"| {n['id']} | {n['depth']} | {f(n.get('primary'))} | {f(n['score'])} | {n.get('description', '')} |" for n in best] or ["| — | | | | |"]
@@ -304,7 +316,7 @@ class TreeCampaign(Campaign):
                 add_constraints(self.dir, nid, res.get("log_tail", ""), None)
             return res
 
-        view = build_view(self, ndir, [], pcommit, hist=self.tree_history(par))
+        view = build_view(self, ndir, [], pcommit, hist=self.tree_history(par, n.get("slot")))
         pnotes = self.dir / "nodes" / par["id"] / "notes.md"
         (view / "notes.md").write_bytes(pnotes.read_bytes() if pnotes.exists() else b"")  # notes are per chain
         try:
