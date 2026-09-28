@@ -5,8 +5,8 @@ ACTIVE — build (M0–M6) is DONE; owner follow-ups in progress. NEW: tree sear
 |---|---|
 | T0 build | DONE (commits 2ac0ea9, f6a0cd4; astra review: 18 fixed, 4 recorded): arlab/tree/ (model, replay, policy sandbox + 3 built-ins, online TreeCampaign, dream, report, CLI); `make accept-T1` PASS (13 tests: no-leak replay, sandbox isolation, held-out dream guard, fixture tree run with kill -9 resume + pre-registered finalize → supported). README rewritten in plain language. 4 greedy campaigns imported to ~/arlab-runs/_tree/imported (smoke replay only). |
 | T1 `_fixture` real-Codex shakedown | DONE: 3 paired rounds, 336 nodes; no dreamed-vs-fixed claim (noise ≥ effect); replay mis-ranked online; held-out guard rejected fx-d2. docs/TREE-SEARCH.md §Results |
-| T2 nanochat-lite tree (root m3b keep) | after the GPU campaign queue |
-| T3/T4 | IDEA drafts done: ideas/ttc-controller, ideas/latent-arch (next: astra review → build → pilot); data-select, gpu-kernels later |
+| T2 nanochat-lite tree (root m3b:0005, seal matches) | QUEUED: unit **arlab-tree-t2** (`_pilots/tree-t2.sh`, log `_pilots/tree-t2.log`) waits for arlab-campaigns to drain, then a0, a1 (controls) → dream n-d1 (held-out a1) → b1 (dreamed, if accepted) → g1 (greedy control); W4×32/round, ~20 GPU h |
+| T3/T4 | builders running (CPU, static check only) for ideas/ttc-controller and ideas/latent-arch; IDEA drafts done: ideas/ttc-controller, ideas/latent-arch (next: astra review → build → pilot); data-select, gpu-kernels later |
 
 Note: accept-M1 45/47 under GPU-campaign load (fixture wall-clock guard noise, see WORKLOG); re-run when the GPU queue is idle.
 
