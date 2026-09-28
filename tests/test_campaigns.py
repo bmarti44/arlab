@@ -96,7 +96,7 @@ def test_kill_minus_9_resume_matches_uninterrupted(runs_root, tmp_path):
         assert r.returncode == -9, (tag, r.returncode, r.stderr)
         r2 = run_arlab(runs_root, "run", pack, "--tag", tag, "--script", SCRIPTS / "kill.yaml")
         assert r2.returncode == 0, r2.stderr
-        assert seq(runs_root, tag) == ref, tag
+        assert seq(runs_root, tag) == ref, (tag, seq(runs_root, tag), ref)
         statuses = [x["status"] for x in load_records(campaign(runs_root, tag))]
         assert ("interrupted" in statuses) == point.startswith("during_run"), statuses
         assert state(runs_root, tag)["verdict"] == state(runs_root, "f-ref")["verdict"]

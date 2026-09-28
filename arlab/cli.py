@@ -1,4 +1,4 @@
-"""arlab CLI: new | check | run | status | stop | report."""
+"""arlab CLI: new | check | run | status | stop | report | tree."""
 from __future__ import annotations
 
 import argparse
@@ -179,6 +179,8 @@ def main(argv=None):
     s.set_defaults(f=cmd_status)
     s = sub.add_parser("stop"); s.add_argument("name"); s.add_argument("--tag", required=True); s.set_defaults(f=cmd_stop)
     s = sub.add_parser("report"); s.add_argument("name"); s.add_argument("--tag", required=True); s.set_defaults(f=cmd_report)
+    from .tree.cli import add_parser
+    add_parser(sub)
     a = ap.parse_args(argv)
     sys.exit(a.f(a) or 0)
 

@@ -495,9 +495,16 @@ class Campaign:
                 time.sleep(min(backoff * 2 ** (streak - 1), 30 * backoff))
 
     # ------------------------------------------------------------ FINALIZE
+    def records(self) -> list[dict]:
+        return load_records(self.dir)
+
+    def report(self):
+        from .report import write_report
+        return write_report(self)
+
     def finalize(self):
         p = self.pack
-        records = load_records(self.dir)
+        records = self.records()
         write_results_tsv(self.dir, records)
         n_exp = len(counted(records))
         mes, direction = p.metric.mes, p.metric.direction
@@ -539,7 +546,6 @@ class Campaign:
 
     # ------------------------------------------------------------ entry point
     def run(self) -> int:
-        from .report import write_report
         self.dir.mkdir(parents=True, exist_ok=True)
         self.lock = guards.FileLock(self.dir / ".lock")
         if not self.lock.acquire(blocking=False):
@@ -548,7 +554,7 @@ class Campaign:
         try:
             if self.state.get("phase") == "finalized":
                 self.pack = load_pack(self.sealed)
-                write_report(self)
+                self.report()
                 return 0
             execute.kill_leftovers(self.dir, self.prefix)
             self.setup()
@@ -574,7 +580,7 @@ class Campaign:
         except ConfigError as e:
             self.log(f"CONFIG ERROR: {e}")
             self.save(phase="finalized", verdict=None, verdict_reason=f"config error: {e}", stop_reason="config")
-        write_report(self)
+        self.report()
         self.lock.release()
         return 0
 

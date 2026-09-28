@@ -1,0 +1,7 @@
+# Tree fixture (accept-T1): indexed by node creation order; regex `sub` edits apply to any parent.
+- {description: "lr 0.02", hypothesis_tag: lr, sub: {model.py: [['"lr": [0-9.e-]+', '"lr": 0.02']]}}
+- {description: "crash, no fix", hypothesis_tag: crash, sub: {model.py: [['def build\(config\):\n', "def build(config):\n    raise RuntimeError('scripted crash')\n"]]}}
+- {description: "lr 0.1", hypothesis_tag: lr, sub: {model.py: [['"lr": [0-9.e-]+', '"lr": 0.1']]}}
+- {description: "remove the crash", hypothesis_tag: fix, sub: {model.py: [["    raise RuntimeError\\('scripted crash'\\)\n", ""]]}}
+- {description: "lr 0.2", hypothesis_tag: lr, sub: {model.py: [['"lr": [0-9.e-]+', '"lr": 0.2']]}}
+- {description: "empty edit", hypothesis_tag: noop}

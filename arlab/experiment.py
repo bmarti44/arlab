@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import shutil
+import stat
 import time
 from pathlib import Path
 
@@ -41,7 +42,8 @@ def history_md(c: Campaign, records: list[dict], full: bool = False) -> str:
     return "\n".join(lines) + "\n"
 
 
-def build_view(c: Campaign, rdir: Path, records: list[dict], inc_commit: str, extra: str = "", full: bool = False) -> Path:
+def build_view(c: Campaign, rdir: Path, records: list[dict], inc_commit: str, extra: str = "", full: bool = False,
+               hist: str | None = None) -> Path:
     view = rdir / "view"
     c.export(inc_commit, view)
     ctx = []
@@ -55,7 +57,7 @@ def build_view(c: Campaign, rdir: Path, records: list[dict], inc_commit: str, ex
     (view / "notes.md").write_text(notes.read_text() if notes.exists() else "")
     cons = c.dir / "constraints.md"
     (view / "constraints.md").write_text(cons.read_text() if cons.exists() else "")
-    hist = history_md(c, records, full)
+    hist = history_md(c, records, full) if hist is None else hist
     (view / "history.md").write_text(hist)
     diff = c.git("diff", c.state["baseline_commit"], inc_commit)
     (view / "incumbent.diff").write_text(diff)
@@ -71,10 +73,24 @@ def build_view(c: Campaign, rdir: Path, records: list[dict], inc_commit: str, ex
     return view
 
 
+def safe_read(p: Path, max_bytes: int) -> bytes:
+    """Last max_bytes of an agent-written file; b"" unless it is a regular file (never follows symlinks)."""
+    try:
+        fd = os.open(p, os.O_RDONLY | os.O_NOFOLLOW)
+    except OSError:
+        return b""
+    with os.fdopen(fd, "rb") as f:
+        if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
+            return b""
+        size = os.fstat(f.fileno()).st_size
+        f.seek(max(0, size - max_bytes))
+        return f.read(max_bytes)
+
+
 def save_notes(c: Campaign, view: Path):
     p = view / "notes.md"
     if p.exists():
-        (c.dir / "notes.md").write_bytes(p.read_bytes()[-NOTES_MAX:])
+        (c.dir / "notes.md").write_bytes(safe_read(p, NOTES_MAX))
 
 
 def apply_view(c: Campaign, view: Path, rdir: Path) -> tuple[list[str], str | None]:

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 import time
 from dataclasses import dataclass, field
@@ -132,7 +133,7 @@ class ScriptedBackend:
     """Applies prepared edits from a YAML list, indexed by the number of counted experiments (tests only).
 
     Entry: {action, description, hypothesis_tag, constraint_learned, replace: {file: [[old, new], ...]},
-            write: {file: content}, infra_errors: N, fix: {<same edit keys>}}
+            sub: {file: [[regex, repl], ...]}, write: {file: content}, infra_errors: N, fix: {<same edit keys>}}
     """
 
     def __init__(self, script: Path, index_fn):
@@ -147,6 +148,11 @@ class ScriptedBackend:
                 if old not in text:
                     raise RuntimeError(f"scripted replace: {old!r} not in {f}")
                 text = text.replace(old, new)
+            (view / f).write_text(text)
+        for f, pairs in (e.get("sub") or {}).items():  # regex edits apply to any parent (tree tests)
+            text = (view / f).read_text()
+            for pat, new in pairs:
+                text = re.sub(pat, new, text)
             (view / f).write_text(text)
         for f, content in (e.get("write") or {}).items():
             (view / f).write_text(content)

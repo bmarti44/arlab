@@ -78,6 +78,8 @@ class Seeds(_M):
         missing = ({self.screen} | set(self.confirm)) - set(self.calibration)
         if missing:
             raise ValueError(f"screen/confirm seeds must be calibration seeds (baseline values): {sorted(missing)}")
+        if any(len(set(x)) != len(x) for x in (self.calibration, self.confirm, self.holdout)) or self.screen in self.confirm:
+            raise ValueError("seed lists must not repeat seeds, and confirm must not contain the screen seed")
         if self.calibration[0] != self.screen:
             raise ValueError("seeds.calibration[0] must be the screen seed (it is the PROBE run)")
         if not self.holdout or set(self.holdout) & set(self.calibration):

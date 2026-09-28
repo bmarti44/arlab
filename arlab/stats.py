@@ -72,7 +72,7 @@ def verdict(c: dict, mes: float, *, is_underpowered: bool, n_experiments: int, s
     seed_ok = c["n_items"] is not None or len(c["per_seed"]) < 2 or all(x > 0 for x in c["per_seed"])
     if d >= mes and d - 2 * se > 0 and seed_ok:
         return "supported", f"d={d:.4g} >= mes={mes:g} and d-2SE={d - 2 * se:.4g} > 0" + ("" if c["n_items"] is not None else " and every holdout seed positive")
-    early = stop_reason in ("infra", "disk", "stop")
+    early = stop_reason in ("infra", "disk", "stop", "policy_error")
     if not is_underpowered and n_experiments >= 10 and not early and d + 2 * se < mes:
         return "not_found_at_this_scale", f"holdout upper bound d+2SE={d + 2 * se:.4g} < mes={mes:g} after {n_experiments} experiments"
     if is_underpowered:

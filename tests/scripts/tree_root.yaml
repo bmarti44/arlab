@@ -1,0 +1,2 @@
+- {description: "hidden 256", hypothesis_tag: width, sub: {model.py: [['"hidden": \d+', '"hidden": 256']]}}
+- {action: skip, description: "nothing worth trying", hypothesis_tag: skip}

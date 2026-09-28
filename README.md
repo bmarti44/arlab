@@ -1,99 +1,161 @@
-# arlab — a small, honest autoresearch lab for one DGX Spark
+# arlab: an AI research lab that runs on one desktop computer
 
-arlab repeatedly asks a coding agent (Codex CLI, GPT-6, containerized) for **one** change to an editable
-surface, runs it under a fixed budget in a container, scores it with a frozen evaluator the agent can't see,
-and keeps it only if it beats measured noise. Every campaign ends with a machine-written verdict —
-`supported`, `not_found_at_this_scale` or `inconclusive` — naming the rule that fired and the evidence.
+**arlab lets an AI agent do machine-learning research on its own, and then tells you honestly whether anything it
+found is real.**
 
-Spec: `PLAN.md`. Pack authoring: `docs/PACK-AUTHORING.md`. Orchestrator playbook: `docs/ORCHESTRATOR.md`.
-Machine notes: `docs/spark-notes.md`.
+You give it an idea in plain English, such as "can a small language model think longer if it loops its middle
+layers?". arlab turns the idea into an experiment. An AI coding agent then tries dozens of variations, one after
+another or many at once. arlab runs every attempt on the local GPU and scores it with tests the agent never sees.
+At the end it writes a verdict with the evidence behind it: **supported**, **not found at this scale**, or
+**inconclusive**.
 
-## Install
+Everything runs on a single NVIDIA DGX Spark (a desktop-sized machine with one GPU), unattended, for hours or days.
+
+---
+
+## Why this is interesting
+
+**Trying ideas has become cheap. Trusting the results has not.** AI agents can now write and run experiments all
+day. The hard part is knowing which "improvements" are real. With enough attempts, some will look better by pure
+luck. Some will quietly cheat, for example by reading the answer key or training longer than allowed. And the best
+of many noisy results is almost always an overestimate.
+
+arlab's main job is to make the results trustworthy, automatically:
+
+- **It measures the noise first.** Before any experiment, it runs the unchanged starting code several times to see
+  how much scores wobble by chance. An improvement only counts if it clearly beats that wobble.
+- **It keeps a hidden exam.** Part of the data and some random seeds are locked away. They are used exactly once, at
+  the very end, to check the final result. The agent can't tune itself to data it never sees.
+- **It sets the bar before the race.** Each experiment declares in advance the smallest improvement worth caring
+  about. The bar can't move after the fact.
+- **It blocks cheating.** The agent works in a sealed container. It can only edit the files it is allowed to edit,
+  can't see the grader or the answers, and runs under a fixed compute budget. Anything that breaks these rules is
+  thrown out.
+- **It reports nulls.** "We tried 20 ideas and none of them made a meaningful difference" is a real, useful result.
+  arlab says so plainly, and says how big an effect it could have missed.
+
+## New: it also learns *how to search*
+
+Most AI-driven research loops are greedy: take the best result so far, tweak it, repeat. That gets stuck easily.
+arlab can now run a **tree search**, inspired by Google DeepMind's **Dream-RSI** (September 2026). It works in three
+steps:
+
+1. **Explore many paths at once.** Every attempt becomes a branch point. The next attempt can refine any earlier
+   attempt or start a fresh direction, so many lines of work stay alive at the same time.
+2. **Look back at everything that was tried.** A finished search is a record of which paths led where. arlab can
+   "re-play" that record to test a different strategy for free: what would have happened if we had followed other
+   branches or stopped sooner?
+3. **Improve the search strategy itself.** The agent reads those replays and rewrites the small program that decides
+   *which paths to try next and when to stop*. The best version is used for the next real search.
+
+The AI model's weights never change here. What improves is the lab's research strategy. The paper left some gaps:
+no error bars, no testing on searches the strategy hadn't seen, no check that replays predict reality, and no
+released code. arlab closes them:
+- a new strategy is only adopted if it also does better on searches it has never seen;
+- every "smarter" search is run side by side with a plain one on the same problem;
+- the final answer still goes through the same single hidden-exam check.
+
+Details: [docs/TREE-SEARCH.md](docs/TREE-SEARCH.md).
+
+## How it works
+
+```
+  your idea (plain English)
+        │
+        ▼
+  an experiment "pack": starting code the agent may edit + a frozen, hidden grader + a budget
+        │
+        ▼
+  ┌──────────────────────────────────────────────────────────────────────┐
+  │  the agent proposes one change  →  arlab runs it on the GPU           │
+  │  →  the hidden grader scores it  →  compare against measured noise    │  × dozens of attempts
+  │  (greedy: keep or discard; tree: add a branch, a strategy picks next) │
+  └──────────────────────────────────────────────────────────────────────┘
+        │
+        ▼
+  the final check on the locked-away data, once  →  verdict + a written report
+```
+
+The AI agent is OpenAI's Codex CLI (GPT-6), always inside a container. The runner is about 1,500 lines of Python
+that owns the loop, the statistics and the record-keeping.
+
+## What it has found so far
+
+| Question | Answer | What it means |
+|---|---|---|
+| *Lab self-test:* can arlab find a real improvement when one exists? (training a small GPT) | **Yes.** It kept 1 of 28 changes (a smaller optimizer batch) and confirmed it on hidden data | The machinery works end to end. The change is a known trick, not a discovery. |
+| *Lab self-test:* does arlab say "nothing" when there's no room to improve? (digit recognition that is already 96% accurate) | **Yes, a null.** | The lab doesn't invent wins. |
+| Can smarter memory bookkeeping help a small model answer questions about very long chat histories? | **Not found at this scale.** 25 designs; none gained the 8 points we were looking for. | Clever retrieval around a small model hit a ceiling here. |
+| Can a small model "think longer" internally by looping its middle layers, instead of writing its reasoning out? | **Not found at this scale.** 20 loop designs on a 0.6B model; any real gain is under 2.5 points (the bar was 3). | Bolting loops onto an already-trained small model didn't help. Training with loops from scratch is the next test. |
+| Can better agent scaffolding (planning, self-checks, tools) make a small 4B model a better coder? | **Not decided yet.** The first runs were too slow and too sensitive to server load. The root cause is fixed and a re-run is queued. | — |
+| Does *which* instructions you remind a model of matter more than *how* you remind it? ("stencil") | **Running now.** | — |
+| Can a model learn a long document into its weights at test time, instead of reading it in context? | **Queued.** | — |
+| Can an agent dropped into an unfamiliar environment learn it into its own weights, like a driver learning a new city? | **In design.** Pilots are checking that the task is learnable. | — |
+
+Full per-run reports live in `~/arlab-runs/<pack>/<tag>/report.md`. `DECISIONS.md` records every judgment call with
+its reason.
+
+## Research directions
+
+Each direction is a folder in `ideas/` with a plain-language `IDEA.md`, and sometimes a literature review in
+`RESEARCH.md`.
+
+- **Focus vs. memory**: [stencil-focus](ideas/stencil-focus/IDEA.md). Based on a neuroscience account of how the
+  brain picks which stored patterns to read out.
+- **Learning at test time**: [ttt-context](ideas/ttt-context/IDEA.md) and
+  [plastic-agent](ideas/plastic-agent/IDEA.md) ([research](ideas/plastic-agent/RESEARCH.md),
+  [deep dive](ideas/plastic-agent/TTT-DEEP-DIVE.md)). Models that update themselves from what they just saw.
+- **Thinking in latent space**: [looped-latent](ideas/looped-latent/IDEA.md)
+  ([research](ideas/looped-latent/RESEARCH.md)). Reasoning in hidden states instead of written tokens.
+- **Memory built into the architecture**: [research](ideas/memory-architecture/RESEARCH.md);
+  [memory-longmemeval](ideas/memory-longmemeval/IDEA.md) was the first test.
+- **Small-model coding agents**: [agentic-coding-small](ideas/agentic-coding-small/IDEA.md).
+- **Planned for tree search** (see [docs/TREE-SEARCH.md](docs/TREE-SEARCH.md)):
+  - a test-time-compute controller (when to sample more, stop or vote);
+  - new small architectures trained from scratch (loops, linear attention, recursion);
+  - choosing pretraining data;
+  - GPU kernels, only with a harness hardened against reward hacking.
+
+## The rules it never bends
+
+- Frozen graders; the agent never sees them or the hidden data.
+- The final check on hidden data happens once per run and is never re-rolled.
+- The bar for "meaningful" is set before any results exist.
+- Nulls and "inconclusive" are reported as plainly as wins.
+- On the machine: no admin rights, never touches anything it didn't create, never publishes anything, and the only
+  AI agent it calls is Codex in a container (see `CLAUDE.md`).
+
+---
+
+## For developers
 
 ```bash
 cd ~/arlab && uv sync                                  # creates .venv with the `arlab` CLI
 docker build -t arlab-agent:0.157.1 -f docker/Dockerfile.agent docker   # the Codex agent image
 mkdir -p ~/.cache/arlab/codex-home && CODEX_HOME=~/.cache/arlab/codex-home codex login --device-auth
-```
 
-## Walkthrough
-
-```bash
 arlab new my-idea --idea ~/ideas/my-idea.md   # scaffold ideas/my-idea/ from templates/pack/
-# ... author pack.yaml, frozen/run/{prepare,harness}.py, frozen/eval/evaluate.py, surface/, program.md, tests/
-arlab check --static ideas/my-idea            # schema, compile, image, PREPARE, pack tests (no GPU)
-arlab check ideas/my-idea                     # + PROBE: the baseline through RUN + EVALUATE
-arlab run ideas/my-idea --tag t1 --detach     # systemd --user unit arlab-my-idea-t1; survives the session
-arlab status my-idea --tag t1                 # phase, incumbent vs baseline, sigma/SE, last 10, limits, waits
-arlab stop my-idea --tag t1                   # stop after the current experiment, then FINALIZE
-arlab report my-idea --tag t1                 # (re)write ~/arlab-runs/my-idea/t1/report.md
+arlab check ideas/my-idea                     # schema, image, data prep, pack tests + one baseline run
+arlab run ideas/my-idea --tag t1 --detach     # greedy campaign as a systemd --user unit (resumable, kill -9 safe)
+arlab tree run ideas/my-idea --tag tr1 --budget 32 --workers 4 --detach   # tree search instead
+arlab status my-idea --tag t1                 # progress; `arlab stop` / `arlab report` also exist
 ```
 
-`arlab run` is idempotent: re-running it resumes from the records (`kill -9` safe). A campaign goes
-CHECK → PREPARE → TESTS → SEAL → PROBE → CALIBRATE → LOOP → FINALIZE → REPORT:
-
-- **SEAL** snapshots the pack and `arlab/lib` into `~/arlab-runs/<name>/<tag>/sealed/`; editing the repo never
-  affects a running campaign, and resume refuses if the snapshot, the data or the image changed.
-- **CALIBRATE** measures the baseline's seed noise (sigma) and the power check (2 × expected holdout SE ≤ MES).
-- **LOOP**: propose (Codex in a container, sees only the surface + context) → apply (surface files only) →
-  RUN → EVALUATE (frozen) → screen on one seed → confirm on fresh seeds → keep/discard → record.
-- **FINALIZE**: the incumbent vs the baseline (or a reference) on held-out seeds and data, once; verdict rules in
-  PLAN §3.5.
-
-## Layout
+A greedy campaign goes CHECK → PREPARE → TESTS → SEAL → PROBE → CALIBRATE → LOOP → FINALIZE → REPORT. SEAL
+snapshots the pack, so editing the repo never affects a running campaign. CALIBRATE measures seed noise and checks
+statistical power. FINALIZE runs the one hidden check. The rules are in `PLAN.md` §3.5.
 
 ```
 arlab/            runner: cli, pack, campaign, experiment, execute, agent, stats, guards, record, report
-arlab/lib/        shared helpers packs import: lm (token-budget loop, LM scorer, causality), client (budgeted
-                  model client), cleanroom (hidden tests as uid 65534)
-ideas/<name>/     one pack per idea (IDEA.md, pack.yaml, program.md, surface/, frozen/run, frozen/eval, tests/;
-                  optional frozen/prepare/ = inputs only PREPARE sees, e.g. tasks with hidden tests; REVIEW.md)
-templates/pack/   `arlab new` scaffold
-tests/            unit tests + CPU fixture campaigns (`make accept-M1`)
-~/arlab-data/<name>/<data_hash>/   immutable prepared data     ~/arlab-runs/<name>/<tag>/   campaigns
+arlab/tree/       tree search: model, replay, policy (sandbox + built-ins), online, dream, report
+arlab/lib/        helpers packs import (token-budget loop, LM scorer, budgeted model client, clean-room tests)
+ideas/<name>/     one pack per idea: IDEA.md, pack.yaml, program.md, surface/, frozen/{run,eval,prepare}, tests/
+tests/            unit tests + CPU fixture campaigns
 ```
 
-## Packs
-
-| Pack | Kind | Metric |
-|---|---|---|
-| `_fixture` | CPU numpy MLP, scripted-backend tests | accuracy |
-| `nanochat-lite` | **arlab self-test** (lab calibration): GPT pretraining under a token budget | val_bpb ↓ |
-| `memory-longmemeval` | memory subsystem around a small vLLM-served model | accuracy |
-| `agentic-coding-small` | scaffold for a small model on multi-step coding tasks | pass_rate |
-| `digits-label-smoothing` | **arlab self-test** of the prose → pack workflow (`docs/ORCHESTRATOR.md`, M4) | accuracy |
-| `stencil-focus` | awaiting the owner's `IDEA.md` | — |
-
-## Results
-
-| Campaign | Purpose | Verdict |
-|---|---|---|
-| `nanochat-lite/m3b` | arlab self-test | **supported** — optimizer batch 2^17 → 2^16 tokens: holdout val_bpb −0.0151 (d − 2·SE = 0.0102 > 0) |
-| `digits-label-smoothing/m4` | arlab self-test | not_found_at_this_scale (effect < 0.026 < MES 0.05) |
-| `memory-longmemeval/m5` | research | not_found_at_this_scale (25 candidates; effect < 0.062 < MES 0.08) |
-| `agentic-coding-small/m5c` | research | inconclusive: stopped_early:max_hours (3 candidates in 6 h; ~70 min per validation pass) |
-| `looped-latent/v0` | research | not_found_at_this_scale — looping layers 12–15 of Qwen3-0.6B (20 loop designs, loop-only surface, same training budget): holdout upper bound 0.025 < MES 0.03 |
-
-The two self-tests check arlab, not research questions. **nanochat-lite** is the lab's calibration: it proves the
-loop runs end to end on this GPU (speed, noise floor, kill -9 resume) and that the statistics keep one real change
-while rejecting 27 near-misses. Its keep, a smaller optimizer batch under a fixed token budget, is the textbook
-batch-size trade-off (and the edit M2's scripted test planted as "known good"), not a new finding. **digits** tests
-that a prose idea becomes a working pack through the orchestrator. It was not designed as a negative control, but it
-behaves as one: the baseline's 0.964 validation accuracy leaves < 3.6 points of headroom under a 5-point MES, so a
-correct lab must return a null, and it did.
-
-Per-campaign `report.md` files are in `~/arlab-runs/<pack>/<tag>/`; `docs/retro.md` covers time, accept rates,
-agent latency/tokens and what broke. Tags that were re-run (m3 → m3b, m5 → m5c) and why: `docs/M3.json`,
-`docs/M5.json`, `DECISIONS.md`.
-
-## Acceptance
-
-`make accept-M0 … accept-M6` — each target's exit code is the verdict (see `Makefile`, `scripts/`).
-`make test` runs the fast unit tests.
-
-## Rules that never bend
-
-No sudo; never touch processes/containers/images/files arlab did not create; never push or publish; never run
-Claude non-interactively (Codex is the only agent arlab calls); keep ≥ 60 GB free. See `CLAUDE.md`.
+- Docs: [PLAN.md](PLAN.md) (spec), [docs/PACK-AUTHORING.md](docs/PACK-AUTHORING.md),
+  [docs/ORCHESTRATOR.md](docs/ORCHESTRATOR.md), [docs/TREE-SEARCH.md](docs/TREE-SEARCH.md),
+  [docs/spark-notes.md](docs/spark-notes.md), [docs/retro.md](docs/retro.md).
+- Tests: `make test` (fast); `make accept-M0 … accept-M6` and `make accept-T1` (exit code = verdict).
 
 License: MIT. `ideas/nanochat-lite/surface/train.py` is ported from karpathy/autoresearch (MIT).
