@@ -11,6 +11,16 @@ ACTIVE — build (M0–M6) is DONE (all accept targets pass, see below); now wor
 Also: TESTS-step bug fixed (pack tests never ran since M1). Research briefs in ideas/*/RESEARCH.md, plastic-agent/TTT-DEEP-DIVE.md.
 Campaign order (GPU lock): m6 → looped-latent v0 → stencil-focus v0 → ttt-context v0 → plastic-agent v0 (if GO).
 
+## Resume after a CLI restart (2026-09-28)
+Running detached (unaffected by the CLI): `arlab-campaigns` (runs ~/arlab-runs/_pilots/campaign-queue.txt one by one:
+stencil-focus v0 running → ttt-context v0 → agentic-coding-small m7) and `arlab-p-pa-gate2` (plastic-agent gate pilot,
+waits for the GPU lock; result in ~/arlab-runs/_pilots/pa-gate2.log: GO needs none ≤ 0.15 and icl − none ≥ 0.15;
+on GO append "plastic-agent v0" to campaign-queue.txt, after the astra review is re-run on the redesigned pack).
+On resume: `systemctl --user list-units 'arlab-*'`, `tail ~/arlab-runs/_pilots/campaigns.log`, read finished
+reports (~/arlab-runs/<pack>/<tag>/report.md), update README Results/STATUS, re-arm a wake-up
+(`until grep -q "end <pack> <tag>" ~/arlab-runs/_pilots/campaigns.log; do sleep 300; done` in the background).
+Check m7's CALIBRATE timeout_rate first (m6 failed on load-dependent timeouts; TASK_SECONDS is now 5400).
+
 # STATUS (build)
 
 | Target | Result |
