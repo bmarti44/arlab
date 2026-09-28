@@ -3,10 +3,12 @@ ACTIVE — build (M0–M6) is DONE; owner follow-ups in progress. NEW: tree sear
 ## Tree search (owner request 2026-09-28; plan ~/.claude/plans/effervescent-wandering-elephant.md; docs/TREE-SEARCH.md)
 | Stage | State |
 |---|---|
-| T0 build | DONE: arlab/tree/ (model, replay, policy sandbox + 3 built-ins, online TreeCampaign, dream, report, CLI); `make accept-T1` PASS (13 tests: no-leak replay, sandbox isolation, held-out dream guard, fixture tree run with kill -9 resume + pre-registered finalize → supported). README rewritten in plain language. 4 greedy campaigns imported to ~/arlab-runs/_tree/imported (smoke replay only). |
-| T1 `_fixture` real-Codex shakedown | NEXT: `~/arlab-runs/_pilots/tree-t1.sh` (r0 π₀ W8×48 → dream fx-d1 → r1 dreamed + c1 control → … 3 rounds, ~450 Codex calls), unit arlab-tree-t1, CPU only |
+| T0 build | DONE (commits 2ac0ea9, f6a0cd4; astra review: 18 fixed, 4 recorded): arlab/tree/ (model, replay, policy sandbox + 3 built-ins, online TreeCampaign, dream, report, CLI); `make accept-T1` PASS (13 tests: no-leak replay, sandbox isolation, held-out dream guard, fixture tree run with kill -9 resume + pre-registered finalize → supported). README rewritten in plain language. 4 greedy campaigns imported to ~/arlab-runs/_tree/imported (smoke replay only). |
+| T1 `_fixture` real-Codex shakedown | RUNNING since 20:32Z: unit **arlab-tree-t1** (`~/arlab-runs/_pilots/tree-t1.sh`, log `_pilots/tree-t1.log`; pack copy `_pilots/t1/_fixture` with train_s guard 3.0×): r0 π₀ W8×48 → dream fx-d1 → r1 dreamed + c1 control → … 3 rounds (~450 Codex calls). First batch: 5 distinct ideas of 8 after the sibling-slot fix. Then: `arlab tree replay` all policies × all trees vs online V (correlation). |
 | T2 nanochat-lite tree (root m3b keep) | after the GPU campaign queue |
-| T3/T4 | second chances; new packs ttc-controller, latent-arch, data-select, gpu-kernels |
+| T3/T4 | IDEA drafts done: ideas/ttc-controller, ideas/latent-arch (next: astra review → build → pilot); data-select, gpu-kernels later |
+
+Note: accept-M1 45/47 under GPU-campaign load (fixture wall-clock guard noise, see WORKLOG); re-run when the GPU queue is idle.
 
 ## Owner follow-ups (2026-09-28)
 | Pack | State |
