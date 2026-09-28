@@ -69,18 +69,3 @@ def greedy_decode(logits_fn, prompts: list[list[int]], batch: int, device: str, 
             if bool(done.all()):
                 break
     return out, bad
-
-
-class LayerCounter:
-    """Counts decoder-layer calls (forward pre-hooks) to measure the effective depth the surface really runs."""
-
-    def __init__(self, layers):
-        self.calls = 0
-        self.handles = [layer.register_forward_pre_hook(self._hook) for layer in layers]
-
-    def _hook(self, module, args):
-        self.calls += 1
-
-    def remove(self):
-        for h in self.handles:
-            h.remove()

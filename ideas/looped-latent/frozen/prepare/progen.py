@@ -5,7 +5,7 @@ loops) that ends in `print(v)`; the answer is the printed value (0..99), found b
 `steps` counts the statements after the initial assignments (a `for` or `if` block is one step).
 
 DIFFICULTY is the knob the owner tunes in the GPU pilot (target: the no-loop baseline B1 at 40-70% on ID_STEPS).
-Changing it changes frozen/run/ and therefore the data_hash: a new data dir and a new campaign tag.
+Changing it changes frozen/prepare/ and therefore the data_hash: a new data dir and a new campaign tag.
 """
 from __future__ import annotations
 

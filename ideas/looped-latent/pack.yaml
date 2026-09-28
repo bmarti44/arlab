@@ -1,8 +1,9 @@
 name: looped-latent
 image: {base: "nvcr.io/nvidia/pytorch:25.10-py3"}
-prepare: {command: "python /frozen/prepare.py --out /data", timeout_s: 1800}
+# PREPARE code, generator and seeds live in frozen/prepare/ (mounted at /prepare in PREPARE only; RUN cannot regenerate labels)
+prepare: {command: "python /prepare/prepare.py --out /data", timeout_s: 1800}
 run:
-  # --train-seconds is the wall-clock training budget (build + train steps), owned by the frozen harness.
+  # --train-seconds is the wall-clock training budget (surface import + build + train steps), owned by the frozen harness.
   # CALIBRATE IN THE GPU PILOT (target <= ~12 min training + <= ~3 min decode/guards per run); keep budget.limit = it + 60.
   command: "python /frozen/harness.py --out /out --seed {seed} --split {split} --train-seconds 660"
   timeout_s: 1200
@@ -13,18 +14,21 @@ budget: {unit: train_seconds, limit: 720}
 # MES 0.03 (3 points of accuracy; RESEARCH.md §4). Power (PACK-AUTHORING §3, item pack, 3 holdout seeds, n = 2000 holdout items):
 #   SE = sqrt(0.2/n + 2*sigma^2/3);  sigma = 0: SE = 0.0100 (2SE 0.020);  sigma = 0.010: SE = 0.0129 (2SE 0.026)
 #   powered (2SE <= 0.03) iff sigma <= 0.0137;  the recommended margin 2.5SE <= 0.03 holds iff sigma <= 0.0079.
-#   If CALIBRATE measures sigma > 0.0137, raise N_EVAL in frozen/run/prepare.py (new data, new tag), never the MES.
+#   If CALIBRATE measures sigma > 0.0137, raise N_EVAL in frozen/prepare/prepare.py (new data, new tag), never the MES.
 metric: {name: accuracy, direction: maximize, mes: 0.03}
 guards:
   - {name: train_s, max_ratio_vs_baseline: 1.3}      # RUN wall time (training itself is fixed by the harness)
   - {name: depth_ratio, min: 1.05}                   # every keep must really loop at eval (baseline = 1.0)
-  - {name: depth_ratio, max: 2.0}                    # inference cost <= 2x base (hooked decoder-layer calls / 28)
+  - {name: depth_ratio, max: 2.0}                    # inference cost <= 2x base (frozen block-token counter / 28 layers)
+  # accuracy minus the SAME trained model decoded with the loop disabled (frozen single block pass): the extra passes
+  # must change answers for the better (>= 10 of 2000 items); zero gates or dummy block calls give exactly 0.
+  - {name: loop_gain, min: 0.005}
   - {name: text_nll, max_ratio_vs_baseline: 1.02}    # OASST2 retention: <= +2% NLL vs the no-loop arm
   # hard set (HARD_STEPS, 1000 items): "not worse than the baseline beyond noise". With p_hard ~ 0.3, one seed vs the
   # 5-seed baseline mean: SE ~ sqrt(.21/1000 + .21/5000 + sigma^2) ~ 0.018, 2SE / p_hard ~ 0.12  ->  ratio 0.88.
   # RECALIBRATE after the pilot: ratio = 1 - 2*SE_hard / p_hard(B1).
-  - {name: hard_acc, min_ratio_vs_baseline: 0.88}
-  - {name: trainable_m, max: 18}                     # ~3% of the 596M base (baseline LoRA r16 + loop params ~11.2M)
+  - {name: hard_acc, min_ratio_vs_baseline: 0.85}   # pilot 2: B1 hard_acc 0.148, n=1000 → 1 − 2·0.0112/0.148 ≈ 0.85
+  - {name: trainable_m, max: 18}                     # ~3% of the 596M base: frozen LoRA r16 10.09M + loop params (baseline 1.06M)
   - {name: peak_mem_gb, max: 40}
 seeds: {calibration: [1, 2, 3, 4, 5], screen: 1, confirm: [2, 3], holdout: [101, 102, 103]}
 agent: {model: gpt-6-sol, effort: high, visible: [program.md, IDEA.md], timeout_s: 900}

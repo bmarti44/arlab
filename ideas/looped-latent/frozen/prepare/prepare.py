@@ -8,6 +8,8 @@ Layout written under --out:
   splits.json, info.json
 Every split has its own generator seed; eval programs are hash-deduplicated against each other and train excludes
 all of them. OASST2 (Apache-2.0) is read from the pinned HF-cache snapshot; nothing is downloaded.
+This file, progen.py and the seeds live in frozen/prepare/, which is mounted only into PREPARE (at /prepare) and TESTS
+(under /pack): RUN cannot regenerate the evaluation labels. common.py (prompt format, model path) comes from /frozen.
 """
 import argparse
 import gzip
