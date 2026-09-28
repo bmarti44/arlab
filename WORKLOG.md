@@ -20,3 +20,4 @@
 - M3: accept-M3 PASS. nanochat-lite/m3b: 28 experiments in 2.90 active h (9.64/h, median 5.2 min, agent share 16% → no speculative proposal needed), 1 keep (optimizer batch 2^16), verdict supported (holdout d=0.0151 ≥ MES 0.01, d−2SE=0.0102 > 0, every seed positive). Kill -9 during agent and during training both resumed cleanly.
 - M5a: accept-M5-memory-longmemeval PASS. m5: 25 experiments in 1.99 active h (12.5/h, median 2.0 min, agent share 30%), 0 keeps → stop no_keep; verdict not_found_at_this_scale (upper bound 0.062 < MES 0.08). Best candidates: alternate-query retrieval +0.005, several ties; per-session LLM fact extraction collapsed (0.09).
 - M6: final re-run of every accept target on the final code: all PASS (M1 32/32). STATUS DONE.
+- 2026-09-28T00:54:56Z serving bench (scratch loadgen, realistic coding prompts): 1-way 20.6→45.9 tok/s with MTP-2; 20-way 345→539. Logged agentic pilot with MTP launched (arlab-agentic-pilot).
