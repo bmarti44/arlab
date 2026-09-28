@@ -1,15 +1,19 @@
 ACTIVE — build (M0–M6) is DONE (all accept targets pass, see below); now working the owner's follow-up requests.
 
-## Owner follow-ups (2026-09-27/28)
-1. agentic-coding-small: root-cause the slow validation pass / baseline timeout-guard failure, then re-run for a real verdict.
-   - serving benchmark (arlab-bench): 20-way gen tok/s base 345, MTP-2 539 (84% accept), FP8 500, FP8+MTP pending.
-   - next: logged pilot (build/pilot.sh + pilot_agent) to split per-task time into LLM latency vs command time.
-2. stencil-focus: IDEA.md written (fable), reviewed (opus, IDEA-REVIEW.md), revised; pack build in progress (CPU only);
-   then GPU headroom/timing pilot with go/no-go (oracle − baseline ≥ 0.10).
-3. looped-latent (new idea): RESEARCH.md + pack built, CPU tests pass; GPU calibration pilots pending (B0, B1 ×3 seeds, K4).
-4. memory-architecture: RESEARCH.md done; its TTT experiment merged into the test-time-training track.
-5. plastic-agent / test-time training (new idea): RESEARCH.md done; TTT-DEEP-DIVE.md (MindsAI etc.) in progress.
-GPU queue: bench → agentic pilot → looped-latent pilots → stencil pilot → campaigns.
+## Owner follow-ups (2026-09-28)
+1. agentic-coding-small — root cause found (logged pilot, _pilots/agentic-mtp): 98.9% of task time is model latency;
+   55% of tasks exhaust 30 steps; time-outs were format-error loops (not counted as steps); two waves of 20 made the
+   slow tail set RUN time. Fixes (732bd8c): MTP-2 serving (1.56×), 40-model-call cap, one 40-task wave, campaign
+   sized for ≥ 10 experiments. MTP-only pilot: RUN 2593 s (was ~4000), timeout 0.10 (was 0.225), pass 0.20.
+   Campaign tag m6 queued (arlab-next) after the pilots.
+2. TESTS step bug fixed (8c9acb1): pack tests never ran since M1; all 8 packs now pass their tests via arlab check.
+3. New packs built + committed: stencil-focus, looped-latent, ttt-context (TTT stage 0), plastic-agent (stage 1).
+   GPU pilots queued (arlab-gpu-queue: looped B0 done=0.0, B1, K4, stencil headroom; arlab-ttt-pilot-timing;
+   arlab-next: plastic gate). Outputs in ~/arlab-runs/_pilots/.
+4. Research briefs: looped-latent, memory-architecture (TTT merged into plastic-agent track), plastic-agent,
+   TTT-DEEP-DIVE (MindsAI).
+Next: read pilots → calibrate constants (looped difficulty, stencil go/no-go, ttt context length, plastic gate) →
+astra review → full check → campaigns after m6.
 
 # STATUS (build)
 
