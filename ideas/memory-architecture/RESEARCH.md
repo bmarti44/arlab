@@ -162,3 +162,5 @@ Also noted, newer than September 2025 and single-source for now:
 **Cheap one-off diagnostic (not a campaign):** rerun [split-prefill](https://github.com/kirillTerra/split-prefill) on the
 cached **Qwen3.5-2B/4B**. It takes minutes and tells us whether any "state-as-memory" idea on the local hybrids is worth a pack.
 Per the paper, the answer for factual recall is probably no.
+
+> **Merged (owner, 2026-09-28):** Experiment 1 below (test-time training as context memory) moved to the test-time-training track, `ideas/plastic-agent/`. No separate memory-architecture pack.
