@@ -102,6 +102,51 @@ Files for each run live in `~/arlab-runs/<pack>/<tag>/`:
 | T3 | Second chances: `looped-latent`, `stencil-focus` (tree vs greedy on the same pack), then TTT and agentic if their greedy runs show headroom | GPU |
 | T4 | New packs: `ttc-controller` (test-time-compute controller on cached reasoning traces), `latent-arch` (from-scratch tiny GPTs with loops, hybrid linear attention, recursion, continuous thought; depth-generalization split), `data-select` (the program choosing pretraining data), `gpu-kernels` (last, and only with a hardened anti-hacking harness) | GPU |
 
+## Results
+
+### T1: shakedown on `_fixture` with real Codex (2026-09-28)
+
+Setup: W = 8, 48 nodes per round.
+- r0: π₀ (`parallel_refine`).
+- Rounds 1–3: a dreamed policy (rK) against a paired fixed control (cK).
+- 336 nodes, about 345 Codex calls, 2 h 10 min.
+
+Every round's own finalize gave `supported`. That's expected: this toy problem saturates, and the first batch
+already reaches about 6.8 of the ~7.1 MES found.
+
+| Round | Policy | Online V (β = 0.5) | Best score (β = 0) | Nodes used |
+|---|---|---|---|---|
+| r0 | parallel_refine | 6.583 | 7.083 | 48 |
+| r1 / c1 | fx-d1 / control | **6.823** / 6.683 | 6.917 / **7.183** | 9 / 48 |
+| r2 / c2 | fx-d1 / control | **6.823** / 6.583 | 6.917 / **7.083** | 9 / 48 |
+| r3 / c3 | fx-d3 / control | 6.723 / **6.900** | 6.817 / **7.400** | 9 / 48 |
+
+**What we learned**
+1. **Dreamed policies learned to stop early.** They found 0.2–0.6 MES less than the control, using about 1/5 of the
+   nodes. At β = 0.5 they won 2 of 3 paired rounds. At β = 0 (best found) the control won all 3.
+2. **The noise is as large as the effect.** The *same* fixed policy scored 6.58–6.90 across four rounds (Codex is
+   stochastic). That spread is as big as every dreamed-vs-fixed difference, so there is no claim either way at
+   this sample size.
+3. **Replay did not predict the online ranking.** On the control trees, replay ranked fx-d3 (6.97) above fx-d1
+   (6.71). Online the order was fx-d1 (6.82) above fx-d3 (6.72).
+4. **Trees from narrow policies are poor replay data.** The dreamed runs recorded only about 9 nodes each, so
+   every policy stalls quickly on them.
+5. **Simple untuned policies did as well as dreamed ones in replay.** `greedy_best_leaf` scored 6.90 and
+   `ucb_chains` 6.88 on the wide trees, against fx-d3's 6.87. This matches AIRA's finding that the search
+   algorithm matters less than the operators.
+6. **The held-out guard worked.** fx-d2 improved on its training trees (6.81 → 6.84) but lost on held-out r0
+   (6.74 < 6.82) and was rejected. fx-d1 was accepted UNGUARDED, since no held-out tree existed yet; it
+   overfit its single training tree by shrinking the opening breadth one step at a time.
+7. **Operator fix.** Simultaneous siblings with identical views all proposed the same change. Numbering them
+   ("your #k idea") raised the first batch from 1 distinct idea to 5 of 8.
+
+**Consequences for T2 (nanochat, GPU)**
+- Every dreamed round needs its paired control, and several control rounds are needed to measure between-round
+  spread before any "dreamed beats fixed" claim.
+- Report β = 0 (best found) next to β = 0.5, because stopping early is easy to reward and hard to trust.
+- Include `greedy_best_leaf` and `ucb_chains` as extra online controls.
+- Dream only on wide trees.
+
 ## Known limits
 
 - **Recorded trees are biased by the recording policy.** A replayed policy can only find what that policy happened
