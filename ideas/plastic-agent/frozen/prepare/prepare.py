@@ -40,8 +40,8 @@ GSM8K_FILE = "/hf/hub/datasets--openai--gsm8k/snapshots/740312add88f781978c06588
 SEED_BASE = {"validation": 26_092_700, "holdout": 26_092_800, "guard": 26_092_900}   # disjoint ranges of 100
 N_WORLDS = {"validation": 4, "holdout": 8}
 N_TASKS = {"validation": 60, "holdout": 80}   # per world: 240 / 640 items; power arithmetic in pack.yaml / IDEA.md
-N_EXPLORE = 500           # tool calls per exploration transcript (CALIBRATE: transcript length vs ICL gate)
-GUARD_EXPLORE, GUARD_TASKS = 150, 100
+N_EXPLORE = 120           # tool calls per exploration transcript (~2.5k tokens; CALIBRATE with the gate)
+GUARD_EXPLORE, GUARD_TASKS = 120, 100
 N_GSM8K, N_TEXT, N_REPLAY, TEXT_LEN = 200, 64, 512, 256
 
 ap = argparse.ArgumentParser()
@@ -50,7 +50,7 @@ ap.add_argument("--small", action="store_true", help="tiny sizes for local smoke
 a = ap.parse_args()
 if a.small:
     N_WORLDS, N_TASKS, N_EXPLORE = {"validation": 2, "holdout": 2}, {"validation": 12, "holdout": 12}, 60
-    GUARD_EXPLORE, GUARD_TASKS, N_GSM8K, N_TEXT, N_REPLAY = 40, 8, 8, 8, 16
+    GUARD_EXPLORE, GUARD_TASKS, N_GSM8K, N_TEXT, N_REPLAY = 60, 8, 8, 8, 16
 
 
 def write_json(path, obj):

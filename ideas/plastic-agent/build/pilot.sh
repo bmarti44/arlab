@@ -25,7 +25,7 @@ print("per template (none / icl):", {k[2:]: (round(none['metrics'][k], 2), round
                                      for k in sorted(icl["metrics"]) if k.startswith("s_")})
 print(f"GATE (none <= 0.15 and icl - none >= 0.15): {'GO' if ok else 'NO-GO'}")
 if not ok:
-    print("NO-GO: retune frozen/prepare (fauxos.TEMPLATES / VERB_MIX / VERBOSE_P, prepare.N_EXPLORE) and re-run the gate;"
+    print("NO-GO: retune frozen/prepare (fauxos.N_OPS / TEMPLATES / VERB_MIX, prepare.N_EXPLORE) and re-run the gate;"
           " do not start a campaign.")
 EOF
   exit 0

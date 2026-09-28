@@ -14,7 +14,7 @@ adapt.py only: adapt(transcript, tool_names, gen, train) -> an adapter returned 
 training data built from the transcript, the loss mix, the LoRA config and the schedule. adapt() receives only the
 world being adapted, and its adapter is scored on that world. (The arm is chosen by frozen code, not by adapt.py.)
 API (read frozen_run/engine.py, frozen_run/trainer.py, frozen_run/common.py):
-- transcript: list of {"call": 'name(arg, ...)', "obs": output text or "error <code>"} (~500 calls, ~12k tokens).
+- transcript: list of {"call": 'name(arg, ...)', "obs": output text or "error <code>"} (120 calls, ~2.6k tokens).
 - gen.generate(prompts, max_new_tokens, temperature, context=True|False) and gen.teacher(prompts, completions, k,
   context=True): the BASE model, answering in the evaluation's chat format (context=True adds the transcript).
   gen.task_prompt(goal) is the evaluation's user message; gen.transcript_text the ICL arm's log text.
@@ -22,22 +22,23 @@ API (read frozen_run/engine.py, frozen_run/trainer.py, frozen_run/common.py):
   config: rank <= 64, alpha, targets, layers, lr, epochs, batch_size, max_len, ce_weight, teacher_weight, kl_base,
   replay_rows, grad_ckpt, warmup, min_lr_frac, weight_decay, grad_clip. Several train() calls per world are allowed.
 ## What the code does
-Each world is generated from a fresh seed: 20-30 tools with pseudo-word names (some English verbs, some misleading),
-random positional-argument orders, units and a conversion constant, three error codes, and hidden objects. A frozen
-scripted explorer produced the transcript (systematic calls, error probes, 30% random probes). The harness gives
-adapt() one world at a time on a fresh base model (per-world budget: 180 s wall clock, 400k gen tokens, 1.5M train
-tokens; when the budget runs out the last adapter trained in that world is kept). The evaluator merges each world's
-adapter and asks for a program per goal: one call per line, positional int / "string" literals, <= 12 lines, the last
-line's output is the answer, answer(x) outputs x. The simulator runs it from the state where the exploration ended;
-after an error the model gets one retry that shows the failing line and its output. Success = no error, exact final
-state (for changes) and the right value in the last output (for questions). Goals are like "Archive item 412.",
-"Unlock item 305, then permanently delete it.", "What is the tally checksum of <place>?",
-"Archive every unlocked <KIND> item that weighs at least 3 <unit>." (thresholds may need the unit conversion).
+Each world is generated from a fresh seed: 11 tools (inspect + 10 operations such as archive, delete, restore, move,
+lock, unlock, retag, clone, swap, count, weigh, extreme, newest, checksum, find_tag) with pseudo-word names (some
+English verbs, some misleading: an "_open" that locks), random positional-argument orders, a weight unit, three error
+codes and hidden objects. Every tool prints what it did. A frozen scripted explorer produced the transcript (every
+tool several times, error probes, 15% random probes). The harness gives adapt() one world at a time on a fresh base
+model (per-world budget: 180 s wall clock, 400k gen tokens, 1.5M train tokens; when the budget runs out the last adapter
+trained in that world is kept). The evaluator merges each world's adapter and asks for ONE call per goal: the first
+line of the answer that looks like name(arg, ...) is executed (positional int / "string" literals; a bare word counts
+as a string; other lines are ignored). The simulator runs it from the state where the exploration ended; after an
+error the model gets one retry that shows the error. Success = no error, exact final state (for changes) and the right
+value in the output (for questions). Goals are like "Archive item 412.", "Move item 17 to <place>.",
+"Unlock item 305.", "What is the tally checksum of <place>?", "Which <KIND> item was created most recently?".
 Reported (not the metric): cross_world_success (your LoRA of world i+1 scored on world i) and specific_gain = success −
 cross_world_success; a gain that is only "format" shows up in both. Also gap_closure vs icl, per-template success s_*.
 ## Guards (runs that fail one are discarded)
 - battery_drop <= 0.02: 200 GSM8K + 100 tasks of another FauxOS world with ITS transcript in context, vs the base model.
-- prefill_tokens <= 3000: no transcript in the prompt at evaluation.
+- prefill_tokens <= 1000: no transcript in the prompt at evaluation.
 - peak memory <= 60 GB; the longest per-world adapt() <= 210 s (else invalid; world 0 also pays for importing
   adapt.py); a non-finite loss or gradient in ANY train() call = invalid, even if you return an earlier adapter.
 - Budgets count processed positions: padded prompt blocks and every decode step of every batch row (gen), padded
@@ -47,7 +48,7 @@ cross_world_success; a gain that is only "format" shows up in both. Also gap_clo
 ## Ideas worth trying (ranked in IDEA.md / TTT-DEEP-DIVE.md §4)
 1. Hindsight relabeling (the ARC-TTT recipe): turn transcript calls into (goal -> program) pairs in the evaluation's
    format, phrasing the goal from what the observations SHOW (e.g. obs "archived #412" -> "Archive item 412." ->
-   that call; an inspect after a silent "ok" reveals the effect). Multi-call goals from consecutive successful calls.
+   that call). Cover every tool, every argument order and several phrasings per operation.
 2. Add forward-dynamics pairs: (call -> observation) and "what does <tool> do / what are its arguments" facts.
 3. Augmentation: consistent renaming of ids / values, paraphrased goals, several phrasings per demo.
 4. Teacher-KL: gen.teacher(..., context=True) on your demos (1.7B is a weak teacher: a supplementary loss).

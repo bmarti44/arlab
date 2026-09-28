@@ -49,12 +49,11 @@ def test_world_shape():
     for seed in range(40, 60):
         w = fauxos.gen_world(seed)
         names = [t["name"] for t in w["tools"]]
-        assert 20 <= len(names) <= 30 and len(set(names)) == len(names)
-        assert set(fauxos.OPS) <= {t["op"] for t in w["tools"]}
+        ops = [t["op"] for t in w["tools"]]
+        assert len(names) == fauxos.N_OPS + 1 and len(set(names)) == len(names)
+        assert ops[0] == "inspect" and len(set(ops)) == len(ops) and set(ops[1:]) <= set(fauxos.TASK_OPS)
         for t in w["tools"]:
             assert sorted(t["perm"]) == list(range(len(fauxos.OPS[t["op"]][0])))
-            prim = next(x for x in w["tools"] if x["op"] == t["op"])
-            assert t is prim or t["var"] != prim["var"], "a decoy must behave differently from its primary"
         assert 30 <= len(w["init"]["objs"]) <= 60
         assert len(set(w["errors"].values())) == 3 and 2 <= w["C"] <= 9
 
@@ -112,8 +111,7 @@ def test_transcript_is_a_faithful_replay():
 
 
 PRIVATE_MARKERS = ('"op"', '"perm"', '"var"', '"verbose"', "skip_locked", "with_locked", "gold_state", '"reference"',
-                   '"spec"', "list_place", "list_kind", "find_tag", "archive_kind", "move_kind", "lock_place",
-                   "purge_archive", "badarg", "Goal:")
+                   '"spec"', "find_tag", "badarg", "Goal:")
 
 
 def test_public_and_train_data_reveal_no_hidden_state_or_labels():
@@ -177,9 +175,15 @@ def test_run_side_code_references_no_dataset_under_hf():
 # ================================================================ simulator and scoring
 @pytest.fixture(scope="module")
 def world():
-    p = js(f"{D}/validation/private/worlds.json")
-    w = pub_worlds(f"{D}/validation")[0]
-    return w, p[w["id"]]
+    """The first prepared world with a move tool, an int-answer task and a state task (the edge-case tests use them)."""
+    for split in SPLITS:
+        p = js(f"{D}/{split}/private/worlds.json")
+        for w in pub_worlds(f"{D}/{split}"):
+            q = p[w["id"]]
+            if any(t["op"] == "move" for t in q["spec"]["tools"]) and \
+                    any(t["answer"] and t["answer"]["kind"] == "int" for t in q["tasks"]) and any(t["check_state"] for t in q["tasks"]):
+                return w, q
+    raise AssertionError("no suitable world")
 
 
 def test_every_reference_program_scores_one_and_trivial_programs_score_zero(world):
@@ -203,16 +207,22 @@ def test_scorer_edge_cases(world):
     run = lambda txt: fauxos.score(st, fauxos.run_program(spec, end, txt))  # noqa: E731
     assert run(ref) == 1.0
     assert run(f"```\n{ref}\n```") == 1.0                                   # code fences are ignored
-    assert run(f"Here is the program:\n{ref}") == 0.0                          # prose is a syntax error
+    assert run(f"Here is the call:\n{ref}") == 1.0                             # prose lines are ignored
+    assert run(f"> {ref}\nok\n> {ref}") == 1.0                                # log-style: only the first call runs
+    assert run(f"{ref};") == 1.0
     inspect = next(t["name"] for t in spec["tools"] if t["op"] == "inspect")
     some_id = next(iter(end["objs"]))
-    assert run(ref + f"\n{inspect}({some_id})") == 1.0                        # read-only extra calls are harmless
-    clone = next(t["name"] for t in spec["tools"] if t["op"] == "clone")
-    active = next(i for i, o in end["objs"].items() if o["state"] == "active")
-    assert run(ref + f"\n{clone}({active})") == 0.0                           # collateral state change
-    assert run("\n".join([f"{inspect}({some_id})"] * 13)) == 0.0              # > 12 lines
+    assert run(f"{inspect}({some_id})\n{ref}") == 0.0                         # the FIRST call is the program
+    assert run("I cannot do that.") == 0.0
+    assert fauxos.run_program(spec, end, "no call here")["error"]["obs"] == "syntax error: no tool call"
     kw = st["reference"][0].replace("(", "(x=", 1)
     assert fauxos.run_program(spec, end, kw)["error"]["obs"].startswith("syntax error")
+    assert fauxos.run_program(spec, end, f"{inspect}({some_id}")["error"]["obs"].startswith("syntax error")
+    # forgiving literals: a bare word is a string, a digit string is an int where an int is expected
+    name, args = fauxos.parse_program(ref)[0]
+    loose = f"{name}(" + ", ".join(f'"{x}"' if isinstance(x, int) else x for x in args) + ")"
+    assert fauxos.parse_program(loose) == [(name, [str(x) if isinstance(x, int) else x for x in args])]
+    assert run(loose) == 1.0
     v = ans["answer"]["value"]
     sa = lambda txt: fauxos.score(ans, fauxos.run_program(spec, end, txt))  # noqa: E731
     assert sa(f"answer({v})") == 1.0 and sa(f'answer("{v}")') == 1.0 and sa(f'answer(" {v} ")') == 1.0
@@ -220,7 +230,7 @@ def test_scorer_edge_cases(world):
     # exact integer grammar: no exponent, no prose, no extra numbers
     for bad in (f'"{v}e999"', f'"{v}e0"', f'"not {v}"', f'"{v}.0"', f'"{v}, {v}"', f'"{v}/1"', f'"~{v}"'):
         assert sa(f"answer({bad})") == 0.0, bad
-    assert sa(f'answer("{v}")\nanswer("{v + 1}")') == 0.0 and sa(f'answer("{v + 1}")\nanswer("{v}")') == 1.0  # last wins
+    assert sa(f'answer("{v}")\nanswer("{v + 1}")') == 1.0 and sa(f'answer("{v + 1}")\nanswer("{v}")') == 0.0  # first call
     assert fauxos.value_of(spec, "answer", ["42e999"], "42e999") is None
     assert fauxos.value_of(spec, "answer", ["not 42"], "not 42") is None
     assert fauxos.value_of(spec, "answer", ["-3"], "-3") == -3 and fauxos.value_of(spec, "answer", ["1, 2"], "1, 2") == [1, 2]
@@ -541,7 +551,7 @@ def test_reference_arms(tiny, probe_run):
     # a run evaluated against a different surface than the one that produced it is invalid
     assert not _evaluate(tiny, data, tmp / "ref_placebo", tmp, "/work")["valid"]
     # the ICL arm carries the transcript in every prompt: far over the prefill guard; no-adaptation does not
-    assert icl["metrics"]["prefill_tokens"] > 3000
+    assert icl["metrics"]["prefill_tokens"] > 1000
     assert none["metrics"]["prefill_tokens"] < 1500 and none["metrics"]["battery_drop"] == 0.0
     assert none["primary"] == none["metrics"]["none_success"]
 

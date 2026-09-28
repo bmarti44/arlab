@@ -5,29 +5,31 @@ each split's private/ dir for the evaluator. RUN never sees it: the surface gets
 (calls + observations) and the tool names, so the semantics below can only be learned from what the transcript shows.
 
 A world ("instance") is a spec generated from one integer seed:
-  - 4 kinds, 4 places, 6 tags, two weight units (display unit U, base unit B, 1 U = C B, C in 2..9), 3 error codes
+  - 4 kinds, 4 places, 6 tags, a weight unit (display unit U, base unit B, 1 U = C B, C in 2..9), 3 error codes
     (locked / missing / bad-argument), 30-60 objects with hidden fields;
-  - one tool per operation in OPS plus 1-3 decoys (a second tool for a list/count/extreme op with another variant),
-    each with a pseudo-word name, a random positional argument order and per-op semantic variants; tool verbs are
-    pseudo-words, truthful English verbs, or misleading English verbs ("purge" that archives) -- the "drive on the left".
-Programs: one call per line, `name(arg, ...)`, positional int / "string" literals only, <= MAX_CALLS lines.
-The output of the last line is the answer; the builtin answer(x) returns x. The first error stops the program.
+  - `inspect` plus N_OPS operations sampled from TASK_OPS, one tool each, with a pseudo-word name, a random positional
+    argument order and per-op semantic variants; tool verbs are pseudo-words, truthful English verbs, or misleading
+    English verbs ("purge" that archives) -- the "drive on the left". Every tool reports what it did (VERBOSE_P), so
+    the effect of each call is visible in the transcript.
+Programs (forgiving format): ONE call, the first line of the model output that starts like a call, `name(arg, ...)`
+with positional int / "string" literals (a bare word counts as a string, a digit string as an int where an int is
+expected); a leading "> " is dropped and every other line (prose, code fences, predicted outputs, further calls) is
+ignored; a first call line that does not parse is a syntax error. Its output is the answer; the builtin answer(x)
+returns x.
 """
 from __future__ import annotations
 
 import ast
 import copy
 import json
+import keyword
 import random
 import re
 
-MAX_CALLS = 12
 CONS, VOWS = "bdfgklmnprstvz", "aeiou"
 
 # op -> (canonical args [(name, type)], mutating)
 OPS = {
-    "list_place": ([("place", "place")], False),
-    "list_kind": ([("kind", "kind")], False),
     "inspect": ([("id", "id")], False),
     "count": ([("kind", "kind"), ("place", "place")], False),
     "weigh": ([("kind", "kind")], False),
@@ -35,9 +37,6 @@ OPS = {
     "newest": ([("kind", "kind")], False),
     "find_tag": ([("tag", "tag")], False),
     "checksum": ([("place", "place")], False),
-    "archived": ([], False),
-    "census": ([], False),
-    "convert": ([("n", "num")], False),
     "move": ([("id", "id"), ("place", "place")], True),
     "archive": ([("id", "id")], True),
     "delete": ([("id", "id")], True),
@@ -45,35 +44,24 @@ OPS = {
     "lock": ([("id", "id")], True),
     "unlock": ([("id", "id")], True),
     "retag": ([("id", "id"), ("tag", "tag")], True),
-    "archive_kind": ([("kind", "kind"), ("threshold", "num")], True),
-    "move_kind": ([("kind", "kind"), ("src", "place"), ("dst", "place")], True),
-    "lock_place": ([("place", "place")], True),
     "clone": ([("id", "id")], True),
     "swap": ([("a", "id"), ("b", "id")], True),
-    "purge_archive": ([], True),
 }
-DECOY_OPS = ("list_place", "list_kind", "count", "extreme", "newest", "checksum", "weigh")
+TASK_OPS = tuple(op for op in OPS if op != "inspect")      # every held-out task is ONE call of one of these
+N_OPS = 10                        # task ops per world (+ inspect): 11 tools. CALIBRATE with the gate
 # English verbs: truthful ones a pretrained model would guess right, misleading ones it would guess wrong.
-TRUE_VERBS = {"list_place": ["list", "show"], "list_kind": ["list", "show"], "inspect": ["inspect", "info"],
-              "count": ["count", "tally"], "weigh": ["weigh", "mass"], "extreme": ["top", "pick"],
-              "newest": ["latest", "recent"], "find_tag": ["find", "search"], "checksum": ["checksum", "digest"],
-              "archived": ["archived", "vault"], "census": ["census", "stats"], "convert": ["convert", "units"],
-              "move": ["move", "send"], "archive": ["archive", "shelve"], "delete": ["delete", "remove"],
-              "restore": ["restore", "revive"], "lock": ["lock", "seal"], "unlock": ["unlock", "open"],
-              "retag": ["tag", "label"], "archive_kind": ["archive_all", "bulk_archive"], "move_kind": ["move_all", "migrate"],
-              "lock_place": ["lock_all", "seal_all"], "clone": ["clone", "copy"], "swap": ["swap", "switch"],
-              "purge_archive": ["purge", "empty"]}
-FALSE_VERBS = {"list_place": ["count", "sum"], "list_kind": ["delete", "weigh"], "inspect": ["erase", "move"],
-               "count": ["list", "weigh"], "weigh": ["count", "lock"], "extreme": ["oldest", "random"],
-               "newest": ["heaviest", "first"], "find_tag": ["delete", "clone"], "checksum": ["count", "undo"],
-               "archived": ["active", "live"], "census": ["purge", "reset"], "convert": ["delete", "melt"],
-               "move": ["copy", "melt"], "archive": ["purge", "burn"], "delete": ["stash", "keep"],
-               "restore": ["drop", "bury"], "lock": ["open", "free"], "unlock": ["seal", "bolt"],
-               "retag": ["wipe", "move"], "archive_kind": ["restore_all", "count_all"], "move_kind": ["copy_all", "lock_all"],
-               "lock_place": ["open_all", "free_all"], "clone": ["remove", "merge"], "swap": ["join", "split"],
-               "purge_archive": ["restore", "backup"]}
-VERB_MIX = (0.25, 0.30)          # P(truthful English verb), P(misleading English verb); rest: pseudo-word verb
-VERBOSE_P = 0.5                  # P(a mutating tool reports its effect); otherwise it prints only "ok"
+TRUE_VERBS = {"inspect": ["inspect", "info"], "count": ["count", "tally"], "weigh": ["weigh", "mass"],
+              "extreme": ["top", "pick"], "newest": ["latest", "recent"], "find_tag": ["find", "search"],
+              "checksum": ["checksum", "digest"], "move": ["move", "send"], "archive": ["archive", "shelve"],
+              "delete": ["delete", "remove"], "restore": ["restore", "revive"], "lock": ["lock", "seal"],
+              "unlock": ["unlock", "open"], "retag": ["tag", "label"], "clone": ["clone", "copy"], "swap": ["swap", "switch"]}
+FALSE_VERBS = {"inspect": ["erase", "move"], "count": ["list", "weigh"], "weigh": ["count", "lock"],
+               "extreme": ["oldest", "random"], "newest": ["heaviest", "first"], "find_tag": ["delete", "clone"],
+               "checksum": ["count", "undo"], "move": ["copy", "melt"], "archive": ["purge", "burn"],
+               "delete": ["stash", "keep"], "restore": ["drop", "bury"], "lock": ["open", "free"],
+               "unlock": ["seal", "bolt"], "retag": ["wipe", "move"], "clone": ["remove", "merge"], "swap": ["join", "split"]}
+VERB_MIX = (0.15, 0.35)          # P(truthful English verb), P(misleading English verb); rest: pseudo-word verb
+VERBOSE_P = 1.0                  # P(a mutating tool reports its effect); otherwise it prints only "ok"
 N_OBJ = (30, 60)
 
 
@@ -95,7 +83,7 @@ def pseudo(rng: random.Random, n: int) -> str:
 def _fresh(rng, used: set, make):
     for _ in range(1000):
         w = make()
-        if w not in used and len(w) >= 3:
+        if w not in used and len(w) >= 3 and not keyword.iskeyword(w):     # bare-word arguments must parse
             used.add(w)
             return w
     raise RuntimeError("name space exhausted")
@@ -114,7 +102,7 @@ def gen_world(seed: int) -> dict:
     codes = rng.sample(range(10, 100), 3)
     errors = {k: f"{letter}{c}" for k, c in zip(("locked", "missing", "badarg"), codes)}
 
-    ops = list(OPS) + rng.sample(DECOY_OPS, rng.randint(1, 3))
+    ops = ["inspect"] + sorted(rng.sample(TASK_OPS, N_OPS), key=list(OPS).index)
     tools, names = [], set()
     for op in ops:
         u = rng.random()
@@ -125,12 +113,6 @@ def gen_world(seed: int) -> dict:
         perm = list(range(n_args))
         rng.shuffle(perm)
         tools.append({"name": name, "op": op, "perm": perm, "var": _variant(rng, op), "verbose": rng.random() < VERBOSE_P})
-    # the decoy must differ from the primary tool of its op (otherwise it is just an alias)
-    for t in tools:
-        prim = next(x for x in tools if x["op"] == t["op"])
-        while t is not prim and t["var"] == prim["var"]:
-            t["var"] = _variant(rng, t["op"])
-
     n = rng.randint(*N_OBJ)
     ids = rng.sample(range(100, 1000), n)
     made = list(range(1, n + 1))
@@ -140,6 +122,11 @@ def gen_world(seed: int) -> dict:
         objs[str(i)] = {"kind": rng.choice(kinds), "place": rng.choice(places), "w": rng.randint(1, 9),
                         "locked": rng.random() < 0.2, "state": "archived" if rng.random() < 0.15 else "active",
                         "made": m, "tag": rng.choice(tags) if rng.random() < 0.5 else "-"}
+    for i in sorted(objs, key=int):          # at least 3 active locked objects, so the explorer can show the locked error
+        if sum(o["state"] == "active" and o["locked"] for o in objs.values()) >= 3:
+            break
+        if objs[i]["state"] == "active":
+            objs[i]["locked"] = True
     init = {"objs": objs, "clock": n, "next_id": 1000}
     return {"seed": seed, "kinds": kinds, "places": places, "tags": tags, "unit": unit, "base_unit": base_unit, "C": C,
             "errors": errors, "tools": tools, "init": init}
@@ -147,9 +134,7 @@ def gen_world(seed: int) -> dict:
 
 def _variant(rng, op) -> dict:
     v = {}
-    if op in ("list_place", "list_kind"):
-        v = {"order": rng.choice(["new", "old", "id"]), "skip_locked": rng.random() < 0.5}
-    elif op == "count":
+    if op == "count":
         v = {"skip_locked": rng.random() < 0.5}
     elif op == "weigh":
         v = {"unit": rng.choice(["display", "base"])}
@@ -159,12 +144,6 @@ def _variant(rng, op) -> dict:
         v = {"which": rng.choice(["newest", "oldest"])}
     elif op == "checksum":
         v = {"mul": rng.choice([3, 7, 11]), "mod": rng.choice([89, 97]), "with_locked": rng.random() < 0.5}
-    elif op == "convert":
-        v = {"dir": rng.choice(["d2b", "b2d"])}
-    elif op == "lock":
-        v = {"toggle": rng.random() < 0.4}
-    elif op == "archive_kind":
-        v = {"unit": rng.choice(["display", "base"]), "strict": rng.random() < 0.5}
     return v
 
 
@@ -198,22 +177,10 @@ def _unlocked(o):
     return o
 
 
-def _order(items, order):
-    if order == "new":
-        return [i for i, o in sorted(items, key=lambda x: -x[1]["made"])]
-    if order == "old":
-        return [i for i, o in sorted(items, key=lambda x: x[1]["made"])]
-    return [i for i, _ in items]
-
-
 def apply(spec: dict, state: dict, tool: dict, a: dict) -> str:
     """Execute one op on `state` in place; returns the observation. Raises SimError."""
     op, v, s = tool["op"], tool["var"], spec
     verb = tool["verbose"]
-    if op in ("list_place", "list_kind"):
-        key = "place" if op == "list_place" else "kind"
-        items = _active(state, lambda o: o[key] == a[key] and not (v["skip_locked"] and o["locked"]))
-        return f"{a[key]}: {_ids(_order(items, v['order']))}"
     if op == "inspect":
         o = _obj(state, a["id"], active=False)
         return (f"#{a['id']} kind={o['kind']} place={o['place']} weight={o['w']} {s['unit']} made={o['made']} "
@@ -240,14 +207,6 @@ def apply(spec: dict, state: dict, tool: dict, a: dict) -> str:
     if op == "checksum":
         items = _active(state, lambda o: o["place"] == a["place"] and (v["with_locked"] or not o["locked"]))
         return f"checksum: {sum(i for i, _ in items) * v['mul'] % v['mod']}"
-    if op == "archived":
-        return f"archive: {_ids(sorted(int(i) for i, o in state['objs'].items() if o['state'] == 'archived'))}"
-    if op == "census":
-        return ", ".join(f"{p} {len(_active(state, lambda o: o['place'] == p))}" for p in s["places"])
-    if op == "convert":
-        if v["dir"] == "d2b":
-            return f"{a['n']} {s['unit']} = {a['n'] * s['C']} {s['base_unit']}"
-        return f"{a['n']} {s['base_unit']} = {a['n'] // s['C']} {s['unit']}"
     if op == "move":
         o = _unlocked(_obj(state, a["id"]))
         o["place"] = a["place"]
@@ -268,8 +227,8 @@ def apply(spec: dict, state: dict, tool: dict, a: dict) -> str:
         return f"restored #{a['id']}" if verb else "ok"
     if op == "lock":
         o = _obj(state, a["id"])
-        o["locked"] = (not o["locked"]) if v["toggle"] else True
-        return (f"{'locked' if o['locked'] else 'unlocked'} #{a['id']}") if verb else "ok"
+        o["locked"] = True
+        return f"locked #{a['id']}" if verb else "ok"
     if op == "unlock":
         o = _obj(state, a["id"])
         o["locked"] = False
@@ -278,40 +237,19 @@ def apply(spec: dict, state: dict, tool: dict, a: dict) -> str:
         o = _unlocked(_obj(state, a["id"]))
         o["tag"] = a["tag"]
         return f"tagged #{a['id']} {a['tag']}" if verb else "ok"
-    if op == "archive_kind":
-        t = a["threshold"] if v["unit"] == "display" else a["threshold"] / s["C"]
-        hit = _active(state, lambda o: o["kind"] == a["kind"] and not o["locked"] and (o["w"] > t if v["strict"] else o["w"] >= t))
-        for _, o in hit:
-            o["state"] = "archived"
-        return f"archived {len(hit)} items" if verb else f"ok {len(hit)}"
-    if op == "move_kind":
-        hit = _active(state, lambda o: o["kind"] == a["kind"] and o["place"] == a["src"] and not o["locked"])
-        for _, o in hit:
-            o["place"] = a["dst"]
-        return f"moved {len(hit)} items" if verb else f"ok {len(hit)}"
-    if op == "lock_place":
-        hit = _active(state, lambda o: o["place"] == a["place"] and not o["locked"])
-        for _, o in hit:
-            o["locked"] = True
-        return f"locked {len(hit)} items" if verb else f"ok {len(hit)}"
     if op == "clone":
         o = _obj(state, a["id"])
         state["clock"] += 1
         new = state["next_id"]
         state["next_id"] += 1
         state["objs"][str(new)] = {**o, "made": state["clock"], "locked": False}
-        return f"created #{new}" if verb else "ok"
+        return f"copied #{a['id']} as #{new}" if verb else "ok"
     if op == "swap":
         x, y = (_unlocked(_obj(state, a[k])) for k in ("a", "b"))
         if a["a"] == a["b"]:
             raise SimError("badarg")
         x["place"], y["place"] = y["place"], x["place"]
         return f"swapped #{a['a']} and #{a['b']}" if verb else "ok"
-    if op == "purge_archive":
-        gone = sorted(i for i, o in state["objs"].items() if o["state"] == "archived" and not o["locked"])
-        for i in gone:
-            del state["objs"][i]
-        return f"deleted {len(gone)} items" if verb else f"ok {len(gone)}"
     raise AssertionError(op)
 
 
@@ -332,6 +270,8 @@ def call(spec: dict, state: dict, name: str, args: list) -> tuple[str, bool]:
         for pos, ci in enumerate(tool["perm"]):          # user position pos carries canonical argument ci
             (an, at), val = canon[ci], args[pos]
             if at in ("id", "num"):
+                if isinstance(val, str) and re.fullmatch(r"\d{1,6}", val):
+                    val = int(val)                        # forgiving: "412" where an int is expected
                 if not isinstance(val, int) or isinstance(val, bool) or val < 0:
                     raise SimError("badarg")
             elif not isinstance(val, str):
@@ -346,16 +286,20 @@ def call(spec: dict, state: dict, name: str, args: list) -> tuple[str, bool]:
         return f"error {spec['errors'][e.kind]}", False
 
 
+_CALL_START = re.compile(r"[A-Za-z_]\w*\s*\(")
+
+
 def parse_program(text: str) -> list[tuple[str, list]]:
-    """Model output -> [(name, args)]. Code fences and blank lines are ignored; anything else must be a call."""
-    lines = [ln.strip() for ln in text.strip().splitlines()]
-    lines = [ln for ln in lines if ln and not ln.startswith("```")]
-    if not lines:
-        raise ProgramError("syntax error: empty program")
-    if len(lines) > MAX_CALLS:
-        raise ProgramError(f"syntax error: more than {MAX_CALLS} lines")
-    out = []
-    for n, ln in enumerate(lines, 1):
+    """Model output -> [(name, args)] with exactly ONE call: the first line that starts like a call. Forgiving: a
+    leading '>' (the log's prompt marker) and a trailing ';' are dropped; other lines (prose, code fences, predicted
+    outputs, further calls) are ignored; a bare word argument is a string. That first line must be exactly one call
+    with literal arguments, else it is a syntax error; so is an output without any call."""
+    for n, ln in enumerate(text.strip().splitlines(), 1):
+        ln = ln.strip()
+        ln = ln[1:].strip() if ln.startswith(">") else ln
+        ln = ln[:-1].rstrip() if ln.endswith(";") else ln
+        if not _CALL_START.match(ln):
+            continue
         try:
             node = ast.parse(ln, mode="eval").body
             if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and not node.keywords):
@@ -364,14 +308,16 @@ def parse_program(text: str) -> list[tuple[str, list]]:
             for x in node.args:
                 if isinstance(x, ast.Constant) and type(x.value) in (int, str):
                     args.append(x.value)
+                elif isinstance(x, ast.Name):
+                    args.append(x.id)                     # forgiving: bare word = string
                 elif isinstance(x, ast.UnaryOp) and isinstance(x.op, ast.USub) and isinstance(x.operand, ast.Constant) and type(x.operand.value) is int:
                     args.append(-x.operand.value)
                 else:
                     raise ValueError
-            out.append((node.func.id, args))
+            return [(node.func.id, args)]
         except (SyntaxError, ValueError):
             raise ProgramError(f"syntax error on line {n}") from None
-    return out
+    raise ProgramError("syntax error: no tool call")
 
 
 def run_program(spec: dict, state: dict, text: str) -> dict:
@@ -394,10 +340,9 @@ def run_program(spec: dict, state: dict, text: str) -> dict:
 
 _ID_LIST = r"(\(none\)|\d+(?:, \d+)*)"
 _VALUE_RE = {  # op -> exact grammar of its (simulator-printed) output; group 1 is the answer value
-    "list_place": r"[a-z]+: " + _ID_LIST, "list_kind": r"[A-Z]+: " + _ID_LIST, "find_tag": r"tag [a-z]+: " + _ID_LIST,
-    "archived": r"archive: " + _ID_LIST, "count": r"count: (\d+)", "weigh": r"total: (\d+) [a-z]+",
+    "find_tag": r"tag [a-z]+: " + _ID_LIST, "count": r"count: (\d+)", "weigh": r"total: (\d+) [a-z]+",
     "extreme": r"(?:heaviest|lightest): (\(none\)|\d+)", "newest": r"(?:newest|oldest): (\(none\)|\d+)",
-    "checksum": r"checksum: (\d+)", "convert": r"\d+ [a-z]+ = (\d+) [a-z]+",
+    "checksum": r"checksum: (\d+)",
 }
 
 
@@ -412,7 +357,7 @@ def value_of(spec: dict, name: str, args: list, obs: str):
     """Typed answer value of one successful call: an int, a list of ints, or None (no answer).
     answer(x) has an exact grammar: an int literal, or a string that is exactly an integer ("42", "-3") or a
     comma-separated list of integers ("101, 202"); anything else ("42e999", "not 42", "42 or 43") is None.
-    Tool outputs are parsed with the exact grammar of their op; mutations, inspect and census carry no answer."""
+    Tool outputs are parsed with the exact grammar of their op; mutations and inspect carry no answer."""
     if name == "answer":
         (x,) = args
         if isinstance(x, int):
@@ -450,17 +395,16 @@ def score(task: dict, res: dict) -> float:
 
 
 # ------------------------------------------------------------------ explorer (frozen scripted policy)
-def explore(spec: dict, n_calls: int, random_frac: float = 0.3, followup: float = 0.6) -> tuple[list[dict], dict]:
-    """A scripted explorer: coverage pass over every tool, one error pass, then a mix of sensible calls (70%) and
-    random probes (30%), with an inspect follow-up after many mutations. Returns (events, end state).
-    Events are exactly {"call", "obs"} pairs: what an agent at the keyboard would see."""
+def explore(spec: dict, n_calls: int, random_frac: float = 0.15, followup: float = 0.2, rounds: int = 3) -> tuple[list[dict], dict]:
+    """A scripted explorer: `rounds` coverage passes over every tool with sensible arguments, a few error probes
+    (locked item, missing id, bad argument), then a round-robin of sensible calls (1 - random_frac) and random probes
+    (random_frac: random id, reversed arguments or wrong arity), with an inspect follow-up after some mutations.
+    Returns (events, end state). Events are exactly {"call", "obs"} pairs: what an agent at the keyboard would see."""
     rng = random.Random(f"explore-{spec['seed']}")
     st = copy.deepcopy(spec["init"])
     events: list[dict] = []
     tools = spec["tools"]
-    by_op = {}
-    for t in tools:
-        by_op.setdefault(t["op"], []).append(t)
+    by_op = {t["op"]: t for t in tools}
 
     def do(tool, canon_args):
         args = list(canon_args)                       # wrong-arity probes are passed through as they are
@@ -474,49 +418,44 @@ def explore(spec: dict, n_calls: int, random_frac: float = 0.3, followup: float 
         xs = [int(i) for i, o in st["objs"].items() if pred(o)]
         return rng.choice(sorted(xs)) if xs else rng.randint(100, 999)
 
+    act = lambda o: o["state"] == "active"  # noqa: E731
+    free = lambda o: act(o) and not o["locked"]  # noqa: E731
+    TARGET = {"restore": lambda o: o["state"] == "archived", "unlock": lambda o: act(o) and o["locked"],
+              "lock": lambda o: act(o) and not o["locked"], "inspect": lambda o: True, "clone": act}
+
     def sensible(t):
         op, S = t["op"], spec
-        act = lambda o: o["state"] == "active"  # noqa: E731
-        free = lambda o: o["state"] == "active" and not o["locked"]  # noqa: E731
-        vals = {"place": rng.choice(S["places"]), "kind": rng.choice(S["kinds"]), "tag": rng.choice(S["tags"]),
-                "num": rng.randint(1, 9), "src": rng.choice(S["places"]), "dst": rng.choice(S["places"])}
-        target = {"restore": lambda o: o["state"] == "archived", "unlock": lambda o: act(o) and o["locked"],
-                  "inspect": lambda o: True, "lock": act, "clone": act, "delete": free}.get(op, free)
-        out = []
+        out, used = [], set()
         for an, at in OPS[op][0]:
             if at == "id":
-                out.append(pick(target))
-            elif an == "threshold":
-                out.append(rng.randint(2, 8) * (S["C"] if t["var"].get("unit") == "base" else 1))
-            elif an == "n":
-                out.append(rng.randint(1, 12))
+                i = pick(TARGET.get(op, free))
+                if op == "swap" and used:
+                    first = next(iter(used))
+                    i = pick(lambda o: free(o) and o["place"] != st["objs"].get(str(first), {}).get("place"))
+                used.add(i)
+                out.append(i)
             else:
-                out.append(vals[an if an in vals else at])
+                out.append(rng.choice(S[{"place": "places", "kind": "kinds", "tag": "tags"}[at]]))
         return out
 
     def maybe_followup(t, a):
         if OPS[t["op"]][1] and rng.random() < followup:
             ids_ = [x for (an, at), x in zip(OPS[t["op"]][0], a) if at == "id"]
-            if ids_:
-                do(by_op["inspect"][0], [ids_[0]])
-            elif by_op.get("list_place"):
-                do(by_op["list_place"][0], [a[[an for an, _ in OPS[t["op"]][0]].index("dst")] if t["op"] == "move_kind"
-                                            else rng.choice(spec["places"])])
+            if ids_ and t["op"] != "delete":
+                do(by_op["inspect"], [ids_[0]])
 
-    # 1) opening: overview calls
-    do(by_op["census"][0], [])
-    for t in by_op["list_place"]:
-        for p in spec["places"][:2]:
-            do(t, [p])
-    do(by_op["archived"][0], [])
-    # 2) coverage: every tool once with sensible args (destructive ops last)
-    order = sorted(tools, key=lambda t: (t["op"] == "delete", rng.random()))
-    for t in order:                               # the archive is emptied once, during this pass
-        a = sensible(t)
-        do(t, a)
-        maybe_followup(t, a)
-    # 3) errors: locked item, missing id, bad argument, each at least twice
-    mut = [t for t in tools if t["op"] in ("move", "archive", "retag", "swap")]
+    def coverage():
+        order = list(tools)
+        rng.shuffle(order)
+        for t in order:
+            a = sensible(t)
+            do(t, a)
+            maybe_followup(t, a)
+
+    # 1) coverage: every tool once with sensible args
+    coverage()
+    # 2) errors: locked item, missing id, bad argument (each twice)
+    mut = [t for t in tools if t["op"] in ("move", "archive", "retag", "swap", "delete")] or [by_op["inspect"]]
     for _ in range(2):
         t = rng.choice(mut)
         a = sensible(t)
@@ -524,29 +463,30 @@ def explore(spec: dict, n_calls: int, random_frac: float = 0.3, followup: float 
             if at == "id":
                 a[k] = pick(lambda o: o["state"] == "active" and o["locked"])
         do(t, a)
-        do(by_op["inspect"][0], [rng.choice([x for x in range(100, 1000) if str(x) not in st["objs"]])])
+        do(by_op["inspect"], [rng.choice([x for x in range(100, 1000) if str(x) not in st["objs"]])])
         t = rng.choice(tools)
-        do(t, [0 if isinstance(x, str) else "x" for x in sensible(t)] or ["x"])
-    # 4) mixed exploration until the budget; the archive is emptied at most once, near the end
+        do(t, [0 if isinstance(x, str) else "x" for x in sensible(t)])
+    # 3) coverage: every tool `rounds - 1` more times
+    for _ in range(rounds - 1):
+        coverage()
+    # 4) round-robin of sensible calls with random probes until the budget
     cycle = []
     while len(events) < n_calls:
         if rng.random() < random_frac:
-            t = rng.choice([x for x in tools if x["op"] != "purge_archive"])
-            r = rng.random() * (0.4 if t["op"] == "delete" else 1.0)     # deletes only probe random ids
+            t = rng.choice(tools)
+            r = rng.random()
             if r < 0.4:
-                a = [rng.randint(100, 999) if at in ("id",) else x for (an, at), x in zip(OPS[t["op"]][0], sensible(t))]
-            elif r < 0.7:
+                a = [rng.randint(100, 999) if at == "id" else x for (an, at), x in zip(OPS[t["op"]][0], sensible(t))]
+            elif r < 0.7 and len(OPS[t["op"]][0]) > 1:
                 a = sensible(t)[::-1]                       # canonical order reversed: often a type error
             else:
                 a = sensible(t) + [rng.randint(1, 9)]       # wrong arity
             do(t, a)
             continue
         if not cycle:
-            cycle = [t for t in tools if t["op"] != "purge_archive"]
+            cycle = list(tools)
             rng.shuffle(cycle)
         t = cycle.pop()
-        if t["op"] == "delete" and rng.random() < 0.7 or t["op"] == "archive_kind" and rng.random() < 0.5:
-            continue                                  # keep the world populated
         a = sensible(t)
         do(t, a)
         maybe_followup(t, a)
@@ -576,10 +516,9 @@ def _c(spec, op, *canon) -> str:
     return fmt_call(t["name"], args)
 
 
-TEMPLATES = {  # name -> weight (DIFFICULTY mix; tuned in the GPU pilot so that none <= 15% and ICL - none >= 15 pts)
-    "archive": 3, "delete": 2, "move": 3, "lock": 2, "unlock": 2, "restore": 2, "retag": 2, "swap": 1, "clone": 1,
-    "archive_kind": 2, "move_kind": 2, "lock_place": 1, "count": 1, "weigh": 2, "extreme": 2, "newest": 2,
-    "checksum": 2, "find_tag": 1, "unlock_delete": 2, "move_lock": 2, "restore_move": 2, "archive_checksum": 2,
+TEMPLATES = {  # name -> weight; each template is ONE call of the op of the same name (only ops present in the world)
+    "archive": 2, "delete": 2, "move": 2, "lock": 2, "unlock": 2, "restore": 2, "retag": 2, "swap": 1, "clone": 1,
+    "count": 1, "weigh": 1, "extreme": 1, "newest": 1, "checksum": 1, "find_tag": 1,
 }
 
 
@@ -599,7 +538,8 @@ def make_tasks(spec: dict, end: dict, events: list[dict], n: int, salt: str) -> 
     act = lambda o: o["state"] == "active"  # noqa: E731
     free = lambda o: act(o) and not o["locked"]  # noqa: E731
     out, goals = [], set()
-    names, weights = zip(*TEMPLATES.items())
+    present = {t["op"] for t in spec["tools"]}
+    names, weights = zip(*((k, w) for k, w in TEMPLATES.items() if k in present))
     for _ in range(50 * n):
         if len(out) >= n:
             break
@@ -670,17 +610,6 @@ def _task(tpl, S, U, rng, ids, act, free, P, K, objs):
     if tpl == "clone":
         i = pick(act)
         return f"Make a copy of item {i}.", [c("clone", i)], None
-    if tpl == "archive_kind":
-        k = rng.randint(2, 8)
-        v = var("archive_kind")
-        arg = k * S["C"] if v["unit"] == "base" else k
-        cmp = "more than" if v["strict"] else "at least"
-        return f"Archive every unlocked {K} item that weighs {cmp} {k} {U}.", [c("archive_kind", K, arg)], None
-    if tpl == "move_kind":
-        Q = rng.choice([p for p in S["places"] if p != P])
-        return f"Move every unlocked {K} item from {P} to {Q}.", [c("move_kind", K, P, Q)], None
-    if tpl == "lock_place":
-        return f"Lock every item in {P}.", [c("lock_place", P)], None
     if tpl == "count":
         v = var("count")
         what = f"unlocked {K} items" if v["skip_locked"] else f"{K} items (locked or not)"
@@ -716,21 +645,6 @@ def _task(tpl, S, U, rng, ids, act, free, P, K, objs):
         if not got:
             return None
         return f'Which items carry the tag "{t}"?', [c("find_tag", t)], {"kind": "set", "value": got}
-    if tpl == "unlock_delete":
-        i = pick(lambda o: act(o) and o["locked"])
-        return f"Unlock item {i}, then permanently delete it.", [c("unlock", i), c("delete", i)], None
-    if tpl == "move_lock":
-        i = pick(lambda o: free(o) and o["place"] != P)
-        return f"Move item {i} to {P}, then lock it.", [c("move", i, P), c("lock", i)], None
-    if tpl == "restore_move":
-        i = pick(lambda o: o["state"] == "archived" and not o["locked"] and o["place"] != P)
-        return f"Restore item {i} from the archive, then move it to {P}.", [c("restore", i), c("move", i, P)], None
-    if tpl == "archive_checksum":
-        i = pick(lambda o: free(o) and o["place"] == P)
-        o2 = copy.deepcopy(objs)
-        o2[str(i)]["state"] = "archived"
-        return (f"Archive item {i}, then report the tally checksum of {P}.", [c("archive", i), c("checksum", P)],
-                {"kind": "int", "value": _checksum(S, o2, P)})
     raise AssertionError(tpl)
 
 
