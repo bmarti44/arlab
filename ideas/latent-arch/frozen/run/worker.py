@@ -5,7 +5,8 @@ lockdown (readable: the Python install, /usr, /etc, /proc, /sys, this directory 
 GPU and its own scratch dir; nothing else: no eval data, no evaluator code, no result dir, no TCP, no signals or
 ptrace-style access to the evaluator) -> self-check (the --deny files and /proc/<parent>/mem must not open, /tmp must
 not be writable) -> hello -> import /work/train.py -> make_model(config) -> copy the checkpoint tensors into its
-parameters/buffers (names, shapes and dtypes must match exactly) -> serve forward requests.
+parameters/buffers (names, shapes and dtypes must match exactly) -> eval() -> report the tensor hash and the
+hidden-state inventory -> serve forward requests; a "check" request re-reports hash + inventory (after scoring).
 
 Request: a JSON line {"op": "fwd", "shape": [B, T], "last": bool} followed by B*T int32 token ids on stdin (the worker
 builds its own tensor from those bytes: nothing it receives aliases evaluator memory). Reply: a JSON line
@@ -20,6 +21,7 @@ import site
 import sys
 import tempfile
 import traceback
+import types
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -41,6 +43,64 @@ def python_dirs() -> list:
     for d in site.getsitepackages() + [site.getusersitepackages()]:
         dirs.add(d)
     return sorted(d for d in dirs if d and os.path.isdir(d))
+
+
+def hidden_state(model: torch.nn.Module, work: str) -> list:
+    """Tensors / arrays / large byte buffers reachable from the model's module attributes or from the globals of
+    the surface's own modules (files under --work) that are NOT its registered parameters/buffers (or views of
+    them). All tensor state must be registered (so it is checkpointed, counted and hashed)."""
+    reg = list(model.parameters()) + list(model.buffers())
+    ids = {id(t) for t in reg}
+    ptrs = {t.untyped_storage().data_ptr() for t in reg if t.numel()}
+    mods = {n for n, m in list(sys.modules.items())
+            if os.path.abspath(getattr(m, "__file__", None) or "/").startswith(os.path.abspath(work) + os.sep)}
+    found, seen = [], set()
+
+    def visit(obj, path, depth):
+        if id(obj) in seen or depth > 8 or len(found) > 20:
+            return
+        seen.add(id(obj))
+        if isinstance(obj, torch.Tensor):
+            if id(obj) not in ids and obj.numel() > 1 and obj.untyped_storage().data_ptr() not in ptrs:
+                found.append(f"{path}: tensor {tuple(obj.shape)}")
+        elif isinstance(obj, np.ndarray):
+            if obj.size > 1:
+                found.append(f"{path}: ndarray {obj.shape}")
+        elif isinstance(obj, (bytes, bytearray, memoryview)):
+            if len(obj) > 1 << 20:
+                found.append(f"{path}: {type(obj).__name__} of {len(obj)} bytes")
+        elif isinstance(obj, (str, int, float, complex, bool, type(None), types.ModuleType)):
+            return
+        elif isinstance(obj, dict):
+            for k, v in list(obj.items()):
+                visit(v, f"{path}[{k!r}]", depth + 1)
+        elif isinstance(obj, (list, tuple, set, frozenset)):
+            for i, v in enumerate(list(obj)):
+                visit(v, f"{path}[{i}]", depth + 1)
+        elif isinstance(obj, torch.nn.Module):
+            for k, v in vars(obj).items():
+                if k not in ("_parameters", "_buffers"):
+                    visit(v, f"{path}.{k}", depth + 1)
+        elif isinstance(obj, (types.FunctionType, types.MethodType)):
+            fn = getattr(obj, "__func__", obj)
+            if fn.__module__ in mods:
+                for i, c in enumerate(fn.__closure__ or ()):
+                    try:
+                        visit(c.cell_contents, f"{path}.<closure {i}>", depth + 1)
+                    except ValueError:
+                        pass
+                visit(fn.__defaults__, f"{path}.<defaults>", depth + 1)
+                visit(fn.__kwdefaults__, f"{path}.<kwdefaults>", depth + 1)
+        elif isinstance(obj, type):
+            if obj.__module__ in mods:
+                visit(dict(vars(obj)), f"{path}.<class>", depth + 1)
+        elif type(obj).__module__ in mods and hasattr(obj, "__dict__"):
+            visit(vars(obj), f"{path}.<obj>", depth + 1)
+
+    visit(model, "model", 0)
+    for n in sorted(mods):
+        visit(dict(vars(sys.modules[n])), f"module {n}", 0)
+    return found
 
 
 def main():
@@ -101,15 +161,19 @@ def main():
                 t.copy_(ck[name])
         del ck
         model.eval()
-        loaded_hash = tensors_hash(model_tensors(model))
-        if dev == "cpu":
-            model.float()  # CPU tests: no bf16 autocast on CPU, so run everything in fp32
-        send({"op": "ready", "tensors_hash": loaded_hash})
+
+        def state():
+            return {"tensors_hash": tensors_hash(model_tensors(model)), "hidden": hidden_state(model, a.work)}
+
+        send({"op": "ready", **state()})
         while True:
             line = stdin.readline()
             if not line:
                 return
             req = json.loads(line)
+            if req.get("op") == "check":
+                send({"op": "state", **state()})
+                continue
             if req.get("op") != "fwd":
                 return
             B, T = req["shape"]

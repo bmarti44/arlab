@@ -24,6 +24,8 @@ DIFFICULTY = {
     "c_max": 9,       # constants in v=u±c are 1..c_max
     "p_bin": 0.3,     # probability that an operation's second operand is a variable (v=u±w)
     "mod": 100,
+    "query_min": 11,  # the queried statement is uniform over indices query_min..n_stmt-1 for every k <= 10
+    "distractor_max_depth": 6,  # no statement outside the queried chain is deeper than this (in every split)
 }
 TRAIN_K = (1, 6)      # queried depths seen in training
 ID_K = (1, 6)         # eval: in-distribution split
@@ -41,33 +43,38 @@ def n_pieces(d: dict = DIFFICULTY) -> int:
     return 4 * d["n_const"] + 6 * (d["n_stmt"] - d["n_const"]) + 2
 
 
-def make_program(rng: random.Random, k: int, d: dict = DIFFICULTY, max_depth: int | None = None) -> dict:
+def make_program(rng: random.Random, k: int, d: dict = DIFFICULTY) -> dict:
     """One program whose queried variable has depth exactly k. Statements: (v, op, a, b) with op in
     {"c", "+", "-"}; for "c" a is the constant; otherwise a is a variable and b a variable or an int constant.
-    max_depth: no statement at all (distractors included) is deeper than this (training and ID programs: 6)."""
-    if max_depth is not None and k > max_depth:
-        raise ValueError(f"k={k} > max_depth={max_depth}")
-    cap = 10 ** 9 if max_depth is None else max_depth - 1   # operands of any operation have depth <= cap
-    n_ops = d["n_stmt"] - d["n_const"]
-    if not 1 <= k <= n_ops:
-        raise ValueError(f"k={k} impossible with {n_ops} operations")
-    names = rng.sample(LETTERS, d["n_stmt"])
-    # slot plan: the chain (root const, then k ops, in order) interleaved with distractors (consts and ops)
-    slots = ["C"] * (k + 1)
-    slots += ["K"] * (d["n_const"] - 1) + ["D"] * (n_ops - k)
-    while True:
-        rng.shuffle(slots)
-        if slots[0] != "D":
-            break
+    Distractors (every statement outside the queried chain) never exceed distractor_max_depth and never read the
+    queried variable, in every split, so training programs (k <= 6) contain no statement deeper than 6 and the
+    distractor structure of ID and DEPTH programs is the same."""
+    cap = d["distractor_max_depth"] - 1   # operands of a distractor operation have depth <= cap
+    n = d["n_stmt"]
+    if d["n_const"] != 2 or not 1 <= k <= n - 2:
+        raise ValueError(f"k={k} impossible (or n_const != 2)")
+    names = rng.sample(LETTERS, n)
+    # Position plan, identical in distribution for every k <= 10 (no positional depth cue): the two constants are
+    # statements 0 and 1 (which one is the chain root is random); the queried statement q is uniform over
+    # query_min..n-1; for k >= 2 the query's first operand is statement q-1; the other k-2 chain steps are a uniform
+    # random subset of statements 2..q-2; distractors fill the rest. (k 11-12 need q >= k+1: EXT only.)
+    q = rng.randint(max(d["query_min"], k + 1), n - 1)
+    root = rng.randint(0, 1)
+    chain_pos = [root, q] if k == 1 else [root] + sorted(rng.sample(range(2, q - 1), k - 2)) + [q - 1, q]
+    slots = ["D"] * n
+    slots[1 - root] = "K"
+    for pos in chain_pos:
+        slots[pos] = "C"
     stmts, depth, chain = [], {}, []
     for slot, v in zip(slots, names):
         if slot == "K" or (slot == "C" and not chain):
             stmt = (v, "c", rng.randint(0, d["mod"] - 1), None)
             depth[v] = 0
         else:
-            u = chain[-1] if slot == "C" else rng.choice([x for x in depth if depth[x] <= cap])
+            pool = [x for x in depth if depth[x] <= cap and x != (chain[-1] if len(chain) == k + 1 else None)]
+            u = chain[-1] if slot == "C" else rng.choice(pool)
             lim = depth[u] if slot == "C" else cap  # the chain's second operand must not deepen the chain
-            cands = [w for w in depth if w != u and depth[w] <= lim]
+            cands = [w for w in depth if w != u and depth[w] <= lim and w not in chain[k:]]
             op = rng.choice("+-")
             if cands and rng.random() < d["p_bin"]:
                 w = rng.choice(cands)
@@ -77,9 +84,8 @@ def make_program(rng: random.Random, k: int, d: dict = DIFFICULTY, max_depth: in
         if slot == "C":
             chain.append(v)
         stmts.append(stmt)
-    q = chain[-1]
-    assert depth[q] == k
-    return {"stmts": stmts, "query": q, "k": k}
+    assert depth[chain[-1]] == k and stmts[q][0] == chain[-1]
+    return {"stmts": stmts, "query": chain[-1], "k": k}
 
 
 def evaluate(stmts: list, mod: int = 100) -> dict:
@@ -161,7 +167,7 @@ def annotate(p: dict, d: dict = DIFFICULTY) -> dict:
 
 
 def generate(seed: int, n: int, k_range: tuple[int, int], balanced: bool = False, seen: set | None = None,
-             d: dict = DIFFICULTY, max_depth: int | None = None) -> list[dict]:
+             d: dict = DIFFICULTY) -> list[dict]:
     """n annotated programs, fully determined by seed (and `seen`). balanced: k cycles through k_range (equal counts).
     seen: normalized hashes already used (other splits); such programs are redrawn, new hashes are added."""
     rng = random.Random(seed)
@@ -171,7 +177,7 @@ def generate(seed: int, n: int, k_range: tuple[int, int], balanced: bool = False
     for i in range(n):
         k = lo + i % (hi - lo + 1) if balanced else rng.randint(lo, hi)
         while True:
-            p = make_program(rng, k, d, max_depth)
+            p = make_program(rng, k, d)
             h = norm_hash(p)
             if h not in seen:
                 break

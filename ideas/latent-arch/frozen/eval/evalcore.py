@@ -79,12 +79,25 @@ class Worker:
         except BrokenPipeError:
             raise WorkerFailure(f"model worker exited (rc={self.p.poll()})")
 
-    def build(self, config: dict) -> dict:
+    def build(self, config: dict, want_hash: str) -> dict:
         self._send((json.dumps({"op": "build", "config": config}) + "\n").encode())
         msg = self._recv(time.monotonic() + BUILD_S, "make_model(config) + checkpoint load")
         if msg.get("op") != "ready":
             raise WorkerFailure(f"unexpected message {str(msg)[:200]}")
+        self._check_state(msg, want_hash, "after make_model() + checkpoint load + eval()")
         return msg
+
+    def check(self, want_hash: str, when: str):
+        """The model's tensors must still be exactly the checkpoint's, and no unregistered tensor state may exist."""
+        self._send((json.dumps({"op": "check"}) + "\n").encode())
+        self._check_state(self._recv(time.monotonic() + BUILD_S, "state check"), want_hash, when)
+
+    @staticmethod
+    def _check_state(msg: dict, want_hash: str, when: str):
+        if msg.get("tensors_hash") != want_hash:
+            raise WorkerFailure(f"model parameters/buffers differ from the checkpoint {when}")
+        if msg.get("hidden") != []:
+            raise WorkerFailure(f"unregistered tensor state {when}: {str(msg.get('hidden'))[:500]}")
 
     def forward(self, x: np.ndarray, last: bool = False) -> tuple[torch.Tensor, int, list]:
         x = np.ascontiguousarray(x, dtype=np.int32)

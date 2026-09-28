@@ -21,7 +21,7 @@ sys.path.insert(0, os.environ.get("LA_PREPARE", "/pack/frozen/prepare"))
 sys.path.insert(0, EVAL)
 import progen  # noqa: E402
 import meter  # noqa: E402
-from common import VOCAB, count_elements, file_sha256, load_checkpoint, tensors_hash  # noqa: E402
+from common import VOCAB, count_bytes, count_elements, file_sha256, load_checkpoint, tensors_hash  # noqa: E402
 
 L = 1 + progen.n_pieces()  # prompt tokens: BOS + statements + `q?`
 
@@ -77,14 +77,61 @@ def test_depth_on_hand_made_programs():
         assert progen.evaluate(p["stmts"])[p["query"]] == ans, text
 
 
+def _chain(p):
+    st = {s[0]: s for s in p["stmts"]}
+    out = [p["query"]]
+    while st[out[-1]][1] != "c":
+        out.append(st[out[-1]][2])
+    return set(out)
+
+
 def test_training_programs_have_no_statement_deeper_than_six():
     import random
     rng = random.Random(0)
     for _ in range(50_000):
-        p = progen.make_program(rng, rng.randint(*progen.TRAIN_K), max_depth=progen.TRAIN_K[1])
+        p = progen.make_program(rng, rng.randint(*progen.TRAIN_K))
         assert max(progen.depths(p["stmts"]).values()) <= progen.TRAIN_K[1]
-    rng = random.Random(0)   # without the cap, distractors do get deeper (what the cap is for)
-    assert max(max(progen.depths(progen.make_program(rng, 6)["stmts"]).values()) for _ in range(5000)) > 6
+    for _ in range(10_000):                  # every split: only the queried chain may be deeper than 6
+        p = progen.make_program(rng, rng.randint(1, 12))
+        dep, ch = progen.depths(p["stmts"]), _chain(p)
+        assert max(v for x, v in dep.items() if x not in ch) <= progen.DIFFICULTY["distractor_max_depth"]
+        assert not any(p["query"] in (s[2], s[3]) for s in p["stmts"])      # nothing reads the queried variable
+
+
+def _tv(a, b):
+    ca, cb = np.bincount(a, minlength=32) / len(a), np.bincount(b, minlength=32) / len(b)
+    return 0.5 * np.abs(ca - cb).sum()
+
+
+def _cues(p):
+    st = p["stmts"]
+    pos = {s[0]: i for i, s in enumerate(st)}
+    root = [x for x in _chain(p) if st[pos[x]][1] == "c"][0]
+    return pos[p["query"]], pos[root], int(isinstance(st[pos[p["query"]]][3], str)), \
+        sum(isinstance(s[3], str) for s in st if s[1] != "c")
+
+
+def test_query_position_and_format_do_not_reveal_depth():
+    """Per-k histograms (k 1..10, 3000 programs each) of the queried statement's index, the chain root's index,
+    whether the query reads a variable, and the number of v=u±w statements: max total-variation distance over all
+    pairs of k stays at sampling-noise level. (Inherent, not matched: for k=1 the query reads a constant statement;
+    deeper chains leave fewer distractors in a fixed-length program.)"""
+    feats = {k: np.array([_cues(p) for p in progen.generate(500 + k, 3000, (k, k))]) for k in range(1, 11)}
+    for f, lim in ((0, 0.05), (1, 0.06), (2, 0.06), (3, 0.08)):
+        worst = max(_tv(feats[a][:, f], feats[b][:, f]) for a in range(1, 11) for b in range(a + 1, 11))
+        assert worst <= lim, (f, worst)
+    assert {int(q) for k in feats for q in feats[k][:, 0]} == set(range(progen.DIFFICULTY["query_min"], 14))
+
+
+def test_query_position_matched_in_prepared_data(codec):
+    by = {}
+    for split in ("validation", "holdout"):
+        d = _npz(split)
+        for i in range(len(d["group"])):
+            if d["group"][i] < 2:
+                p = progen.parse(str(d["text"][i]))
+                by.setdefault(int(d["group"][i]), []).append([s[0] for s in p["stmts"]].index(p["query"]))
+    assert _tv(np.array(by[0]), np.array(by[1])) <= 0.04          # ID vs DEPTH, 4000 items each
 
 
 def test_counterfactual_twins_change_the_answer():
@@ -229,7 +276,8 @@ def test_checkpoint_loader_accepts_only_flat_tensor_dicts(tmp_path):
     good = {"w": torch.zeros(3), "idx": torch.arange(5), "flag": torch.ones(2, dtype=torch.bool)}
     torch.save(good, tmp_path / "g.pt")
     ck = load_checkpoint(str(tmp_path / "g.pt"))
-    assert count_elements(ck) == 10 and tensors_hash(ck) == tensors_hash(good)
+    assert count_elements(ck) == 3 + 40 + 2 and count_bytes(ck) == 12 + 40 + 2   # non-float tensors count bytes
+    assert tensors_hash(ck) == tensors_hash(good)
     for i, bad in enumerate([{"w": 1.0}, {"w": {"x": torch.zeros(1)}}, [torch.zeros(1)], {1: torch.zeros(1)},
                              {"w": torch.nn.Parameter(torch.zeros(1))}]):
         torch.save(bad, tmp_path / f"b{i}.pt")
@@ -274,6 +322,7 @@ def test_baseline_surface_smoke_run_and_evaluate(tmp_path):
     assert len(m["items"]) == 48 and set(m["items"].values()) <= {0.0, 1.0}
     assert abs(m["primary"] - 0.5 * (mm["acc_id"] + mm["acc_depth"])) < 1e-12
     assert mm["params_m"] == count_elements(ck) / 1e6 and 26 < mm["params_m"] < 27
+    assert mm["params_bytes"] == count_bytes(ck) / 1e6 and mm["causal_cuts"] == 32 and mm["causal_max_diff"] < 1e-3
     assert mm["flops_tok_text"] > 2e7 and mm["flops_tok_prog"] > 2e7 and mm["val_bpb"] > 0
     with open(out / "model.pt", "ab") as f:                              # any change to the checkpoint after the deadline
         f.write(b"\0")
@@ -344,7 +393,8 @@ def test_evaluator_rejects_overrun_budget_and_counts_all_tensor_state(tmp_path):
     out, _, _ = _harness(tmp_path, w, 1)
     m = _evaluate(tmp_path, out, w, limit=8)
     assert m["valid"], m["message"]
-    assert m["metrics"]["params_m"] == 1.000001                          # the int64 buffer counts like parameters
+    assert m["metrics"]["params_m"] == 8.000001                          # int64 buffer: every byte counts
+    assert m["metrics"]["params_bytes"] == 8.000004
     budget = json.load(open(out / "budget.json"))
     for bad in (361.0, budget["train_seconds"] - 0.5):                   # over the limit / not the supervisor's number
         json.dump({"train_seconds": bad}, open(out / "budget.json", "w"))
@@ -433,7 +483,7 @@ def make_model(config):
 """
 
 
-def _fake_run(tmp_path, name, src, files=None, n_limit=40):
+def _fake_run(tmp_path, name, src, files=None, n_limit=40, ckpt=None):
     w = tmp_path / f"w_{name}"
     w.mkdir()
     (w / "train.py").write_text(src)
@@ -441,10 +491,10 @@ def _fake_run(tmp_path, name, src, files=None, n_limit=40):
         np.savez(w / f, **obj)
     run = tmp_path / f"run_{name}"
     run.mkdir()
-    torch.save({}, run / "model.pt")
+    torch.save(ckpt or {}, run / "model.pt")
     json.dump({"train_seconds": 330.0}, open(run / "budget.json", "w"))
     json.dump({"status": "ok", "train_seconds": 330.0, "seq_len": 1024, "model_sha256": file_sha256(str(run / "model.pt")),
-               "tensors_hash": tensors_hash({}), "trainer": {"nan_at": None}}, open(run / "stats.json", "w"))
+               "tensors_hash": tensors_hash(ckpt or {}), "trainer": {"nan_at": None}}, open(run / "stats.json", "w"))
     return _evaluate(tmp_path, run, w, limit=n_limit, name=f"{name}.json")
 
 
@@ -454,7 +504,7 @@ def test_evaluator_scores_the_answer_position_only(tmp_path):
     m = _fake_run(tmp_path, "oracle", ORACLE.format(shift=0, decoy=0.0), table)
     assert m["valid"], m["message"]
     assert m["primary"] == 1.0 and m["metrics"]["cf_both"] == 1.0 and m["metrics"]["acc_ext"] == 1.0
-    assert m["metrics"]["infer_flops_tok"] == 0 and m["metrics"]["params_m"] == 0
+    assert m["metrics"]["params_m"] == 0 and m["metrics"]["params_bytes"] == 0
     early = _fake_run(tmp_path, "early", ORACLE.format(shift=1, decoy=0.0), table)
     assert early["valid"] and early["primary"] == 0.0        # answer one position early (after `q`, before `?`)
     decoy = _fake_run(tmp_path, "decoy", ORACLE.format(shift=0, decoy=20.0), table)
@@ -463,11 +513,87 @@ def test_evaluator_scores_the_answer_position_only(tmp_path):
     assert not peek["valid"] and "causal" in peek["message"]
 
 
+PEEK_LATE = """
+import torch
+class PeekLate(torch.nn.Module):
+    # causal up to position 768; from 769 on, position p predicts x[p+1] (the true next token)
+    def forward(self, idx):
+        out = torch.zeros(*idx.shape, 8192)
+        T = idx.shape[1]
+        if T > 770:
+            p = torch.arange(769, T - 1)
+            out[:, p, :] = 0.0
+            out[torch.arange(idx.shape[0])[:, None], p[None, :], idx[:, p + 1]] = 30.0
+        return out
+def make_model(config):
+    return PeekLate()
+"""
+
+
+def test_causality_is_checked_over_the_whole_row(tmp_path):
+    m = _fake_run(tmp_path, "peeklate", PEEK_LATE)
+    assert not m["valid"] and "non-causal" in m["message"], m["message"]
+
+
+STATEFUL = """
+import os
+import numpy as np
+import torch
+PROMPTS = {{tuple(r.tolist()) for r in np.load(os.path.join(os.path.dirname(os.path.abspath(__file__)), "table.npz"))["tokens"]}}
+class M(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.w = torch.nn.Parameter(torch.zeros(1))
+        self.calls = 0
+    {extra}
+    def forward(self, idx):
+        if self.calls == 0:   # the first forward is the warm-up: it must not carry an evaluation prompt
+            assert not any(tuple(r) in PROMPTS for r in idx.tolist()), "warm-up saw an evaluation prompt"
+        self.calls += 1
+        {fwd}
+        return torch.zeros(*idx.shape, 8192) + self.w
+def make_model(config):
+    return M()
+"""
+
+
+def test_evaluator_rejects_hidden_or_changing_model_state(tmp_path):
+    d = _npz("validation")
+    table = {"table.npz": {"tokens": d["tokens"]}}
+    ck = {"w": torch.zeros(1)}
+    ok = _fake_run(tmp_path, "honest", STATEFUL.format(extra="", fwd="pass"), table, ckpt=ck)
+    assert ok["valid"], ok["message"]                                     # also: the warm-up used random tokens
+    trains_in_eval = "def train(self, mode=True):\n        super().train(mode)\n        with torch.no_grad():\n" \
+                     "            self.w.add_(1.0)\n        return self"
+    for name, extra, fwd, why in (
+            ("evaltrain", trains_in_eval, "pass", "differ from the checkpoint"),
+            ("fwdtrain", "", "self.w.data.add_(0.5)", "differ from the checkpoint"),
+            ("hidden", "", "self.cache = torch.ones(100)", "unregistered tensor state"),
+            ("hiddenattr", "table = torch.ones(1000)", "pass", "unregistered tensor state")):
+        m = _fake_run(tmp_path, name, STATEFUL.format(extra=extra, fwd=fwd), table, ckpt=ck)
+        assert not m["valid"] and why in m["message"], (name, m["message"])
+
+
 def test_worker_cannot_read_labels_patch_the_scorer_or_forge_results(tmp_path):
     out = tmp_path / "evil.json"
     m = _fake_run(tmp_path, "evil", EVIL.format(data=os.path.abspath(D), out=out))
     assert m["valid"], m["message"]                            # every attack failed (make_model asserts that) ...
     assert m["primary"] == 0.0 and m["metrics"]["acc_ext"] == 0.0   # ... and the scores are the honest ones
+
+
+class Broadcast(torch.nn.Module):
+    """Looped's core matmul rewritten as broadcast multiply + sum (no op with a FLOP formula)."""
+
+    def __init__(self, k):
+        super().__init__()
+        self.inner = Looped(k)
+
+    def forward(self, idx):
+        m = self.inner
+        h = m.emb(idx)
+        for _ in range(m.k):
+            h = h + (h.unsqueeze(-2) * m.core.weight).sum(-1) + m.core.bias
+        return m.head(h)
 
 
 class Looped(torch.nn.Module):
@@ -488,7 +614,9 @@ def test_flop_counter_counts_loops_and_flags_custom_ops():
     x = torch.as_tensor(np.random.default_rng(0).integers(0, VOCAB, (2, 32)))
     f1, f2, f3 = (meter.metered(Looped(k), x)[1] / x.numel() for k in (1, 2, 3))
     core = 2 * 16 * 16
-    assert f2 - f1 == core and f3 - f2 == core and f1 == core + 2 * 16 * VOCAB
+    assert f2 - f1 == f3 - f2 and core <= f2 - f1 <= 1.2 * core and f1 >= core + 2 * 16 * VOCAB
+    g1, g2 = (meter.metered(Broadcast(k), x)[1] / x.numel() for k in (1, 2))
+    assert g2 - g1 >= 0.9 * (f2 - f1)             # matmul rewritten as broadcast-multiply + sum costs the same
     assert not meter.metered(Looped(1), x)[2]
 
     @torch.library.custom_op("latentarch_test::double", mutates_args=())
@@ -511,4 +639,5 @@ def test_flop_counter_counts_loops_and_flags_custom_ops():
             torch.nn.functional.scaled_dot_product_attention(q, q, q, is_causal=True)
             return torch.zeros(*idx.shape, VOCAB)
 
-    assert meter.metered(Attn(), x)[1] == 4 * 1 * 2 * 16 * 16 * 8
+    formula = 4 * 1 * 2 * 16 * 16 * 8
+    assert formula <= meter.metered(Attn(), x)[1] <= 1.5 * formula

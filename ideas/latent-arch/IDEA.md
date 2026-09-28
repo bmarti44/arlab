@@ -87,8 +87,9 @@ Also reported, not gating: accuracy per k (1..10), acc on k = 11–12 (500 extra
 2. **Novel instances**: random constants make the program space ≈ 10²⁰; eval programs are hash-disjoint from train.
 3. **Heuristic floors** computed by the evaluator on the same items: last constant in the program, the queried
    variable's own constant term, the chain root, the modal answer. The generator is tuned so each is ≤ 10 %.
-4. **Counterfactual consistency** (500 pairs per split): the same program with the chain-root constant shifted by δ;
-   the answer shifts by ±δ (sign fixed by the chain). Reported as the fraction of pairs where both answers are right.
+4. **Counterfactual consistency — changed-answer root interventions** (50 pairs per k 1..10 per split): the same
+   program with the chain root's constant replaced by a random other value, kept only if the answer changes (roots
+   whose contribution cancels are skipped). Reported as the fraction of pairs where both answers are right.
 
 ## Budget — how loops, recursion and extra positions are paid for
 
@@ -229,14 +230,20 @@ Seeds: calibration [1–5], screen 1, confirm [2, 3], holdout [101, 102, 103].
   future-peeking model, relabelling round-trip, a surface that hard-codes a token id loses accuracy under relabelling,
   harness deadline stops a slow `train_step` and marks > 360 s invalid.
 
-## As built / known limits (v0 build + hardening after the astra review)
+## As built / known limits (v0 build + hardening after two astra reviews)
 
-- **Programs.** Every program has exactly 2 constants + 12 operations (83 prompt tokens, 84 with the answer), so
-  length and position carry no depth signal. Pieces are written as single token ids (never re-tokenized); the one
-  number the BPE did not merge ("79") uses `<|reserved_1|>` (`info.json: piece_fallback`). **No statement of any
-  training program (distractors included) is deeper than 6**, and ID eval programs follow the same rule; DEPTH/EXT
-  items are only limited by their chain. Counterfactual twins: 50 random originals per k in 1..10, each twin's
-  answer differs from the original's (roots whose contribution cancels are skipped).
+- **Programs.** Every program has exactly 2 constants (statements 0 and 1) + 12 operations (83 prompt tokens, 84
+  with the answer), so length carries no depth signal. The queried statement's index is uniform on 11..13 for every
+  k (the chain's last link sits right before it; other chain links at random earlier positions), so its position
+  does not reveal k: per-k total-variation distance of the query index ≤ 0.05 across k 1..10 (sampling noise at 3000
+  per k), ID vs DEPTH in the prepared data ≤ 0.04. **Every split**: no statement outside the queried chain is deeper
+  than 6 and nothing reads the queried variable, so training and eval programs share the distractor distribution.
+  Cues checked on 3000 programs per k (max pairwise TV across k 1..10): query index 0.02, chain-root index 0.03,
+  query reads a variable vs a constant 0.03, number of `v=u±w` statements 0.04, answer value 0.10, refs to the query 0.
+  Inherent, not matched: for k = 1 the query reads a constant statement directly; with fixed length, deeper chains
+  leave fewer distractors, so distractor counts / references to the root / max distractor depth correlate with k
+  (each is a weak cue and none identifies the answer). Pieces are single token ids; "79" uses `<|reserved_1|>`
+  (`info.json: piece_fallback`). Counterfactual twins: 50 random originals per k in 1..10, answer changed.
 - **Where secrets live.** The vocabulary permutation and tokenizer are in `audit/` (read by the pack tests only; never
   mounted into RUN or EVALUATE). There is no `public/`.
 - **RUN.** `frozen/run/harness.py` is a supervisor that never imports the surface: it starts `trainer.py` (the only
@@ -248,18 +255,32 @@ Seeds: calibration [1–5], screen 1, confirm [2, 3], holdout [101, 102, 103].
 - **EVALUATE.** `evaluate.py` never imports surface code. The surface's `make_model(config)` + the checkpoint run in
   `frozen/run/worker.py`, a separate process under Landlock (readable: Python install, /usr, /etc, /proc, /sys, the
   worker dir and /work; read/write: /dev for the GPU and a private scratch dir; no eval data, evaluator code or
-  result dir; no TCP; no ptrace-style access to the evaluator). It receives token ids as bytes and returns float32
-  logits via a memfd; labels, scoring and the result file stay in the evaluator. `val_bpb` and the program argmax
-  are computed by the evaluator from those logits (the `arlab.lib.lm` helpers are not used, same math).
-  FLOPs and the op audit cover every scored forward (all text rows and all programs, actual shapes);
-  `infer_flops_tok` = mean of the per-token counts on text and on programs. The causality check compares original
-  rows (scoring worker) with perturbed-future rows in a *fresh* worker, so a cache cannot connect them.
-  `params_m` = all elements of all checkpoint tensors (any dtype) / 1e6 (baseline ≈ 27.7 M: 26.35 M parameters +
-  1.31 M rotary buffers).
+  result dir; no TCP). It receives token ids as bytes and returns float32 logits via a memfd; labels, scoring and
+  the result file stay in the evaluator. Model state: after loading, the worker reports the hash of every
+  parameter/buffer and an inventory of tensors (and arrays/bytes > 1 MB) reachable from the model's module
+  attributes and the surface's modules, globals, closures and classes; the evaluator requires the hash to equal the
+  supervisor's checkpoint hash and the inventory to be empty (views of registered storage allowed), before scoring
+  and again after it (so `eval()`/`train()` overrides or forwards that modify weights, and caches, are caught).
+  Warm-up uses random tokens only; every held-out prompt is sent only in the metered, audited scoring pass.
+  FLOPs: matmul/attention by formula; every other op that reads tensors (elementwise, reductions, gathers, copies)
+  is charged max(elements read, written), so broadcast-multiply + sum costs about what the matmul does; views and
+  factories are free. `infer_flops_tok` = mean of the per-token counts on text and programs (actual shapes).
+  Causality: for 4 text rows, 16 cut points per row, one drawn at random (os.urandom) in each of 16 equal strata of
+  positions 0..1022, so every region of the row, including the last 64 positions, is probed on every evaluation;
+  the future after the cut is replaced by random tokens and re-scored in a *fresh* worker, invalid if any logit at
+  or before the cut moves by > 1e-3. Program rows are not re-checked: the answer is never in the input.
+  `params_m` = float elements + bytes of non-float tensors (/1e6); `params_bytes` = total bytes (/1e6), both
+  guarded at 1.05× (baseline ≈ 27.7 M elements: 26.35 M parameters + 1.31 M rotary buffers).
 - **Known limits (not enforced by code; bounded by program.md and by the orchestrator's review of every kept or
   finalized diff).** (1) Kernels launched outside the PyTorch dispatcher (raw Triton/CUDA launches) are invisible
-  to the FLOP counter and op audit; `infer_s` is the backstop. (2) The FLOP counter and op audit run inside the
-  worker process, next to the surface, which could in principle tamper with them. (3) A symbolic interpreter
-  inside the surface (relabelling is obfuscation: the token roles are learnable from training data) is forbidden
-  by program.md, not detected. (4) `make_model()` runs in EVALUATE with a 120 s limit and no data access; it could
-  still do data-free precomputation. (5) Landlock + CUDA in the worker is tested on CPU only until the GPU PROBE.
+  to the FLOP counter and op audit; `infer_s` is the backstop. (2) The FLOP counter, op audit, state hash and
+  inventory run inside the worker process, next to the surface, which could in principle tamper with them. (3) A
+  symbolic interpreter inside the surface (relabelling is obfuscation: the token roles are learnable from training
+  data) is forbidden by program.md, not detected. (4) `make_model()` runs in EVALUATE with a 120 s limit and no data
+  access; it could still do data-free precomputation. (5) Landlock + CUDA in the worker is tested on CPU only until
+  the GPU PROBE. (6) Causality is sampled (64 cut points per evaluation, fresh random positions each time), not
+  exhaustive: a surface that peeks only at a few specific positions is caught only with probability ~ (positions
+  hit by some cut) — it would have to be tuned to the eval format, which program.md forbids. (7) The inventory does
+  not see state in Python lists/scalars, in modules outside the surface, or monkey-patched onto torch itself;
+  element counting can be gamed by packing into float dtypes, bounded by the bytes guard (same bytes = same
+  information). (8) Elementwise FLOPs are a lower bound (e.g. exp counts 1 per element).

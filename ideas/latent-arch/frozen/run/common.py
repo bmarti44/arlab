@@ -58,5 +58,12 @@ def tensors_hash(ck: dict) -> str:
 
 
 def count_elements(ck: dict) -> int:
-    """All tensor state, every dtype (integer buffers and encoded weights count like parameters)."""
-    return sum(t.numel() for t in ck.values())
+    """All tensor state: every floating-point element counts 1; every BYTE of a non-floating tensor (integer, bool)
+    counts 1, so weights bit-packed into integer tensors are counted at least once each."""
+    return sum(t.numel() if t.is_floating_point() or t.is_complex() else t.numel() * t.element_size()
+               for t in ck.values())
+
+
+def count_bytes(ck: dict) -> int:
+    """Storage capacity of all tensor state in bytes (packing values into wider dtypes gains nothing here)."""
+    return sum(t.numel() * t.element_size() for t in ck.values())

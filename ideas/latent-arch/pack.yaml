@@ -20,7 +20,8 @@ metric: {name: accuracy, direction: maximize, mes: 0.04}
 guards:
   - {name: val_bpb, max_ratio_vs_baseline: 1.03}         # stays a language model (policy threshold; pilot re-checks)
   - {name: acc_id, min_ratio_vs_baseline: 0.90}          # no buying depth accuracy with in-distribution accuracy
-  - {name: params_m, max_ratio_vs_baseline: 1.05}        # parameters + floating buffers of the loaded model
+  - {name: params_m, max_ratio_vs_baseline: 1.05}        # float elements + bytes of non-float tensors in the checkpoint
+  - {name: params_bytes, max_ratio_vs_baseline: 1.05}    # total checkpoint bytes (no gain from bit-packing into int64)
   - {name: infer_flops_tok, max_ratio_vs_baseline: 2.0}  # counted FLOPs per scored token on the probe
   - {name: infer_s, max_ratio_vs_baseline: 2.5}          # timed forward over the eval programs (backstop)
   - {name: train_s, max_ratio_vs_baseline: 1.3}          # RUN wall time

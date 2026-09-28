@@ -181,7 +181,7 @@ def main():
     evals = {}
     for split in ("validation", "holdout"):
         s = SEEDS[split]
-        g = {"id": progen.generate(s * 10 + 1, N_ID, progen.ID_K, balanced=True, seen=seen, max_depth=progen.TRAIN_K[1]),
+        g = {"id": progen.generate(s * 10 + 1, N_ID, progen.ID_K, balanced=True, seen=seen),
              "depth": progen.generate(s * 10 + 2, N_DEPTH, progen.DEPTH_K, balanced=True, seen=seen),
              "ext": progen.generate(s * 10 + 3, N_EXT, progen.EXT_K, balanced=True, seen=seen)}
         main = g["id"] + g["depth"]
@@ -211,7 +211,7 @@ def main():
     rng = random.Random(SEEDS["train"])
     train, train_k, dup_eval, dup_train = [], [], 0, 0  # train programs as bytes of piece ids (prompt + answer)
     while len(train) < N_TRAIN:
-        p = progen.make_program(rng, rng.randint(*progen.TRAIN_K), max_depth=progen.TRAIN_K[1])
+        p = progen.make_program(rng, rng.randint(*progen.TRAIN_K))
         h = progen.norm_hash(p)
         if h in seen:
             dup_eval += h in eval_hashes

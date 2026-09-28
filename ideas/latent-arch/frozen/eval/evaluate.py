@@ -2,18 +2,24 @@
 
   integrity   RUN's trusted supervisor finished normally (not killed, train_seconds <= limit, no NaN); model.pt is
               the file it hashed; it is a data-only {name: tensor} dict (weights-only load) with the same tensor hash
-  params_m    every element of every checkpoint tensor (all dtypes), / 1e6
+  params_m    floating-point elements + bytes of non-floating tensors, over all checkpoint tensors, / 1e6
+  params_bytes  bytes of all checkpoint tensors / 1e6 (bit-packing into wider dtypes gains nothing)
   worker      the surface's make_model() + the checkpoint run in a Landlock-sandboxed worker process
               (frozen/run/worker.py) that cannot read the eval data, this process's memory or the result dir; it
-              receives token ids only and returns logits
+              receives token ids only and returns logits. After load + eval() and again after scoring its tensors must
+              hash to the checkpoint and no unregistered tensor state may be reachable (else invalid).
   val_bpb     cross-entropy computed HERE from the worker's logits on the 2048 relabelled text rows (permuted bytes)
   accuracy    full-vocab argmax at the answer position of BOS + program + `q?` (no generated tokens), computed here:
               0.5 * acc_id (k 1..6) + 0.5 * acc_depth (k 7..10); items = one 0/1 per program (4000)
-  FLOPs/ops   counted on EVERY scored forward (text and programs, actual shapes); infer_flops_tok = mean of the
-              per-token counts on text and on programs; any op outside aten/prims -> invalid
-  infer_s     wall time of the scored program forwards (after an untimed warm-up on a copy of the first batch)
-  causality   original rows through the scoring worker vs. perturbed-future rows through a FRESH worker (no cache
-              can connect them): log-probs at positions <= t must agree, on text and on program rows
+  FLOPs/ops   counted on EVERY scored forward (text and programs, actual shapes): matmul/attention by formula, every
+              other non-view op by max(elements read, written); infer_flops_tok = mean of the per-token counts on text
+              and on programs; any op outside aten/prims -> invalid (also in the warm-up and causality forwards)
+  infer_s     wall time of the scored program forwards (after an untimed, audited warm-up on RANDOM tokens: no
+              evaluation prompt reaches the scoring worker outside the scored pass)
+  causality   the scored logits of the first text rows vs. a FRESH worker (never scores, never saw the originals) on
+              the same rows with x[t+1:] randomized, 16 random cut points per row stratified over the whole row
+              (the last stratum ends at T-2): log-probs at positions <= t must agree. Program rows are not checked:
+              only the last position is scored and the answer is never in the input.
   reported    acc per k (1..12), acc_ext (k 11..12), cf_both (counterfactual pairs), heuristic floors
 """
 import argparse
@@ -26,7 +32,7 @@ import time
 import numpy as np
 import torch
 
-from common import SEQ_LEN, VOCAB, count_elements, file_sha256, load_checkpoint, tensors_hash
+from common import SEQ_LEN, VOCAB, count_bytes, count_elements, file_sha256, load_checkpoint, tensors_hash
 from evalcore import Worker, WorkerFailure, accuracy_report, nll_sum
 
 ap = argparse.ArgumentParser()
@@ -39,7 +45,7 @@ ap.add_argument("--max-train-seconds", type=float, default=360)
 ap.add_argument("--limit", type=int, default=0, help="tests only (never in pack.yaml): first N items per group")
 a = ap.parse_args()
 dev = a.device
-TEXT_BATCH, PROG_BATCH, CAUSAL_ROWS, CAUSAL_TOL = 16, 128, 4, 1e-3
+TEXT_BATCH, PROG_BATCH, CAUSAL_ROWS, CAUSAL_CUTS, CAUSAL_TOL = 16, 128, 4, 16, 1e-3
 
 
 def write(obj):
@@ -77,7 +83,7 @@ except ValueError as e:
     invalid(e)
 if tensors_hash(ck) != stats.get("tensors_hash"):
     invalid("checkpoint tensors differ from those recorded at the deadline")
-params_m = count_elements(ck) / 1e6
+ck_hash, params_m, params_bytes = stats["tensors_hash"], count_elements(ck) / 1e6, count_bytes(ck) / 1e6
 del ck
 
 # ------------------------------------------------------------------ data (stays in this process)
@@ -85,27 +91,32 @@ d = dict(np.load(f"{a.data}/programs.npz"))
 rows = np.load(f"{a.data}/text_rows.npy")
 tb = torch.as_tensor(np.load(f"{a.data}/token_bytes.npy").astype(np.int64), device=dev)
 idx = np.arange(len(d["group"]))
-text_batch = TEXT_BATCH
+text_batch, causal_rows = TEXT_BATCH, CAUSAL_ROWS
 if a.limit:  # first N of each group; counterfactual twins whose originals are kept
     keep = np.zeros(len(idx), bool)
     for g in (0, 1, 2):
         keep[np.flatnonzero(d["group"] == g)[:a.limit]] = True
     keep |= (d["group"] == 3) & np.isin(d["cf_of"], np.flatnonzero(keep))
     idx = idx[keep]
-    rows, text_batch = rows[:max(4, a.limit // 16)], 2
+    rows, text_batch, causal_rows = rows[:max(4, a.limit // 16)], 2, 2
 prompts = d["tokens"][idx]
 T, L = rows.shape[1] - 1, prompts.shape[1]
 deny = [os.path.abspath(f"{a.data}/{f}") for f in ("programs.npz", "text_rows.npy", "token_bytes.npy")]
-max_floats = max(text_batch, CAUSAL_ROWS) * T * VOCAB
+max_floats = text_batch * T * VOCAB
 config = {"vocab_size": VOCAB, "seq_len": int(stats.get("seq_len", SEQ_LEN)), "device": dev}
-g = np.random.default_rng(0)
-causal_x = {"text": rows[:CAUSAL_ROWS, :-1], "program": prompts[:CAUSAL_ROWS]}
-perturbed = {k: [] for k in causal_x}
-for k, x in causal_x.items():
-    for t in (x.shape[1] // 4, x.shape[1] // 2, (3 * x.shape[1]) // 4):
-        x2 = x.copy()
-        x2[:, t + 1:] = g.integers(0, VOCAB, x2[:, t + 1:].shape)
-        perturbed[k].append((t, x2))
+g = np.random.default_rng(int.from_bytes(os.urandom(8), "little"))   # unpredictable cut points and warm-up tokens
+# Causality over the whole row: CAUSAL_CUTS cut points per row, one uniformly random t in each of CAUSAL_CUTS equal
+# strata of [0, T-2] (the last stratum ends at T-2, so the last ~64 positions are always probed); the future
+# x[t+1:] is replaced by random tokens and positions <= t must not change.
+cases = []
+for r in range(causal_rows):
+    for j in range(CAUSAL_CUTS):
+        lo, hi = j * (T - 1) // CAUSAL_CUTS, (j + 1) * (T - 1) // CAUSAL_CUTS - 1
+        t = int(g.integers(lo, hi + 1))
+        x2 = rows[r, :-1].copy()
+        x2[t + 1:] = g.integers(0, VOCAB, T - t - 1)
+        cases.append((r, t, x2))
+warm = g.integers(0, VOCAB, (min(PROG_BATCH, len(prompts)), L)).astype(np.int64)   # never an evaluation prompt
 
 
 def start():
@@ -113,22 +124,25 @@ def start():
     if w.hello.get("sandbox", {}).get("ok") is not True:
         w.close()
         invalid(f"model worker sandbox failed: {w.hello}")
-    w.build(config)
+    w.build(config, ck_hash)
     return w
 
 
 # ------------------------------------------------------------------ measurements
-bad_ops, flops = set(), {"text": 0, "program": 0}
+bad_ops, flops, orig = set(), {"text": 0, "program": 0}, {}
 try:
     w = start()
     try:
-        w.forward(prompts[:PROG_BATCH].copy(), last=True)                    # warm-up: untimed, not scored
+        bad_ops |= set(w.forward(warm, last=True)[2])                        # warm-up: random tokens, audited, untimed
         nats, nbytes, finite = 0.0, 0, True
         for i in range(0, len(rows), text_batch):
             r = torch.as_tensor(rows[i:i + text_batch].astype(np.int64), device=dev)
             lg, f, bad = w.forward(rows[i:i + text_batch, :-1])
             flops["text"] += f
             bad_ops |= set(bad)
+            for j in range(len(r)):
+                if i + j < causal_rows:                                      # the scored logits are the originals
+                    orig[i + j] = torch.log_softmax(lg[j].float(), -1)
             n, b, ok = nll_sum(lg.to(dev), r[:, 1:], tb)
             nats, nbytes, finite = nats + n, nbytes + b, finite and ok
         if not finite:
@@ -142,31 +156,38 @@ try:
                 invalid("non-finite logits at the answer position")
             preds.append(lg[:, -1].argmax(-1).numpy())
         infer_s = time.monotonic() - t0
-        orig = {k: torch.log_softmax(w.forward(x)[0], -1) for k, x in causal_x.items()}
+        w.check(ck_hash, "after scoring (state changed during evaluation)")
     finally:
         w.close()
     if bad_ops:
         invalid(f"ops outside aten/prims in the forward pass (custom kernels are not allowed): {sorted(bad_ops)[:5]}")
     w = start()                                                            # fresh process: has never seen the originals
-    causal = {}
+    causal = 0.0
     try:
-        for k, cases in perturbed.items():
-            causal[k] = max(float((torch.log_softmax(w.forward(x2)[0], -1)[:, :t + 1] - orig[k][:, :t + 1]).abs().max())
-                            for t, x2 in cases)
+        for i in range(0, len(cases), text_batch):
+            chunk = cases[i:i + text_batch]
+            lg, _, bad = w.forward(np.stack([x2 for _, _, x2 in chunk]))
+            bad_ops |= set(bad)
+            lp = torch.log_softmax(lg, -1)
+            for j, (r, t, _) in enumerate(chunk):
+                diff = float((lp[j, :t + 1] - orig[r][:t + 1]).abs().max())
+                if not diff <= CAUSAL_TOL:
+                    invalid(f"non-causal model: replacing tokens after position {t} changed log-probs at positions "
+                            f"<= {t} by {diff:.3g}")
+                causal = max(causal, diff)
     finally:
         w.close()
+    if bad_ops:
+        invalid(f"ops outside aten/prims in the forward pass (custom kernels are not allowed): {sorted(bad_ops)[:5]}")
 except WorkerFailure as e:
     invalid(e)
-for k, diff in causal.items():
-    if not diff <= CAUSAL_TOL:
-        invalid(f"non-causal model on {k} rows: future tokens changed past log-probs by {diff:.3g}")
 rep = accuracy_report(np.concatenate(preds), d, idx)
 m = rep["metrics"]
 tok_text, tok_prog = len(rows) * T, len(prompts) * L
-m.update(val_bpb=nats / (math.log(2) * nbytes), params_m=params_m, infer_s=infer_s,
+m.update(val_bpb=nats / (math.log(2) * nbytes), params_m=params_m, params_bytes=params_bytes, infer_s=infer_s,
          flops_tok_text=flops["text"] / tok_text, flops_tok_prog=flops["program"] / tok_prog,
          infer_flops_tok=0.5 * (flops["text"] / tok_text + flops["program"] / tok_prog),
-         causal_max_diff_text=causal["text"], causal_max_diff_prog=causal["program"], n_items=len(rep["items"]),
+         causal_max_diff=causal, causal_cuts=len(cases), n_items=len(rep["items"]),
          train_seconds_supervisor=ts, stray_processes_killed=stats.get("stray_processes_killed"))
 for k in ("train_steps", "tokens_seen", "program_tokens_seen", "build_s", "first_step_s", "train_loss_last50"):
     v = (stats.get("trainer") or {}).get(k)  # trainer-reported, informational only (never gated)

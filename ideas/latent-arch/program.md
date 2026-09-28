@@ -28,11 +28,15 @@ loads those tensors, and runs it eagerly in a sandboxed process that only receiv
 file except the Python install and your two files; it scores the returned logits itself.
 ## Guards (a run that fails one is discarded; invalid runs are worse)
 - val_bpb (web text) ≤ 1.03× baseline; acc_id ≥ 0.90× baseline.
-- params_m (every element of every checkpointed tensor, any dtype, buffers included) ≤ 1.05× baseline (~27.7 M):
-  loops must reuse weights.
-- infer_flops_tok (FLOPs counted per token on the actual inputs, so adaptive depth is counted where it happens)
-  ≤ 2.0× baseline; infer_s (timed eval forward) ≤ 2.5×; RUN wall time ≤ 1.3×; peak memory ≤ 40 GB.
-- Invalid: non-finite loss/logits, wrong logit shape, a non-causal model (text or program rows), any op outside
+- params_m (every float element of every checkpointed tensor, buffers included; non-float tensors count per byte)
+  ≤ 1.05× baseline (~27.7 M), and params_bytes (total checkpoint bytes) ≤ 1.05×: loops must reuse weights, and
+  packing weights into other dtypes gains nothing. ALL tensor state must be registered parameters or buffers:
+  a tensor reachable from the model, its modules or your code that is not one of them makes the run invalid.
+- infer_flops_tok (FLOPs counted per token on the actual inputs, so adaptive depth is counted where it happens;
+  matmul/attention by formula, every other op that reads tensors — elementwise, reductions, gathers — at least its
+  element count) ≤ 2.0× baseline; infer_s (timed eval forward) ≤ 2.5×; RUN wall time ≤ 1.3×; peak memory ≤ 40 GB.
+- Invalid: non-finite loss/logits, wrong logit shape, a non-causal model (checked at random cut points over the whole 1024-token row), model tensors that change
+  during evaluation (eval()/forward must not modify weights or buffers), any op outside
   torch's aten/prims (no custom Triton/CUDA kernels, no torch.library ops, no fla), a trainer killed at the
   deadline, a checkpoint that changed after the deadline.
 ## Forbidden (bounded by rules and diff review)
