@@ -76,6 +76,7 @@ for split, n in man["sizes"].items():
         os.makedirs(f"{a.out}/{split}/public", exist_ok=True)
         np.savez(f"{a.out}/{split}/public/traces.npz", **arrays)
         write_json(f"{a.out}/{split}/private/gold.json", {p["pid"]: p["gold"] for p in want})
+        write_json(f"{a.out}/{split}/private/provenance.json", {"synthetic": bool(man.get("synthetic")), "model": man.get("model")})
         with gzip.open(f"{a.out}/{split}/private/texts.json.gz", "wt") as f:
             json.dump({p["pid"]: t for p, t in zip(want, texts)}, f)
     L = arr["lengths"]

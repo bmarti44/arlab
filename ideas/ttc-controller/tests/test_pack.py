@@ -35,7 +35,7 @@ def surface():
 
 
 def run(cmd, **kw):
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=600, env={**os.environ, "PYTHONPATH": "/frozen"}, **kw)
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=600, env={**os.environ, "PYTHONPATH": "/frozen", "TTC_ALLOW_SYNTHETIC": "1"}, **kw)
 
 
 def harness(out, seed=1, work="/work", R=2, limit=30, user=None):
@@ -269,6 +269,19 @@ def test_harness_and_evaluator_are_deterministic_per_seed(tmp_path):
     assert logs["a"][0]["episodes"] != logs["c"][0]["episodes"]
 
 
+def test_evaluator_refuses_a_synthetic_cache_outside_tests(tmp_path):
+    out = str(tmp_path / "s")
+    r = harness(out, seed=1)
+    assert r.returncode == 0, (r.stdout + r.stderr)[-3000:]
+    prov = json.load(open(f"{D}/validation/private/provenance.json"))
+    env = {k: v for k, v in os.environ.items() if k != "TTC_ALLOW_SYNTHETIC"}
+    r = subprocess.run([PY, "/eval/evaluate.py", "--run", out, "--out", f"{out}/m.json", "--budget-tokens", str(B), "--replicates", "2",
+                        "--limit", "30", "--data", f"{out}/data"], capture_output=True, text=True, timeout=600,
+                       env={**env, "PYTHONPATH": "/frozen"})
+    m = json.load(open(f"{out}/m.json"))
+    assert m["valid"] is (not prov["synthetic"]) and (prov["synthetic"] is False or "synthetic" in m["message"])
+
+
 @pytest.mark.parametrize("ref", REFS)
 def test_references_run_and_score(tmp_path, ref):
     out = str(tmp_path / ref)
@@ -344,6 +357,7 @@ def test_scorer_on_a_hand_made_split(tmp_path):
          "logprob": np.zeros(tot, np.float16), "conf": np.ones(tot, np.float16), "ent": np.zeros(tot, np.float16)}
     np.savez(d / "public" / "traces.npz", **z)
     json.dump({"train-0001": "7", "train-0002": "3"}, open(d / "private" / "gold.json", "w"))
+    json.dump({"synthetic": True, "model": "hand"}, open(d / "private" / "provenance.json", "w"))
     c = load_cache(str(d / "public" / "traces.npz"))
     pick = {"train-0001": "5", "train-0002": "3"}         # expected scores 0 and 1 at every level
     eps = []

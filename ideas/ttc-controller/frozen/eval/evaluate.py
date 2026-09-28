@@ -42,6 +42,8 @@ def invalid(msg):
 
 z = np.load(f"{a.data}/public/traces.npz")
 gold_all = json.load(open(f"{a.data}/private/gold.json"))
+if json.load(open(f"{a.data}/private/provenance.json")).get("synthetic") and os.environ.get("TTC_ALLOW_SYNTHETIC") != "1":
+    invalid("synthetic trace cache (build/fake_cache.py): CPU checks only, never a campaign score")  # astra review
 n_all = len(z["pids"])
 n = min(a.limit, n_all) if a.limit else n_all
 pids, lengths, answers = z["pids"][:n].astype(str), z["lengths"][:n].astype(int), z["answers"][:n].astype(str)
