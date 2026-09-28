@@ -21,3 +21,4 @@
 - M5a: accept-M5-memory-longmemeval PASS. m5: 25 experiments in 1.99 active h (12.5/h, median 2.0 min, agent share 30%), 0 keeps → stop no_keep; verdict not_found_at_this_scale (upper bound 0.062 < MES 0.08). Best candidates: alternate-query retrieval +0.005, several ties; per-session LLM fact extraction collapsed (0.09).
 - M6: final re-run of every accept target on the final code: all PASS (M1 32/32). STATUS DONE.
 - 2026-09-28T00:54:56Z serving bench (scratch loadgen, realistic coding prompts): 1-way 20.6→45.9 tok/s with MTP-2; 20-way 345→539. Logged agentic pilot with MTP launched (arlab-agentic-pilot).
+- 2026-09-28T17:52:05Z looped-latent/v0 finalized: not_found_at_this_scale (20 experiments, 5.14 active h, stop no_keep; upper bound 0.0245 < MES 0.03; sigma 0.0087). Best loop 0.627 vs baseline 0.6215 (+0.0055); 9 guard_fails, mostly text_nll > 1.02x or loop_gain < 0.005.

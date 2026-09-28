@@ -72,6 +72,7 @@ tests/            unit tests + CPU fixture campaigns (`make accept-M1`)
 | `digits-label-smoothing/m4` | arlab self-test | not_found_at_this_scale (effect < 0.026 < MES 0.05) |
 | `memory-longmemeval/m5` | research | not_found_at_this_scale (25 candidates; effect < 0.062 < MES 0.08) |
 | `agentic-coding-small/m5c` | research | inconclusive: stopped_early:max_hours (3 candidates in 6 h; ~70 min per validation pass) |
+| `looped-latent/v0` | research | not_found_at_this_scale — looping layers 12–15 of Qwen3-0.6B (20 loop designs, loop-only surface, same training budget): holdout upper bound 0.025 < MES 0.03 |
 
 The two self-tests check arlab, not research questions. **nanochat-lite** is the lab's calibration: it proves the
 loop runs end to end on this GPU (speed, noise floor, kill -9 resume) and that the statistics keep one real change

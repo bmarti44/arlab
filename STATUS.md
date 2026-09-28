@@ -4,7 +4,7 @@ ACTIVE — build (M0–M6) is DONE (all accept targets pass, see below); now wor
 | Pack | State |
 |---|---|
 | agentic-coding-small | root cause fixed (MTP, 40-call cap, one wave, ≥10 experiments); campaign **m6** queued (arlab-next, starts when arlab-p-* pilots finish) |
-| looped-latent | calibrated (B1 0.623), astra fixes (loop-only surface, loop_gain guard), full check PASS (probe 0.626, 13.3 min) → campaign after m6 |
+| looped-latent | **v0 done: not_found_at_this_scale** (upper bound 0.025 < MES 0.03, 20 loop designs) |
 | stencil-focus | pilot GO at cap 2048 (oracle − baseline +0.269); full check running (arlab-p-stencil-check) |
 | ttt-context (TTT stage 0) | 8K, no_ttt 0.18; astra fixes (trusted answering); re-pilot + full check running (arlab-p-ttt3) |
 | plastic-agent (TTT stage 1) | astra fixes; gate pilot running (arlab-p-pa-gate): needs icl − none ≥ 0.15 |
