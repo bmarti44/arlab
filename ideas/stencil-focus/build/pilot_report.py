@@ -36,7 +36,7 @@ def paired(a, b):
 
 rep = {"cap_used": CAP, "arms": {}, "vs_baseline": {}}
 for arm, r in res.items():
-    hit = {c: sum(x >= c for x in r["comp"]) / max(r["n"], 1) for c in (512, 768, 1024) if c <= CAP}
+    hit = {c: sum(x >= c for x in r["comp"]) / max(r["n"], 1) for c in sorted({512, 768, 1024, CAP}) if c <= CAP}
     rep["arms"][arm] = {"valid": r["valid"], "fraction_required": r["primary"],
                         "output_failure_rate": r["metrics"].get("output_failure_rate"),
                         "invalid_code_rate": r["metrics"].get("invalid_code_rate"),
@@ -49,7 +49,7 @@ for arm in ("oracle", "off", "evicted_1024"):
 per100 = max(a["min_per_100"] for a in rep["arms"].values())
 rep["projection_min"] = {"300": round(per100 * 3.28, 1), "250": round(per100 * 2.78, 1)}   # + the 28 real items (holdout)
 headroom = rep["vs_baseline"]["oracle"]["diff"]
-caps = [c for c in (512, 768, 1024) if c <= CAP and all(a["cap_hit_at"].get(c, 1) <= 0.05 for a in rep["arms"].values())]
+caps = [c for c in sorted({512, 768, 1024, CAP}) if c <= CAP and all(a["cap_hit_at"].get(c, 1) <= 0.05 for a in rep["arms"].values())]
 rep["cap_recommended"] = caps[0] if caps else CAP
 rep["timeout_s_recommended"] = max(1200, int(math.ceil(2 * rep["projection_min"]["300"]) * 60))
 if not caps:
