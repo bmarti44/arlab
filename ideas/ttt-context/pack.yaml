@@ -1,0 +1,35 @@
+name: ttt-context
+image: {base: "nvcr.io/nvidia/pytorch:25.10-py3"}
+prepare: {command: "python /frozen/prepare.py --out /data", timeout_s: 1800}
+run:
+  # --ttt-seconds is the per-item wall-clock TTT budget (surface import + adapt, after a device sync), owned by the
+  # frozen harness; the evaluator scores an item 0 if it went over. CALIBRATE IN THE GPU PILOT (build/pilot.sh):
+  #   RUN ~ 60 s + N_ITEMS x (prefill_s + ttt_s + answer_s + ~0.05 s reset); estimate at 16K: 400 x (2 + 4 + 0.3) ~ 45 min.
+  # Keep --ttt-seconds identical in run and evaluate, and budget.limit = N_ITEMS x it.
+  command: "python /frozen/harness.py --out /out --seed {seed} --split {split} --ttt-seconds 4"
+  timeout_s: 4500
+  gpu: true
+  mem_gb: auto
+evaluate: {command: "python /eval/evaluate.py --run /run_out --out /result/metrics.json --ttt-seconds 4", timeout_s: 300}
+budget: {unit: ttt_seconds, limit: 1600}           # total TTT seconds per run = 400 items x 4 s
+# MES 0.05 (5 points of accuracy), fixed before calibration. Power (item pack, n = 400 holdout items, 2 holdout seeds):
+#   the owner's planning formula SE = sqrt(p(1-p)/n + 2 sigma^2/2): p = 0.3, sigma = 0.01 -> 0.0250 (2SE = 0.050);
+#     p = 0.5 -> 0.0269 (2SE = 0.054). So 0.05 is the smallest effect this set resolves at 2SE.
+#   the runner's check (PACK-AUTHORING §3) uses the paired item sd measured between the no_ttt reference and the
+#     baseline on the screen seed: sd = 0.3 -> SE = sqrt(0.09/400 + sigma^2) = 0.0180 at sigma = 0.01 (2SE 0.036);
+#     sd = 0.4 -> 0.0224 (2SE 0.045); sd = sqrt(0.2) (no reference) -> 0.0245 (2SE 0.049). Underpowered iff 2SE > 0.05.
+#   If CALIBRATE says underpowered, raise N_ITEMS in frozen/run/common.py (new data, new tag), never the MES.
+metric: {name: accuracy, direction: maximize, mes: 0.05}
+guards:
+  - {name: peak_mem_gb, max: 40}                   # 1.7B bf16 + pristine copy + 16K KV + Adam state ~ 15 GB
+# No train_s ratio guard: the per-item --ttt-seconds is the compute budget (the baseline uses ~1-2 s of it).
+seeds: {calibration: [1, 2, 3], screen: 1, confirm: [2], holdout: [101, 102]}
+references:
+  - {name: no_ttt, path: frozen/run/ref_no_ttt}     # document in context, no updates (the verdict's comparison)
+# no_doc (frozen/run/ref_no_doc, question only) is a pilot-only floor: as a reference its paired sd (~0.5 vs any arm
+# that reads the document) would be the max item sd in the runner's power check and mark the pack underpowered.
+verdict: {compare_to: no_ttt}
+agent: {model: gpt-6-sol, effort: high, visible: [program.md, IDEA.md], timeout_s: 900}
+# ~45 min per run (calibrate: pilot): a screen is 1 run, a confirm 1 more; CALIBRATE 4 runs, FINALIZE 4 runs.
+campaign: {max_experiments: 40, max_hours: 24, max_agent_calls: 80, stop_after_no_keep: 15, rescue_after: 6}
+acceptance: {allow_underpowered: false}
