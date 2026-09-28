@@ -17,9 +17,14 @@ config (defaults below): rank (<= 64), alpha, targets (subset of q/k/v/o/gate/up
 init: an adapter from an earlier train() call in the same world to continue from (same rank/targets/layers).
 Returns an opaque adapter; adapt() must return one of these (or None for no adaptation). Training stops early (and
 returns what it has) when the world's train-token budget or deadline is reached; the base weights never change.
+Every config field is type- and range-checked (replay_rows: int in [0, 64]). The train-token budget counts processed
+positions: batch_size x the padded batch length per step, plus 2 x replay_rows x replay length when kl_base > 0.
+A non-finite loss, gradient norm or adapter in ANY train() call marks the whole run invalid (sticky), even if an
+earlier finite adapter is returned.
 """
 from __future__ import annotations
 
+import copy
 import math
 import random
 import time
@@ -36,10 +41,52 @@ DEFAULTS = {"rank": 16, "alpha": 32, "targets": list(lora.TARGETS), "layers": No
             "batch_size": 8, "max_len": 1024, "warmup": 0.05, "min_lr_frac": 0.1, "weight_decay": 0.0, "grad_clip": 1.0,
             "ce_weight": 1.0, "teacher_weight": 1.0, "kl_base": 0.0, "replay_rows": 0, "grad_ckpt": False}
 KL_POSITIONS = 64      # replay positions per row used for the KL-to-base term
+MAX_REPLAY_ROWS = 64
+
+
+def _num(cfg, key, lo, hi, lo_open=False):
+    x = cfg[key]
+    if isinstance(x, bool) or not isinstance(x, (int, float)) or not math.isfinite(x) or x > hi or x < lo or (lo_open and x == lo):
+        raise ValueError(f"config[{key!r}] must be a finite number in {'(' if lo_open else '['}{lo}, {hi}], got {x!r}")
+    return float(x)
+
+
+def _int(cfg, key, lo, hi):
+    x = cfg[key]
+    if isinstance(x, bool) or not isinstance(x, int) or not lo <= x <= hi:
+        raise ValueError(f"config[{key!r}] must be an int in [{lo}, {hi}], got {x!r}")
+    return x
+
+
+def check_config(config) -> dict:
+    """Validate every field (types and ranges); returns the full config. Raises ValueError."""
+    if config is not None and not isinstance(config, dict):
+        raise TypeError("config must be a dict or None")
+    cfg = {**DEFAULTS, **(config or {})}
+    unknown = set(cfg) - set(DEFAULTS)
+    if unknown:
+        raise ValueError(f"unknown train config keys {sorted(unknown)}")
+    out = {**cfg, **lora.check_config(cfg)}
+    out["lr"] = _num(cfg, "lr", 0, 0.1, lo_open=True)
+    out["epochs"] = _num(cfg, "epochs", 0, 1000, lo_open=True)
+    out["batch_size"] = _int(cfg, "batch_size", 1, 64)
+    out["max_len"] = _int(cfg, "max_len", 64, 4096)
+    if out["batch_size"] * out["max_len"] > 32_768:
+        raise ValueError("batch_size * max_len must be <= 32768 tokens per step (use more steps instead)")
+    for k, hi in (("warmup", 1), ("min_lr_frac", 1), ("weight_decay", 1)):
+        out[k] = _num(cfg, k, 0, hi)
+    out["grad_clip"] = _num(cfg, "grad_clip", 0, 1000, lo_open=True)
+    for k in ("ce_weight", "teacher_weight", "kl_base"):
+        out[k] = _num(cfg, k, 0, 1000)
+    out["replay_rows"] = _int(cfg, "replay_rows", 0, MAX_REPLAY_ROWS)
+    if not isinstance(cfg["grad_ckpt"], bool):
+        raise ValueError("config['grad_ckpt'] must be a bool")
+    return out
 
 
 class Adapter:
-    """Opaque result of train(): LoRA tensors on the CPU plus bookkeeping."""
+    """Opaque result of train(): LoRA tensors on the CPU plus bookkeeping. These attributes are copies for the
+    surface to read; the harness saves the trainer's private copy (Trainer.saved), so editing them changes nothing."""
 
     def __init__(self, cfg: dict, tensors: dict, stats: dict):
         self.cfg, self.tensors, self.stats = cfg, tensors, stats
@@ -51,7 +98,22 @@ class Trainer:
         self.replay = replay
         self.system = chat_prefix(system_text(tool_names))
         self.produced: list[Adapter] = []
+        self._kept: list[tuple[Adapter, dict, dict, dict]] = []     # (adapter, cfg, tensors, stats) as trained
         self.calls = 0
+        self.nan_seen = False        # sticky: any non-finite loss/gradient/adapter in any train() call of this world
+
+    def saved(self, ad) -> tuple[dict, dict]:
+        """The (cfg, tensors) train() produced for this adapter object (never the surface-visible attributes)."""
+        for a, cfg, tens, _ in self._kept:
+            if a is ad:
+                return cfg, tens
+        raise ValueError("adapt() must return an adapter produced by train() in this world (or None)")
+
+    def saved_stats(self, ad) -> dict:
+        for a, _, _, stats in self._kept:
+            if a is ad:
+                return stats
+        raise ValueError("unknown adapter")
 
     def _items(self, examples, max_len):
         items, skipped = [], 0
@@ -59,8 +121,8 @@ class Trainer:
         for ex in examples:
             if not isinstance(ex, dict):
                 raise TypeError("each example must be a dict")
-            w = float(ex.get("weight", 1.0))
-            if not math.isfinite(w) or w < 0:
+            w = ex.get("weight", 1.0)
+            if isinstance(w, bool) or not isinstance(w, (int, float)) or not math.isfinite(w) or w < 0 or w > 1000:
                 raise ValueError("example weight must be finite and >= 0")
             if "text" in ex:
                 ids = self.e.encode(str(ex["text"]))
@@ -86,15 +148,9 @@ class Trainer:
     def train(self, examples: list[dict], config: dict | None = None, init: Adapter | None = None) -> Adapter:
         if self.budget.seconds_left() <= 0:
             raise BudgetExceeded("deadline passed before train()")
-        cfg = {**DEFAULTS, **(config or {})}
-        unknown = set(cfg) - set(DEFAULTS)
-        if unknown:
-            raise ValueError(f"unknown train config keys {sorted(unknown)}")
+        cfg = check_config(config)
         lcfg = lora.check_config(cfg)
-        max_len = int(min(max(64, cfg["max_len"]), 4096))
-        bs = int(min(max(1, cfg["batch_size"]), 64))
-        if bs * max_len > 32_768:
-            raise ValueError("batch_size * max_len must be <= 32768 tokens per step (use more steps instead)")
+        max_len, bs = cfg["max_len"], cfg["batch_size"]
         items, skipped = self._items(examples, max_len)
         if not items:
             raise ValueError("no usable training examples")
@@ -105,12 +161,14 @@ class Trainer:
         assert lora.n_wrapped(model) == 0
         mods = lora.attach(model, lcfg, seed)
         if init is not None:
-            if init not in self.produced or init.cfg != lcfg:
+            icfg, itens = self.saved(init)
+            if icfg != lcfg:
+                lora.detach(model)
                 raise ValueError("init must be an adapter from this world's train() with the same rank/targets/layers")
             with torch.no_grad():
                 for k, m in mods.items():
-                    m.A.copy_(init.tensors[f"{k}.A"])
-                    m.B.copy_(init.tensors[f"{k}.B"])
+                    m.A.copy_(itens[f"{k}.A"])
+                    m.B.copy_(itens[f"{k}.B"])
         params = [p for m in mods.values() for p in (m.A, m.B)]
         opt = torch.optim.AdamW(params, lr=cfg["lr"], weight_decay=cfg["weight_decay"])
         total = max(1, int(cfg["epochs"] * math.ceil(len(items) / bs)))
@@ -126,14 +184,17 @@ class Trainer:
                     rng.shuffle(order)
                 batch = [items[i] for i in order[:bs]]
                 order = order[bs:]
-                n_tok = sum(len(b[0]) for b in batch) + 2 * cfg["replay_rows"] * (self.replay.shape[1] if cfg["kl_base"] else 0)
+                # processed positions: the padded batch, plus the replay rows twice (base + adapted forward)
+                n_tok = len(batch) * max(len(b[0]) for b in batch)
+                if cfg["kl_base"] > 0 and cfg["replay_rows"] > 0:
+                    n_tok += 2 * cfg["replay_rows"] * (self.replay.shape[1] - 1)
                 if self.budget.seconds_left() <= 0:
                     stop = "deadline"
                     break
-                if self.budget.train_used + n_tok > self.budget.train_cap:
+                if not self.budget.can_train(n_tok):
                     stop = "train_tokens"
                     break
-                self.budget.train_used += n_tok
+                self.budget.charge_train(n_tok)
                 tokens += n_tok
                 frac = steps / total
                 lr = cfg["lr"] * (frac / cfg["warmup"] if cfg["warmup"] > 0 and frac < cfg["warmup"] else
@@ -146,7 +207,10 @@ class Trainer:
                     break
                 opt.zero_grad(set_to_none=True)
                 loss.backward()
-                torch.nn.utils.clip_grad_norm_(params, cfg["grad_clip"])
+                gnorm = torch.nn.utils.clip_grad_norm_(params, cfg["grad_clip"])
+                if not torch.isfinite(gnorm):
+                    nan, stop = True, "nan"
+                    break
                 opt.step()
                 losses.append(loss.item())
                 steps += 1
@@ -157,11 +221,16 @@ class Trainer:
             tens = lora.tensors(mods)
             lora.detach(model)
             del opt
+        if not all(torch.isfinite(t).all() for t in tens.values()):
+            nan = True
+        if nan:
+            self.nan_seen = True
         stats = {"steps": steps, "planned_steps": total, "tokens": tokens, "examples": len(items), "skipped": skipped,
                  "loss_first": losses[0] if losses else None, "loss_last": float(np.mean(losses[-10:])) if losses else None,
                  "stopped": stop, "nan": nan, "time": time.time()}
-        ad = Adapter(lcfg, tens, stats)
+        ad = Adapter(copy.deepcopy(lcfg), {k: v.clone() for k, v in tens.items()}, dict(stats))
         self.produced.append(ad)
+        self._kept.append((ad, lcfg, tens, stats))
         return ad
 
     def _hidden(self, ids, mask):

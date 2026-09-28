@@ -2,17 +2,21 @@
 generator, the world seeds and the explorer are never visible to RUN.
 
 Layout written under --out:
-  {validation,holdout}/public/worlds.json    [{id, tools (sorted names), transcript: [{call, obs}]}]  <- all RUN sees
+  {validation,holdout}/public/order.json     [world ids] in harness order                           <- all RUN sees
+  {validation,holdout}/public/worlds/<id>.json  {id, tools (sorted names), transcript: [{call, obs}]}   (one file per
+                                              world: the harness loads only the world being adapted)
   {validation,holdout}/private/worlds.json   {id: {spec, end, tasks: [{id, goal, template, n_calls, check_state,
                                               gold_state, answer, reference}]}}
-  {validation,holdout}/private/guard.json    the guard world (its own seed): tools, transcript, spec, end, tasks
-  {validation,holdout}/private/gsm8k.json    forgetting battery: GSM8K test subset [{id, q, a}]
-  {validation,holdout}/private/text.npy      OASST2 rows for the text-NLL report
+  {validation,holdout}/private/guard.json    the split's guard world (own seed): tools, transcript, spec, end, tasks
+  {validation,holdout}/private/gsm8k.json    forgetting battery: GSM8K test items [{id, q, a}] (disjoint per split)
+  {validation,holdout}/private/text.npy      OASST2 rows for the text-NLL report (disjoint per split)
   {validation,holdout}/private/fauxos.py     the simulator, for the evaluator (a copy of /prepare/fauxos.py)
   train/replay.npy                           OASST2 rows for KL-to-base / replay (disjoint from text.npy)
   splits.json, info.json
-World seeds: validation, holdout and the guard world come from disjoint seed ranges; each world's tasks start from
-the state its exploration ended in; tasks and gold outcomes are private.
+World seeds: validation, holdout and the two guard worlds come from disjoint seed ranges; each world's tasks start
+from the state its exploration ended in; tasks and gold outcomes are private. The forgetting batteries of the two
+splits (guard world, GSM8K items, text rows) are disjoint. The raw dataset files are read only here (their paths are
+not in frozen/run/); the evaluator reads the private copies.
 """
 import argparse
 import gzip
@@ -27,7 +31,11 @@ import numpy as np
 sys.path.insert(0, "/prepare")
 sys.path.insert(0, "/frozen")
 import fauxos  # noqa: E402
-from common import GSM8K_FILE, MODEL_DIR, OASST_FILE, chat_prefix, system_text  # noqa: E402
+from common import MODEL_DIR, chat_prefix, system_text  # noqa: E402
+
+OASST_FILE = ("/hf/hub/datasets--OpenAssistant--oasst2/snapshots/179dd21fc55192153d94adb0e0ce8f69e222bf75/"
+              "2023-11-05_oasst2_ready.trees.jsonl.gz")
+GSM8K_FILE = "/hf/hub/datasets--openai--gsm8k/snapshots/740312add88f781978c0658806c59bc2815b9866/main/test-00000-of-00001.parquet"
 
 SEED_BASE = {"validation": 26_092_700, "holdout": 26_092_800, "guard": 26_092_900}   # disjoint ranges of 100
 N_WORLDS = {"validation": 4, "holdout": 8}
@@ -65,10 +73,10 @@ from transformers import AutoTokenizer  # noqa: E402
 tok = AutoTokenizer.from_pretrained(MODEL_DIR)
 info = {"seed_base": SEED_BASE, "n_explore": N_EXPLORE, "n_tasks": N_TASKS, "worlds": {}}
 
-g_pub, g_priv = build_world("g0", SEED_BASE["guard"], GUARD_EXPLORE, GUARD_TASKS)
-guard = {**g_pub, **g_priv}
-splits = {}
-for split in ("validation", "holdout"):
+splits, guards = {}, {}
+for k, split in enumerate(("validation", "holdout")):
+    g_pub, g_priv = build_world(f"g{k}", SEED_BASE["guard"] + k, GUARD_EXPLORE, GUARD_TASKS)
+    guards[split] = guard = {**g_pub, **g_priv}
     pubs, privs = [], {}
     for i in range(N_WORLDS[split]):
         wid = f"{split[0]}{i}"
@@ -80,7 +88,9 @@ for split in ("validation", "holdout"):
         info["worlds"][wid] = {"seed": SEED_BASE[split] + i, "tools": len(pub["tools"]), "objects_end": len(priv["end"]["objs"]),
                                "icl_prefix_tokens": n_icl, "system_tokens": n_sys,
                                "templates": {t: sum(x["template"] == t for x in priv["tasks"]) for t in fauxos.TEMPLATES}}
-    write_json(f"{a.out}/{split}/public/worlds.json", pubs)
+    write_json(f"{a.out}/{split}/public/order.json", [p["id"] for p in pubs])
+    for p in pubs:
+        write_json(f"{a.out}/{split}/public/worlds/{p['id']}.json", p)
     write_json(f"{a.out}/{split}/private/worlds.json", privs)
     write_json(f"{a.out}/{split}/private/guard.json", guard)
     shutil.copyfile("/prepare/fauxos.py", f"{a.out}/{split}/private/fauxos.py")
@@ -90,11 +100,11 @@ for split in ("validation", "holdout"):
 import pyarrow.parquet as pq  # noqa: E402
 
 rows = pq.read_table(GSM8K_FILE).to_pylist()
-idx = random.Random(11).sample(range(len(rows)), N_GSM8K)
+idx = random.Random(11).sample(range(len(rows)), 2 * N_GSM8K)
 gsm = [{"id": f"gsm{i:04d}", "q": rows[i]["question"], "a": int(rows[i]["answer"].split("####")[-1].strip().replace(",", ""))}
        for i in idx]
-for split in ("validation", "holdout"):
-    write_json(f"{a.out}/{split}/private/gsm8k.json", gsm)
+for k, split in enumerate(("validation", "holdout")):
+    write_json(f"{a.out}/{split}/private/gsm8k.json", gsm[k * N_GSM8K:(k + 1) * N_GSM8K])
 
 # ---- OASST2 English rows: text-NLL report (private) and replay rows for KL-to-base (train); disjoint
 msgs = []
@@ -112,7 +122,7 @@ with gzip.open(OASST_FILE, "rt") as f:
         walk(json.loads(line)["prompt"])
 msgs.sort()
 random.Random(7).shuffle(msgs)
-need, text_rows = N_TEXT + N_REPLAY, []
+need, text_rows = 2 * N_TEXT + N_REPLAY, []
 for i in range(0, len(msgs), 512):
     for ids in tok([t for _, t in msgs[i:i + 512]], add_special_tokens=False)["input_ids"]:
         if len(ids) >= TEXT_LEN + 1 and len(text_rows) < need:
@@ -121,14 +131,15 @@ for i in range(0, len(msgs), 512):
         break
 text_rows = np.array(text_rows, dtype=np.int64)
 assert text_rows.shape == (need, TEXT_LEN + 1), text_rows.shape
-for split in ("validation", "holdout"):
-    np.save(f"{a.out}/{split}/private/text.npy", text_rows[:N_TEXT])
+for k, split in enumerate(("validation", "holdout")):
+    np.save(f"{a.out}/{split}/private/text.npy", text_rows[k * N_TEXT:(k + 1) * N_TEXT])
 os.makedirs(f"{a.out}/train", exist_ok=True)
-np.save(f"{a.out}/train/replay.npy", text_rows[N_TEXT:])
+np.save(f"{a.out}/train/replay.npy", text_rows[2 * N_TEXT:])
 
 write_json(f"{a.out}/splits.json", splits)
-info["guard"] = {"seed": SEED_BASE["guard"], "tasks": len(guard["tasks"]),
-                 "icl_prefix_tokens": len(tok(chat_prefix(system_text(guard["tools"], guard["transcript"])), add_special_tokens=False)["input_ids"])}
+info["guard"] = {s: {"id": g["id"], "seed": SEED_BASE["guard"] + k, "tasks": len(g["tasks"]),
+                    "icl_prefix_tokens": len(tok(chat_prefix(system_text(g["tools"], g["transcript"])), add_special_tokens=False)["input_ids"])}
+                 for k, (s, g) in enumerate(guards.items())}
 info["splits"] = splits
 write_json(f"{a.out}/info.json", info)
 print(json.dumps({k: v for k, v in info.items()}, indent=1))

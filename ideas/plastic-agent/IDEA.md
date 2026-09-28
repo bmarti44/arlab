@@ -55,11 +55,16 @@ The model writes a program (one call per line, positional int / "string" literal
 answer, `answer(x)` outputs x); on a syntax or execution error it gets one retry showing the failing line and its output.
 Success = no error, exact final state (state tasks; collateral changes fail) and exactly the gold value in the last
 output (answer tasks). No LLM judge. Splits (disjoint seed ranges): validation 4 worlds x 60 tasks = 240 items; holdout
-8 worlds x 80 tasks = 640 items (FINALIZE only); one guard world (100 tasks) for the forgetting battery.
+8 worlds x 80 tasks = 640 items (FINALIZE only); each split has its own guard world (100 tasks), GSM8K items and
+text rows for the forgetting battery (disjoint between validation and holdout).
 
-**What RUN sees.** Only `public/worlds.json` (world id, sorted tool names, transcript) and OASST2 replay rows. Goals,
-answers, specs, states and the simulator are in `private/` (EVALUATE only). The harness gives `adapt()` one world at a
-time and checks that the base weights are bit-identical and no LoRA module is left before the next world.
+**What RUN sees.** Only `public/order.json` + `public/worlds/<id>.json` (world id, sorted tool names, transcript; the
+harness loads one world at a time) and OASST2 replay rows. Goals, answers, specs, states, the simulator and the
+battery items (copied from GSM8K / OASST2 at PREPARE) are in `private/` (EVALUATE only); no RUN-side code references a
+dataset under `/hf`. The harness gives `adapt()` only the world being adapted and checks, with a sha256 over every
+base parameter and buffer, that the base weights are byte-identical (and no LoRA module is left) at load, between
+worlds and at the end. The arm is chosen by frozen code: the sha256 of `/work/adapt.py` against the frozen references
+(`common.arm_of`), never a constant in the surface.
 
 **Surface.** `surface/adapt.py`: `adapt(transcript, tool_names, gen, train) -> adapter | None`, within a frozen per-world
 budget (180 s wall clock, 400k gen tokens, 1.5M train tokens; calibrate). `gen` = budgeted base-model generation and
@@ -76,13 +81,13 @@ next-token LoRA on the raw transcript** (r16, all projections, 8 epochs, lr 2e-4
 | (b) icl | the whole transcript in the system prompt, no adapter | frozen reference `ref_icl` (fails the prefill guard by design; never a candidate) |
 | (c) guard | forgetting battery with each adapter | every run: guard `battery_drop` |
 | (d) surface | the per-world adapter; baseline = naive next-token LoRA | the campaign's candidates; the verdict compares (d) with the baseline |
-| (e) placebo | world i scored with the adapter trained on world i+1 | frozen reference `ref_placebo` (baseline LoRA) **and** every run reports `placebo_success`, `specific_gain` = (d) − (e) |
+| (e) placebo | world i scored with the adapter trained on world i+1 | frozen reference `ref_placebo` (baseline LoRA; the harness hands world i the transcript of world i+1, the evaluator scores world i as for every arm) **and** every candidate run reports `cross_world_success` (its adapter j on world j−1) and `specific_gain` = (d) − that |
 
 Only d − e measures environment-specific knowledge: TTT gains on ARC and in GTTA are partly format learning, and a
 LoRA from another world teaches the program format without the right facts (TTT-DEEP-DIVE §4).
 
 **Metric.** `success` = mean task success over the split's worlds (primary; `items` = one 0/1 per task, so the SE is
-paired). Also reported: `placebo_success`, `specific_gain`, `none_success` and `icl_success` (from the evaluator's cache
+paired) for every arm. Also reported: `cross_world_success`, `specific_gain`, `none_success` and `icl_success` (from the evaluator's cache
 once the references ran), `gap_closure` = (d − a) / (b − a), `prefill_tokens`, per-template `s_*`, retry and syntax-error
 rates, adapt time and tokens.
 
@@ -102,8 +107,10 @@ evaluation is greedy and deterministic).
 the guard world with its transcript in context, each item scored with one of the run's adapters, round-robin; per
 RESEARCH.md §7, with ARC-Easy replaced by more GSM8K because ARC-Easy is not cached offline); `prefill_tokens <= 3000`
 (the surface arms use ~220 prompt tokens, the ICL arm ~12k); `peak_mem_gb <= 60`; budget `adapt_s_max <= 210`
-(the longest per-world `adapt()`); non-finite training loss or an adapter with non-finite or wrongly-shaped tensors
-makes a run invalid. OASST2 `text_nll_ratio` is reported, not guarded. There is no `train_s` ratio guard: the budget
+(the longest per-world `adapt()`, whose clock starts before the surface is imported); a non-finite loss or gradient in
+any `train()` call (sticky across calls) or an adapter with non-finite or wrongly-shaped tensors makes a run invalid.
+Budgets count processed positions (padded prompt blocks, every decode step of every batch row, padded training
+batches, replay rows); a generation batch reserves its worst case before it runs, so the caps are never exceeded. OASST2 `text_nll_ratio` is reported, not guarded. There is no `train_s` ratio guard: the budget
 itself is wall clock, and the naive baseline uses only a fraction of it.
 
 **Data-prep gate (GPU pilot, `build/pilot.sh gate <dir>`).** Before any campaign: no-adaptation success <= 0.15 and
@@ -141,8 +148,11 @@ placebo arm and `specific_gain` are there to catch that.
 3. **Weak teacher.** 1.7B ICL may be too weak to distil (SDFT failed at 3B). The stretch model is Qwen3.5-4B; it needs a
    new tag and a check that the frozen LoRA and cache code handle its hybrid layers.
 4. **In-process surface.** adapt() runs in the harness process: it could read the model through `gen` internals or burn
-   time. The harness catches base-weight edits (fingerprint before each world), the budget is enforced by deadline and
-   token caps, and program.md forbids the rest (good-faith proposer). No goal, answer, state or simulator is reachable
+   time. The harness catches base-weight edits (sha256 of the weights at load, between worlds and at the end), saves
+   the trainer's private copy of each adapter, the budget is enforced by deadline and reserved token caps, and
+   program.md forbids the rest (good-faith proposer). A campaign mounts the whole HF cache read-only into RUN, so the
+   raw GSM8K test set is readable from adapt.py by file I/O; no frozen RUN code references it (tested) and program.md
+   forbids file reads. See REVIEW.md. No goal, answer, state or simulator is reachable
    from RUN, and the generator code is not mounted there.
 5. **Generator-family priors.** A surface could learn "semantics are often inverted" rather than this world's facts.
    That is arguably the legitimate general skill; the placebo arm measures how much of a gain is world-specific.

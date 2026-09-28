@@ -5,12 +5,12 @@ frozen/prepare/ (PREPARE only) and in each split's private/ dir (EVALUATE only).
 """
 from __future__ import annotations
 
-# Pinned, cached, offline. Qwen3-1.7B (dense, 28 layers, d = 2048), post-trained hybrid-think checkpoint used with
-# thinking disabled.
+import os
+
+# Pinned, cached, offline. RUN and EVALUATE use only this model snapshot from /hf; the dataset files the private
+# batteries are built from are read in PREPARE only (frozen/prepare/prepare.py). Qwen3-1.7B (dense, 28 layers,
+# d = 2048), the post-trained hybrid-think checkpoint used with thinking disabled.
 MODEL_DIR = "/hf/hub/models--Qwen--Qwen3-1.7B/snapshots/70d244cc86ccca08cf5af4e1e306ecf908b1ad5e"
-OASST_FILE = ("/hf/hub/datasets--OpenAssistant--oasst2/snapshots/179dd21fc55192153d94adb0e0ce8f69e222bf75/"
-              "2023-11-05_oasst2_ready.trees.jsonl.gz")
-GSM8K_FILE = "/hf/hub/datasets--openai--gsm8k/snapshots/740312add88f781978c0658806c59bc2815b9866/main/test-00000-of-00001.parquet"
 
 IM_END, EOT = 151645, 151643          # <|im_end|>, <|endoftext|>
 STOP_IDS = (IM_END, EOT)
@@ -63,3 +63,20 @@ def retry_suffix(goal: str, first_output: str, line: int, obs: str) -> str:
 def completion_text(text: str) -> str:
     """A training target: the assistant text followed by <|im_end|> (what the model must emit to stop)."""
     return text + "<|im_end|>"
+
+
+REF_ARMS = ("none", "icl", "placebo")
+
+
+def arm_of(work_dir: str, frozen_dir: str) -> str:
+    """The arm is decided by frozen code, never by the surface: a surface whose adapt.py is byte-identical to a frozen
+    reference (frozen/run/ref_<arm>/adapt.py) is that reference arm; anything else is a candidate ("adapter")."""
+    import hashlib
+
+    def h(p):
+        return hashlib.sha256(open(p, "rb").read()).hexdigest()
+    mine = h(os.path.join(work_dir, "adapt.py"))
+    for arm in REF_ARMS:
+        if mine == h(os.path.join(frozen_dir, f"ref_{arm}", "adapt.py")):
+            return arm
+    return "adapter"

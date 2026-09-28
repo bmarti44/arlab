@@ -2,15 +2,18 @@
 import re
 
 
+_ANSWER_LINE = re.compile(r"^\s*[*_#]*\s*answer\s*[*_]*\s*:\s*[*_]*\s*(.*?)\s*[*_]*\s*$", re.I)
+_NUMBER = re.compile(r"\$?\s*(-?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?)\s*\.?")
+
+
 def gsm_answer(s: str):
-    """The number on the last 'Answer: <number>' line (commas and a leading $ allowed); None if there is none."""
-    m = re.findall(r"Answer:\s*\$?\s*(-?[\d,]*\.?\d+)", s)
-    if not m:
+    """The number on the LAST 'Answer: ...' line; that line's rest must be exactly one number (optional $, thousands
+    commas, decimals, a trailing period). Anything else on the line (42e9, 42/7, 'not 42', two numbers) -> None."""
+    lines = [m.group(1) for m in map(_ANSWER_LINE.match, s.splitlines()) if m]
+    if not lines:
         return None
-    try:
-        return float(m[-1].replace(",", ""))
-    except ValueError:
-        return None
+    m = _NUMBER.fullmatch(lines[-1])
+    return float(m.group(1).replace(",", "")) if m else None
 
 
 def gsm_score(text: str, gold: int) -> float:

@@ -15,11 +15,13 @@ Gen (what adapt() receives as `gen`; the base model, never an adapter):
       (completion + <|im_end|>); attach as example["teacher"] for distillation in train().
   gen.task_prompt(goal) -> the evaluation's user message for a goal; gen.retry_prompt(line, obs) -> its retry message
   gen.n_tokens(text), gen.tokens_left, gen.seconds_left()
-Every token processed (prompt suffixes, generated tokens, teacher rows; each prefix once) counts toward the world's
-gen-token budget; after the world's deadline or budget every call raises BudgetExceeded.
+Every position processed counts toward the world's gen-token budget: each prefix once, padded prompt blocks, every
+decode step of every row of a batch (finished rows too), padded teacher rows. A batch reserves its worst case before
+it runs, so the cap is never exceeded; after the world's deadline or budget every call raises BudgetExceeded.
 """
 from __future__ import annotations
 
+import math
 import time
 
 import torch
@@ -33,22 +35,46 @@ class BudgetExceeded(Exception):
     pass
 
 
-class Budget:
-    """Per-world limits owned by the harness: a wall-clock deadline and token caps for gen and train."""
+def _count(n) -> int:
+    if type(n) is not int or n < 0:
+        raise ValueError(f"budget charge must be a non-negative int, got {n!r}")
+    return n
 
-    def __init__(self, seconds: float, gen_tokens: int, train_tokens: int):
-        self.deadline = time.time() + seconds
+
+class Budget:
+    """Per-world limits owned by the harness: a wall-clock deadline and token caps for gen and train.
+    Tokens = processed positions: prefixes, padded prompt blocks, every decode step of every batch row (finished
+    rows included) and padded training batches (plus replay rows, twice when KL-to-base runs a base forward)."""
+
+    def __init__(self, seconds: float, gen_tokens: int, train_tokens: int, start: float | None = None):
+        self.deadline = (time.time() if start is None else start) + seconds
         self.gen_cap, self.train_cap = gen_tokens, train_tokens
         self.gen_used = self.train_used = 0
 
     def seconds_left(self) -> float:
         return self.deadline - time.time()
 
-    def charge_gen(self, n: int, check: bool = True):
-        """check=False records work already done (generated tokens) without refusing it."""
-        if check and (self.seconds_left() <= 0 or self.gen_used + n > self.gen_cap):
+    def charge_gen(self, n: int):
+        """Reserve n positions before the work is done; refuses (BudgetExceeded) past the deadline or the cap."""
+        n = _count(n)
+        if self.seconds_left() <= 0 or self.gen_used + n > self.gen_cap:
             raise BudgetExceeded(f"gen budget: {self.gen_used}+{n} tokens / {self.gen_cap}, {self.seconds_left():.0f}s left")
         self.gen_used += n
+
+    def refund_gen(self, n: int):
+        """Return the unused part of a reservation (decode steps that were not run)."""
+        n = _count(n)
+        if n > self.gen_used:
+            raise ValueError("refund larger than the reservation")
+        self.gen_used -= n
+
+    def can_train(self, n: int) -> bool:
+        return self.seconds_left() > 0 and self.train_used + _count(n) <= self.train_cap
+
+    def charge_train(self, n: int):
+        if not self.can_train(n):
+            raise BudgetExceeded(f"train budget: {self.train_used}+{n} tokens / {self.train_cap}")
+        self.train_used += n
 
 
 MAX_SLOTS = 262_144      # batch x (prefix + suffix + new tokens) per static cache: ~29 GB of KV for Qwen3-1.7B in bf16
@@ -99,11 +125,12 @@ class Engine:
 
     @torch.no_grad()
     def generate(self, prefix, suffixes: list[list[int]], max_new: int = MAX_PROGRAM_TOKENS, temperature: float = 0.0,
-                 seed: int = 0, batch_size: int = 16, on_batch=None, deadline: float | None = None) -> list[list[int]]:
+                 seed: int = 0, batch_size: int = 16, budget: Budget | None = None) -> list[list[int]]:
         """Decode each suffix after the shared prefix ((kv, L0) from prefix_kv). Returns generated ids incl. the stop
-        token if one was produced. on_batch(n_tokens[, check]) is called before (and, with check=False, after) each
-        batch: the budget hook. Past `deadline` (time.time()) decoding stops with BudgetExceeded.
-        The batch shrinks automatically so that batch x sequence slots stay <= MAX_SLOTS."""
+        token if one was produced. With a budget, each batch first reserves B x (padded prompt block + max_new)
+        positions (refused past the cap or deadline), decoding stops with BudgetExceeded at the deadline, and the
+        decode steps that were not run are refunded. The batch shrinks automatically so that batch x sequence slots
+        stay <= MAX_SLOTS."""
         pkv, L0 = prefix
         longest = max((len(x) for x in suffixes), default=0)
         batch_size = max(1, min(batch_size, MAX_SLOTS // (L0 + longest + max_new)))
@@ -114,17 +141,18 @@ class Engine:
         for s in range(0, len(order), batch_size):
             idx = order[s:s + batch_size]
             rows = [suffixes[i] for i in idx]
-            if on_batch:
-                on_batch(sum(len(r) for r in rows))
             B, Ls = len(rows), max(len(r) for r in rows)
+            if budget:
+                budget.charge_gen(B * (Ls + max_new))
             total = L0 + Ls + max_new
             cache = self._cache(pkv, L0, B, total)
             ids, mask, pos, Ls = self._block(L0, rows, total)
             h = self._fwd(ids, mask, pos, torch.arange(L0, L0 + Ls, device=self.device), cache)
             nxt_pos = pos[:, -1] + 1
             done = torch.zeros(B, dtype=torch.bool, device=self.device)
+            steps = 0
             for t in range(max_new):
-                if deadline is not None and time.time() > deadline:
+                if budget and budget.seconds_left() <= 0:
                     raise BudgetExceeded("deadline reached while generating")
                 logits = self.model.lm_head(h[:, -1]).float()
                 if temperature > 0:
@@ -142,13 +170,16 @@ class Engine:
                 mask[:, c] = 1
                 h = self._fwd(tok[:, None], mask, nxt_pos[:, None], torch.tensor([c], device=self.device), cache)
                 nxt_pos = nxt_pos + 1
-            if on_batch:
-                on_batch(sum(len(out[i]) for i in idx), False)
+                steps += 1
+            if budget:
+                budget.refund_gen(B * (max_new - steps))
         return out
 
     @torch.no_grad()
-    def topk(self, prefix, pairs: list[tuple[list[int], list[int]]], k: int = 20, batch_size: int = 8, on_batch=None):
-        """For each (prompt ids, completion ids): top-k (ids, log-probs) predicting every completion token."""
+    def topk(self, prefix, pairs: list[tuple[list[int], list[int]]], k: int = 20, batch_size: int = 8,
+             budget: Budget | None = None):
+        """For each (prompt ids, completion ids): top-k (ids, log-probs) predicting every completion token.
+        With a budget, each batch is charged B x its padded length before it runs."""
         pkv, L0 = prefix
         longest = max((len(p) + len(c) for p, c in pairs), default=0)
         batch_size = max(1, min(batch_size, MAX_SLOTS // (L0 + longest)))
@@ -156,9 +187,9 @@ class Engine:
         for s in range(0, len(pairs), batch_size):
             chunk = list(range(s, min(len(pairs), s + batch_size)))
             rows = [pairs[i][0] + pairs[i][1] for i in chunk]
-            if on_batch:
-                on_batch(sum(len(r) for r in rows))
             total = L0 + max(len(r) for r in rows)
+            if budget:
+                budget.charge_gen(len(rows) * (total - L0))
             cache = self._cache(pkv, L0, len(rows), total)
             ids, mask, pos, Ls = self._block(L0, rows, total)
             h = self._fwd(ids, mask, pos, torch.arange(L0, L0 + Ls, device=self.device), cache)
@@ -213,20 +244,26 @@ class Gen:
     # -- the two model calls
     def generate(self, prompts: list[str], max_new_tokens: int = MAX_PROGRAM_TOKENS, temperature: float = 0.0,
                  context: bool = True, batch_size: int = 16) -> list[str]:
-        if not (1 <= max_new_tokens <= 1024):
-            raise ValueError("max_new_tokens must be in [1, 1024]")
+        if type(max_new_tokens) is not int or not (1 <= max_new_tokens <= 1024):
+            raise ValueError("max_new_tokens must be an int in [1, 1024]")
+        temperature = float(temperature)
+        if not (math.isfinite(temperature) and 0 <= temperature <= 10):
+            raise ValueError("temperature must be finite and in [0, 10]")
+        if not all(isinstance(p, str) for p in prompts):
+            raise TypeError("prompts must be strings")
         pre = self._pre(bool(context))
         self._calls += 1
-        outs = self._e.generate(pre, [self._e.encode(chat_user(p)) for p in prompts], max_new_tokens, float(temperature),
-                                self._seed * 7919 + self._calls, max(1, min(64, batch_size)), self._budget.charge_gen,
-                                self._budget.deadline)
+        outs = self._e.generate(pre, [self._e.encode(chat_user(p)) for p in prompts], max_new_tokens, temperature,
+                                self._seed * 7919 + self._calls, max(1, min(64, int(batch_size))), self._budget)
         return [self._e.tok.decode([t for t in o if t not in (151645, 151643)]) for o in outs]
 
     def teacher(self, prompts: list[str], completions: list[str], k: int = 20, context: bool = True,
                 batch_size: int = 8) -> list[Teacher]:
-        if len(prompts) != len(completions) or not (1 <= k <= 64):
-            raise ValueError("prompts/completions must pair up and 1 <= k <= 64")
+        if len(prompts) != len(completions) or type(k) is not int or not (1 <= k <= 64):
+            raise ValueError("prompts/completions must pair up and k must be an int in [1, 64]")
+        if not all(isinstance(x, str) for x in list(prompts) + list(completions)):
+            raise TypeError("prompts and completions must be strings")
         pre = self._pre(bool(context))
         pairs = [(self._e.encode(chat_user(p)), self._e.encode(completion_text(c))) for p, c in zip(prompts, completions)]
-        got = self._e.topk(pre, pairs, k, max(1, min(32, batch_size)), self._budget.charge_gen)
+        got = self._e.topk(pre, pairs, k, max(1, min(32, int(batch_size))), self._budget)
         return [Teacher(c, ix, lp) for c, (ix, lp) in zip(completions, got)]

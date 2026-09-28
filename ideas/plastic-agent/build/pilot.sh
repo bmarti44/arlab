@@ -42,22 +42,26 @@ IMG=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep '^arlab-plastic-a
 CACHE=/home/bmarti44/.cache/arlab/plastic-agent/pilot-eval-cache
 mkdir -p "$OUT/out" "$OUT/result" "$OUT/surface" "$CACHE"; chmod 777 "$OUT/out" "$OUT/result"
 cp "$SRC/adapt.py" "$OUT/surface/adapt.py"
-grep '^ARM' "$OUT/surface/adapt.py"
+sha256sum "$OUT/surface/adapt.py"      # the frozen harness/evaluator pick the arm from this hash (common.arm_of)
 echo "arm $ARM seed $SEED split $SPLIT; adapt $ADAPT s, gen $GEN_TOKENS, train $TRAIN_TOKENS per world; data $DATA image $IMG"
 echo "waiting for the arlab GPU lock ..."
 exec 9>/home/bmarti44/.cache/arlab/gpu.lock; flock 9
+# Only the model snapshot RUN/EVALUATE use is mounted (not the whole HF cache: no dataset is reachable). A campaign
+# mounts the full cache read-only; RUN-side code never references it beyond MODEL_DIR (see REVIEW.md, finding 5).
+MODEL_REPO=hub/models--Qwen--Qwen3-1.7B
+HFM="-v /home/bmarti44/.cache/huggingface/$MODEL_REPO:/hf/$MODEL_REPO:ro"
 ENV="-e PYTHONPATH=/frozen:/arlab_lib -e HOME=/tmp -e PYTHONDONTWRITEBYTECODE=1 -e PYTHONUNBUFFERED=1 -e HF_HOME=/hf -e HF_HUB_OFFLINE=1 -e TRANSFORMERS_OFFLINE=1"
 T0=$(date +%s)
 docker run --rm --name arlab-pilot-plastic-run --gpus all --network none --shm-size 8g --user 1000:1000 -w /tmp $ENV \
   -v $P/frozen/run:/frozen:ro -v /home/bmarti44/arlab/arlab:/arlab_lib/arlab:ro -v "$OUT/surface":/work:ro \
-  -v $DATA/train:/data/train:ro -v $DATA/$SPLIT/public:/data/public:ro -v "$OUT/out":/out -v /home/bmarti44/.cache/huggingface:/hf:ro \
+  -v $DATA/train:/data/train:ro -v $DATA/$SPLIT/public:/data/public:ro -v "$OUT/out":/out $HFM \
   $IMG python /frozen/harness.py --out /out --seed $SEED --split $SPLIT --adapt-seconds $ADAPT --gen-tokens $GEN_TOKENS \
   --train-tokens $TRAIN_TOKENS 2>&1 | grep -v -E '^(=|NVIDIA|PyTorch|Copyright|$)' | tee "$OUT/run.log"
 T1=$(date +%s)
 docker run --rm --name arlab-pilot-plastic-eval --gpus all --network none --shm-size 8g --user 0:0 -w /tmp $ENV \
   -v $P/frozen/run:/frozen:ro -v $P/frozen/eval:/eval:ro -v /home/bmarti44/arlab/arlab:/arlab_lib/arlab:ro -v "$OUT/surface":/work:ro \
   -v "$OUT/out":/run_out:ro -v $DATA/$SPLIT/public:/data/public:ro -v $DATA/$SPLIT/private:/data/private:ro -v "$OUT/result":/result \
-  -v "$CACHE":/cache -v /home/bmarti44/.cache/huggingface:/hf:ro \
+  -v "$CACHE":/cache $HFM \
   $IMG sh -c "python /eval/evaluate.py --run /run_out --out /result/metrics.json; chown -R 1000:1000 /result" 2>&1 | tail -1
 T2=$(date +%s)
 echo "RUN seconds: $((T1 - T0))  EVALUATE seconds: $((T2 - T1))  (the first EVALUATE per split also fills the base-model cache)" | tee -a "$OUT/run.log"

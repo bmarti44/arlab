@@ -11,7 +11,8 @@ none (no adaptation), icl (the transcript in the prompt: the target), placebo (t
 The baseline is naive next-token LoRA on the raw transcript text.
 ## What you may change
 adapt.py only: adapt(transcript, tool_names, gen, train) -> an adapter returned by train(...), or None. You choose the
-training data built from the transcript, the loss mix, the LoRA config and the schedule. Keep ARM = "adapter".
+training data built from the transcript, the loss mix, the LoRA config and the schedule. adapt() receives only the
+world being adapted, and its adapter is scored on that world. (The arm is chosen by frozen code, not by adapt.py.)
 API (read frozen_run/engine.py, frozen_run/trainer.py, frozen_run/common.py):
 - transcript: list of {"call": 'name(arg, ...)', "obs": output text or "error <code>"} (~500 calls, ~12k tokens).
 - gen.generate(prompts, max_new_tokens, temperature, context=True|False) and gen.teacher(prompts, completions, k,
@@ -32,12 +33,17 @@ after an error the model gets one retry that shows the failing line and its outp
 state (for changes) and the right value in the last output (for questions). Goals are like "Archive item 412.",
 "Unlock item 305, then permanently delete it.", "What is the tally checksum of <place>?",
 "Archive every unlocked <KIND> item that weighs at least 3 <unit>." (thresholds may need the unit conversion).
-Reported (not the metric): placebo_success (your LoRA of world i+1 scored on world i) and specific_gain = success −
-placebo_success; a gain that is only "format" shows up in both. Also gap_closure vs icl, per-template success s_*.
+Reported (not the metric): cross_world_success (your LoRA of world i+1 scored on world i) and specific_gain = success −
+cross_world_success; a gain that is only "format" shows up in both. Also gap_closure vs icl, per-template success s_*.
 ## Guards (runs that fail one are discarded)
 - battery_drop <= 0.02: 200 GSM8K + 100 tasks of another FauxOS world with ITS transcript in context, vs the base model.
-- prefill_tokens <= 3000: no transcript in the prompt at evaluation (ARM must stay "adapter").
-- peak memory <= 60 GB; the longest per-world adapt() <= 210 s (else invalid); non-finite training loss = invalid.
+- prefill_tokens <= 3000: no transcript in the prompt at evaluation.
+- peak memory <= 60 GB; the longest per-world adapt() <= 210 s (else invalid; world 0 also pays for importing
+  adapt.py); a non-finite loss or gradient in ANY train() call = invalid, even if you return an earlier adapter.
+- Budgets count processed positions: padded prompt blocks and every decode step of every batch row (gen), padded
+  training batches plus 2 x replay_rows x replay length when kl_base > 0 (train). A gen batch reserves its worst case
+  (rows x (longest prompt + max_new_tokens)) before it runs; unused decode steps are refunded. Every train config
+  field is type- and range-checked (e.g. replay_rows is an int in [0, 64]).
 ## Ideas worth trying (ranked in IDEA.md / TTT-DEEP-DIVE.md §4)
 1. Hindsight relabeling (the ARC-TTT recipe): turn transcript calls into (goal -> program) pairs in the evaluation's
    format, phrasing the goal from what the observations SHOW (e.g. obs "archived #412" -> "Archive item 412." ->
@@ -49,8 +55,9 @@ placebo_success; a gain that is only "format" shows up in both. Also gap_closure
 Also: self-study (gen proposes goals with the transcript in context, keep only programs consistent with the log),
 learning rate / epochs / rank / targets, error-recovery demos in the retry format (gen.retry_prompt).
 ## Rules
-- Use only the transcript and what gen / train return. Never read files, the environment or the network from
-  adapt.py; never touch the base model or gen/train internals (the harness checks the base weights between worlds);
+- Use only the transcript and what gen / train return. Never read files (including other worlds' data or anything
+  under /hf), the environment or the network from adapt.py; never touch the base model or gen/train internals (the
+  harness hashes the base weights at load, between worlds and at the end);
   relabel only from what the transcript shows: there is no simulator in RUN, and guessing hidden state is not allowed.
 - One change, one hypothesis_tag (reuse an existing tag for the same idea).
 - Read history.md: don't repeat a failed idea unless you change it materially. After 3 discards in a row, try something structurally different.

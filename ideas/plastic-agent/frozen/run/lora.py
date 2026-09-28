@@ -40,14 +40,30 @@ def _parents(model):
                     yield li, parent, name
 
 
+def _int(x, what: str) -> int:
+    if isinstance(x, bool) or not isinstance(x, int):
+        raise ValueError(f"{what} must be an int, got {x!r}")
+    return x
+
+
 def check_config(cfg: dict) -> dict:
-    r, targets = int(cfg["rank"]), tuple(cfg["targets"])
+    r = _int(cfg["rank"], "LoRA rank")
     if not 1 <= r <= MAX_RANK:
         raise ValueError(f"LoRA rank must be in [1, {MAX_RANK}]")
-    if not targets or not set(targets) <= set(TARGETS):
+    if isinstance(cfg["targets"], str):
+        raise ValueError("LoRA targets must be a list of names")
+    targets = tuple(cfg["targets"])
+    if not targets or not set(targets) <= set(TARGETS) or len(set(targets)) != len(targets):
         raise ValueError(f"LoRA targets must be a non-empty subset of {TARGETS}")
-    return {"rank": r, "alpha": float(cfg["alpha"]), "targets": list(targets),
-            "layers": None if cfg.get("layers") is None else sorted({int(x) for x in cfg["layers"]})}
+    alpha = cfg["alpha"]
+    if isinstance(alpha, bool) or not isinstance(alpha, (int, float)) or not math.isfinite(alpha) or not 0 < alpha <= 1024:
+        raise ValueError("LoRA alpha must be a finite number in (0, 1024]")
+    layers = cfg.get("layers")
+    if layers is not None:
+        layers = sorted({_int(x, "layer index") for x in layers})
+        if not layers or layers[0] < 0 or layers[-1] > 255:
+            raise ValueError("layers must be a non-empty list of layer indices")
+    return {"rank": r, "alpha": float(alpha), "targets": [t for t in TARGETS if t in targets], "layers": layers}
 
 
 def attach(model, cfg: dict, seed: int) -> dict[str, LoRALinear]:
@@ -156,7 +172,15 @@ class Merged:
         return False
 
 
-def fingerprint(model) -> float:
-    """A cheap checksum of every base parameter (detects any change to the base weights)."""
+def fingerprint(model) -> str:
+    """sha256 over the exact bytes of every base parameter and buffer (name, dtype, shape, raw bytes), in a fixed
+    order. Any change to any base weight, including permutations, changes it."""
+    import hashlib
+    h = hashlib.sha256()
     with torch.no_grad():
-        return float(sum(p.detach().double().sum().item() * (i + 1) for i, p in enumerate(model.parameters())))
+        items = list(model.named_parameters(remove_duplicate=True)) + list(model.named_buffers(remove_duplicate=True))
+        for name, t in items:
+            t = t.detach().contiguous()
+            h.update(f"{name}|{t.dtype}|{tuple(t.shape)}|".encode())
+            h.update(t.view(-1).view(torch.uint8).cpu().numpy().tobytes() if t.numel() else b"")
+    return h.hexdigest()

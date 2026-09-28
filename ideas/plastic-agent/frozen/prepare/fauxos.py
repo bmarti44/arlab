@@ -375,41 +375,77 @@ def parse_program(text: str) -> list[tuple[str, list]]:
 
 
 def run_program(spec: dict, state: dict, text: str) -> dict:
-    """Execute a program on a COPY of `state`. Returns {state, outputs, error: None | {line, obs}}."""
+    """Execute a program on a COPY of `state`. Returns {state, outputs, values, error: None | {line, obs}}.
+    values[i] is the typed answer value of line i (see value_of), None for lines that carry no answer."""
     st = copy.deepcopy(state)
     try:
         prog = parse_program(text)
     except ProgramError as e:
-        return {"state": st, "outputs": [], "error": {"line": 0, "obs": str(e)}}
-    outs = []
+        return {"state": st, "outputs": [], "values": [], "error": {"line": 0, "obs": str(e)}}
+    outs, vals = [], []
     for n, (name, args) in enumerate(prog, 1):
         obs, ok = call(spec, st, name, args)
         outs.append(obs)
+        vals.append(value_of(spec, name, args, obs) if ok else None)
         if not ok:
-            return {"state": st, "outputs": outs, "error": {"line": n, "obs": obs}}
-    return {"state": st, "outputs": outs, "error": None}
+            return {"state": st, "outputs": outs, "values": vals, "error": {"line": n, "obs": obs}}
+    return {"state": st, "outputs": outs, "values": vals, "error": None}
 
 
-def ints(s: str) -> list[int]:
-    return [int(x) for x in re.findall(r"(?<![A-Za-z0-9])-?\d+", s)]
+_ID_LIST = r"(\(none\)|\d+(?:, \d+)*)"
+_VALUE_RE = {  # op -> exact grammar of its (simulator-printed) output; group 1 is the answer value
+    "list_place": r"[a-z]+: " + _ID_LIST, "list_kind": r"[A-Z]+: " + _ID_LIST, "find_tag": r"tag [a-z]+: " + _ID_LIST,
+    "archived": r"archive: " + _ID_LIST, "count": r"count: (\d+)", "weigh": r"total: (\d+) [a-z]+",
+    "extreme": r"(?:heaviest|lightest): (\(none\)|\d+)", "newest": r"(?:newest|oldest): (\(none\)|\d+)",
+    "checksum": r"checksum: (\d+)", "convert": r"\d+ [a-z]+ = (\d+) [a-z]+",
+}
+
+
+def _typed(s: str):
+    if s == "(none)":
+        return []
+    xs = [int(x) for x in s.split(", ")]
+    return xs[0] if len(xs) == 1 else xs
+
+
+def value_of(spec: dict, name: str, args: list, obs: str):
+    """Typed answer value of one successful call: an int, a list of ints, or None (no answer).
+    answer(x) has an exact grammar: an int literal, or a string that is exactly an integer ("42", "-3") or a
+    comma-separated list of integers ("101, 202"); anything else ("42e999", "not 42", "42 or 43") is None.
+    Tool outputs are parsed with the exact grammar of their op; mutations, inspect and census carry no answer."""
+    if name == "answer":
+        (x,) = args
+        if isinstance(x, int):
+            return x
+        m = re.fullmatch(r"\s*(-?\d+(?:\s*,\s*-?\d+)*)\s*", x)
+        if not m:
+            return None
+        xs = [int(v) for v in re.split(r"\s*,\s*", m.group(1))]
+        return xs[0] if len(xs) == 1 else xs
+    rx = _VALUE_RE.get(tool_map(spec)[name]["op"])
+    m = re.fullmatch(rx, obs) if rx else None
+    return _typed(m.group(1)) if m else None
 
 
 def score(task: dict, res: dict) -> float:
-    """1.0 iff the program ran without error, the final state equals the gold state (state tasks) and the last
-    output carries exactly the gold value (answer tasks). Collateral state changes make a state task fail."""
+    """1.0 iff the program ran without error, the final state equals the gold state (state tasks) and the typed value
+    of the last line equals the gold value (answer tasks; a set answer may come in any order, without duplicates).
+    Collateral state changes make a state task fail."""
     if res["error"] is not None:
         return 0.0
     if task["check_state"] and res["state"] != task["gold_state"]:
         return 0.0
     if task["answer"] is not None:
-        if not res["outputs"]:
+        if not res["values"]:
             return 0.0
-        got = ints(res["outputs"][-1])
+        got = res["values"][-1]
         kind, val = task["answer"]["kind"], task["answer"]["value"]
-        if kind == "int" and got != [val]:
+        if kind == "int" and not (type(got) is int and got == val):
             return 0.0
-        if kind == "set" and (sorted(got) != sorted(val) or len(set(got)) != len(got)):
-            return 0.0
+        if kind == "set":
+            got = [got] if type(got) is int else got
+            if not isinstance(got, list) or sorted(got) != sorted(val) or len(set(got)) != len(got):
+                return 0.0
     return 1.0
 
 

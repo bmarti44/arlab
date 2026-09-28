@@ -21,7 +21,7 @@ budget: {unit: adapt_s_max, limit: 210}  # longest single-world adapt() wall tim
 #   If CALIBRATE reports underpowered, add holdout worlds / tasks (new data, new tag), never change the MES.
 metric: {name: success, direction: maximize, mes: 0.06}
 guards:
-  - {name: battery_drop, max: 0.02}       # forgetting battery (200 GSM8K + 100 guard-world ICL tasks) vs base; RESEARCH §7
+  - {name: battery_drop, max: 0.02}       # forgetting battery (the split's own 200 GSM8K + 100 guard-world ICL tasks) vs base
   - {name: prefill_tokens, max: 3000}     # no transcript in the prompt (surface arms ~220 tokens; the ICL arm ~12k)
   - {name: peak_mem_gb, max: 60}
 seeds: {calibration: [1, 2, 3, 4, 5], screen: 1, confirm: [2, 3], holdout: [101, 102, 103]}

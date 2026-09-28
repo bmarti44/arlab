@@ -1,18 +1,22 @@
 """Frozen EVALUATE for plastic-agent. Never imports the surface; scores only what the frozen harness saved (the
 per-world adapters) by running held-out tasks against the private FauxOS simulator.
 
+The arm is decided by frozen code (common.arm_of on /work/adapt.py, cross-checked against stats.json), never by the
+surface: "adapter" (any candidate), or the frozen references "none", "icl", "placebo".
 For each world j: merge adapter j (if any) into the base weights, then
   own      world j's tasks, prompt = system prompt with world j's tool names + goal (NO transcript; arm "icl" instead
-           puts world j's transcript in the system prompt and uses no adapter)
-  placebo  world j-1's tasks with adapter j (a LoRA trained on a different world: format without the right facts)
+           puts world j's transcript in the system prompt and uses no adapter). Every arm is scored on its own worlds;
+           for the placebo reference, adapter j was trained by the harness on world j+1's transcript.
+  cross    (arm "adapter" only, reported, never primary) world j-1's tasks with adapter j: the same-run placebo check
   battery  this adapter's share of the forgetting battery: GSM8K items, guard-world tasks with the guard world's
            transcript in context ("can it still drive elsewhere"), OASST2 text NLL
 Each task: greedy program (<= 256 tokens), executed from the world's post-exploration state; on an execution or syntax
 error one retry that shows the failing line and its output. Success = no error, exact gold state (state tasks) and the
 gold value in the last output (answer tasks). Base-model results (no adapter) are cached in /cache.
 
-metrics.json: primary = success (arm adapter), placebo_success (arm placebo) or success (arm icl);
-items = per task 0/1 for the primary. Guards read battery_drop and prefill_tokens.
+metrics.json: primary = success (own-world task success) for every arm; items = per task 0/1 for the primary.
+Guards read battery_drop and prefill_tokens. The forgetting battery (guard world, GSM8K items, text rows) is the
+split's own: validation and holdout batteries are disjoint.
 """
 import argparse
 import hashlib
@@ -27,20 +31,21 @@ import torch
 sys.path.insert(0, "/frozen")
 import lora  # noqa: E402
 from common import (GSM8K_SYSTEM, GSM8K_USER, MAX_GSM8K_TOKENS, MAX_PROGRAM_TOKENS, MODEL_DIR, STOP_IDS,  # noqa: E402
-                    chat_prefix, chat_user, retry_suffix, system_text, task_suffix)
+                    arm_of, chat_prefix, chat_user, retry_suffix, system_text, task_suffix)
 from engine import Engine  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from scoring import gsm_score  # noqa: E402
 
-EVAL_VERSION = "pa-eval-1"
-ARMS = ("adapter", "icl", "placebo")
+EVAL_VERSION = "pa-eval-2"
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--run", required=True)
 ap.add_argument("--out", required=True)
 ap.add_argument("--data", default="/data")
 ap.add_argument("--cache", default="/cache")
+ap.add_argument("--work", default="/work", help="the surface that produced the run (read only to identify the arm)")
+ap.add_argument("--frozen", default="/frozen")
 ap.add_argument("--device", default="cuda")
 ap.add_argument("--model", default=MODEL_DIR, help="tests only: a tiny random model")
 ap.add_argument("--max-new", type=int, default=MAX_PROGRAM_TOKENS, help="tests only")
@@ -63,7 +68,8 @@ def sha(path) -> str:
 
 
 D = a.data
-pub = json.load(open(f"{D}/public/worlds.json"))
+order = json.load(open(f"{D}/public/order.json"))
+pub = [json.load(open(f"{D}/public/worlds/{wid}.json")) for wid in order]
 priv = json.load(open(f"{D}/private/worlds.json"))
 guard = json.load(open(f"{D}/private/guard.json"))
 gsm = json.load(open(f"{D}/private/gsm8k.json"))
@@ -74,22 +80,26 @@ import fauxos  # noqa: E402  (the private simulator)
 # ---------------------------------------------------------------- run outputs: well-formed or invalid
 try:
     stats = json.load(open(f"{a.run}/stats.json"))
-    arm = stats["arm"]
     wids = [w["id"] for w in stats["worlds"]]
+    donors = [w["donor"] for w in stats["worlds"]]
     has = [bool(w["adapter"]) for w in stats["worlds"]]
+    nan = bool(stats["nan"]) or any(bool(w["nan_seen"]) for w in stats["worlds"])
 except Exception as e:  # missing, wrong format
     invalid(f"missing or unreadable run outputs: {e!r}"[:500])
-if arm not in ARMS:
-    invalid(f"unknown arm {arm!r}")
-if wids != [w["id"] for w in pub]:
+arm = arm_of(a.work, a.frozen)
+if stats.get("arm") != arm:
+    invalid(f"stats.json arm {stats.get('arm')!r} != the arm of this surface ({arm})")
+if wids != order:
     invalid("stats.json does not cover exactly this split's worlds in order")
-if stats.get("nan"):
-    invalid("training diverged (non-finite loss)")
+if donors != ([order[(i + 1) % len(order)] for i in range(len(order))] if arm == "placebo" else order):
+    invalid("stats.json: every candidate world must be adapted on its own transcript")
+if nan:
+    invalid("training diverged (a non-finite loss or gradient in some train() call)")
 on_disk = sorted(os.listdir(f"{a.run}/adapters")) if os.path.isdir(f"{a.run}/adapters") else []
 if on_disk != sorted(w for w, h in zip(wids, has) if h):
     invalid("adapter files do not match stats.json")
-if arm == "icl" and any(has):
-    invalid("the icl arm must not adapt")
+if arm in ("none", "icl") and any(has):
+    invalid(f"the {arm} arm must not adapt")
 
 from transformers import AutoModelForCausalLM, AutoTokenizer  # noqa: E402
 
@@ -161,7 +171,7 @@ BATCH = {"plain": 48, "icl": 16, "guard": 32}
 
 # ---------------------------------------------------------------- base model (no adapter): cached, surface-independent
 key = hashlib.sha256("|".join([EVAL_VERSION, a.model, dev, str(a.max_new)] + [sha(f"{D}/{p}") for p in (
-    "public/worlds.json", "private/worlds.json", "private/guard.json", "private/gsm8k.json", "private/text.npy")]).encode()).hexdigest()[:16]
+    ["public/order.json"] + [f"public/worlds/{wid}.json" for wid in order] + ["private/worlds.json", "private/guard.json", "private/gsm8k.json", "private/text.npy"])]).encode()).hexdigest()[:16]
 base_path = f"{a.cache}/base-{key}.json"
 icl_path = f"{a.cache}/icl-{key}.json"
 base = json.load(open(base_path)) if os.path.exists(base_path) else None
@@ -197,10 +207,11 @@ for j, w in enumerate(pub):
                         for t in p["tasks"]})
         prev = pub[(j - 1) % n]
         pp = priv[prev["id"]]
-        if ad and n > 1:      # adapter j scores world j-1: world i is scored with the adapter of world i+1
-            plc.update({k: v["s"] for k, v in run_tasks(system_text(prev["tools"]), pp["spec"], pp["end"], pp["tasks"], BATCH["plain"]).items()})
-        else:
-            plc.update({t["id"]: base["none"][t["id"]] for t in pp["tasks"]} if arm != "icl" else {})
+        if arm == "adapter":      # reported only: adapter j on world j-1 (a LoRA trained on a different world)
+            if ad and n > 1:
+                plc.update({k: v["s"] for k, v in run_tasks(system_text(prev["tools"]), pp["spec"], pp["end"], pp["tasks"], BATCH["plain"]).items()})
+            else:
+                plc.update({t["id"]: base["none"][t["id"]] for t in pp["tasks"]})
         mine_gsm = [x for k, x in enumerate(gsm) if k % n == j]
         mine_guard = [t for k, t in enumerate(guard["tasks"]) if k % n == j]
         mine_text = [k for k in range(len(text)) if k % n == j]
@@ -229,13 +240,13 @@ if arm == "icl":
     os.replace(icl_path + ".tmp", icl_path)
 icl = json.load(open(icl_path)) if os.path.exists(icl_path) else None
 none_s = float(np.mean([base["none"][t["id"]] for t in tasks]))
-plc_s = float(np.mean([plc[t["id"]] for t in tasks])) if arm != "icl" else success
+plc_s = float(np.mean([plc[t["id"]] for t in tasks])) if arm == "adapter" else None
 icl_s = float(np.mean([icl[t["id"]] for t in tasks])) if icl and set(icl) == set(own_items) else None
 b_items = [base["gsm"][x["id"]] for x in gsm] + [base["guard"][t["id"]] for t in guard["tasks"]]
 a_items = [bat_gsm[x["id"]] for x in gsm] + [bat_guard[t["id"]] for t in guard["tasks"]]
 if not all(math.isfinite(v) for v in bat_text):
     invalid("non-finite text NLL")
-m = {"success": success, "placebo_success": plc_s, "specific_gain": success - plc_s, "none_success": none_s,
+m = {"success": success, "none_success": none_s,
      "gain_vs_none": success - none_s,
      "battery_base": float(np.mean(b_items)), "battery": float(np.mean(a_items)),
      "battery_drop": float(np.mean(b_items) - np.mean(a_items)),
@@ -249,6 +260,8 @@ m = {"success": success, "placebo_success": plc_s, "specific_gain": success - pl
      "adapt_s_mean": float(np.mean([r["adapt_s"] for r in stats["worlds"]])),
      "train_tokens_mean": float(np.mean([r["train_tokens"] for r in stats["worlds"]])),
      "gen_tokens_mean": float(np.mean([r["gen_tokens"] for r in stats["worlds"]]))}
+if plc_s is not None:
+    m["cross_world_success"], m["specific_gain"] = plc_s, success - plc_s
 if icl_s is not None:
     m["icl_success"] = icl_s
     if icl_s - none_s > 0.02:
@@ -259,9 +272,6 @@ for k in (1, 2):
     sel = [own_items[t["id"]] for t in tasks if min(t["n_calls"], 2) == k]
     if sel:
         m[f"s_calls{k}"] = float(np.mean(sel))
-if arm == "placebo":
-    items, primary = {t["id"]: float(plc[t["id"]]) for t in tasks}, plc_s
-else:
-    items, primary = own_items, success
+items, primary = own_items, success
 write({"valid": True, "primary": primary, "metrics": m, "items": items, "message": f"ok ({arm})"})
 print(json.dumps(m))
