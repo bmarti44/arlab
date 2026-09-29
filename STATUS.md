@@ -13,11 +13,11 @@ Note: accept-M1 45/47 under GPU-campaign load (fixture wall-clock guard noise, s
 ## Owner follow-ups (2026-09-28)
 | Pack | State |
 |---|---|
-| agentic-coding-small | m6 stopped (load-dependent timeouts); fix TASK_SECONDS 5400; **m7 queued** |
+| agentic-coding-small | **m7 running** since 06:50Z (check CALIBRATE timeout_rate) |
 | looped-latent | **v0 done: not_found_at_this_scale** (upper bound 0.025 < MES 0.03, 20 loop designs) |
 | stencil-focus | **v0 done: not_found_at_this_scale** (15 policies, best +0.017 < MES 0.05; 7 guard_fail on output_failure_rate; reminder ≈ off 0.108/0.109 vs pilot oracle +0.27) |
-| ttt-context (TTT stage 0) | **v0 running** since 23:51Z (campaign queue; then agentic m7) |
-| plastic-agent (TTT stage 1) | redesigned; gate-2 pilot waiting for the GPU lock (arlab-p-pa-gate2) |
+| ttt-context (TTT stage 0) | **v0 done: not_found_at_this_scale** (15 recipes; baseline TTT < no_ttt: holdout d = −0.024 ± 0.027; upper bound 0.003 < MES 0.05) |
+| plastic-agent (TTT stage 1) | gate 2 **GO** (none 0.092, icl 0.579, +0.49); astra review of v1 running → then append `plastic-agent v0` to the campaign queue (before T2) |
 
 ## Resume after a CLI restart (2026-09-28)
 Running detached (unaffected by the CLI): `arlab-campaigns` (runs ~/arlab-runs/_pilots/campaign-queue.txt one by one:
