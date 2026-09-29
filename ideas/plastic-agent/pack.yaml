@@ -29,7 +29,7 @@ budget: {unit: adapt_s_max, limit: 210}  # longest single-world adapt() wall tim
 #   If CALIBRATE reports underpowered, add holdout worlds / tasks (new data, new tag), never change the MES.
 metric: {name: success, direction: maximize, mes: 0.06}
 guards:
-  - {name: battery_drop, max: 0.02}       # forgetting battery (the split's own 200 GSM8K + 100 guard-world ICL tasks) vs base
+  - {name: battery_drop, max: 0.0398}     # = max(0.02, 2*SD of 5 baseline-seed drops [0,.027,.007,.05,.03]) per IDEA.md rule (v1); forgetting battery (the split's own 200 GSM8K + 100 guard-world ICL tasks) vs base
   - {name: prefill_tokens, max: 1000}     # no transcript in the prompt: prompt positions per task incl. the retry call
                                           # (surface arms ~140 first call, <= ~400 with a retry; the ICL arm ~3.2k)
   # world-specific learning control: (success - twin_success) / (success - none_success), where twin_success = each

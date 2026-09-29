@@ -46,7 +46,7 @@ something else) and its own transcript. adapt() runs on it too (same sandbox and
 and that adapter is scored on the REAL world: twin_success. world_specific_gain = success − twin_success: gains from
 name / verb priors or format show up in both. Also gap_closure vs icl, per-template success s_*.
 ## Guards (runs that fail one are discarded)
-- battery_drop <= 0.02: 200 GSM8K + 100 tasks of another FauxOS world with ITS transcript in context, vs the base model.
+- battery_drop <= 0.0398 (set from the baseline's own seed-to-seed spread): 200 GSM8K + 100 tasks of another FauxOS world with ITS transcript in context, vs the base model.
 - prefill_tokens <= 1000: no transcript in the prompt at evaluation (prompt positions per task, retry call included).
 - world_specific_share >= 0.5: (success − twin_success) / (success − none_success) (1.0 if that gain < 0.025):
   at least half of your gain over no adaptation must come from what the RIGHT world's transcript shows.
