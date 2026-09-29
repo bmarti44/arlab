@@ -94,6 +94,14 @@ def test_prepared_data_matches_generator_and_splits_are_disjoint():
 
 
 # ================================================================ twin (control) worlds
+def test_twin_pass_is_indistinguishable_by_seed_or_scratch_name():
+    here = os.path.dirname(os.path.abspath(__file__))
+    cand = ["/frozen/run/harness.py", os.path.join(here, "..", "frozen", "run", "harness.py")]
+    src = open(next(p for p in cand if os.path.exists(p))).read()
+    assert 'mkdtemp(prefix="pa-")' in src and "+ 500" not in src
+    assert 'adapt_world(f"{wid}x", twin, a.seed * 1000 + wi)' in src
+
+
 def test_twins_are_deterministic_and_disjoint_from_every_other_world():
     """(c) Each twin is regenerated exactly from its own seed and its target; twin seeds are disjoint from the target,
     guard and other twin seeds (and seed ranges); no twin transcript equals any other transcript."""
@@ -775,6 +783,12 @@ def test_evaluator_end_to_end_and_invalid_outputs(tiny, probe_run):
     assert not variant("twin_donor", twin_stat(0, donor="v0"))["valid"]         # the control must see the twin
     assert not variant("twin_thread", twin_stat(1, violations=["thread 1"]))["valid"]
     assert not variant("twin_nan", twin_stat(0, nan_seen=True))["valid"]
+
+    def none_on_twin(d):              # astra r3: an adapter for the target but None for its twin fakes world-specificity
+        twin_stat(1, adapter=False)(d)
+        shutil.rmtree(d / "adapters" / "v1x")
+    r = variant("none_on_twin", none_on_twin)
+    assert not r["valid"] and "exactly one of target/twin" in r["message"], r["message"]
     assert not variant("nostats", lambda d: os.remove(d / "stats.json"))["valid"]
 
     def poison(d):

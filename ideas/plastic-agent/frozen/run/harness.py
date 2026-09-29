@@ -206,7 +206,7 @@ def main():
         """One adapt() pass in a fresh sandboxed child on the transcript file `src`; the adapter is saved as `wid`."""
         w = json.load(open(src))
         pre = set(descendants(me))
-        scratch = tempfile.mkdtemp(prefix=f"pa-{wid}-")    # the child's only writable dir; deleted after this world
+        scratch = tempfile.mkdtemp(prefix="pa-")    # opaque name (no world id / role): the child's only writable dir; deleted after this world
         ch = Child(a.work, scratch, deny)
         try:
             hello = ch.recv(time.monotonic() + STARTUP_S)
@@ -279,7 +279,7 @@ def main():
                 lora.detach(model)
                 if lora.n_wrapped(model):
                     raise Fatal("LoRA modules left attached")
-                rec = adapt_world(f"{wid}x", twin, a.seed * 1000 + 500 + wi)
+                rec = adapt_world(f"{wid}x", twin, a.seed * 1000 + wi)   # same seed as the target: nothing but the transcript differs
                 print(json.dumps(rec), flush=True)
                 per_twin.append(rec)
             if dev == "cuda":

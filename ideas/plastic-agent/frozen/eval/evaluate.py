@@ -245,6 +245,8 @@ for j, w in enumerate(pub):
             ctx.__exit__(None, None, None)
     if arm == "adapter":          # the control: world j scored with the adapter the surface made from j's twin
         tw = adapters.get(f"{w['id']}x")
+        if bool(tw) != bool(adapters.get(w["id"])):   # astra r3: returning None only on twins would fake world-specificity
+            invalid(f"world {w['id']}: adapter returned for exactly one of target/twin (the surface must treat both alike)")
         if tw:
             with lora.Merged(model, *tw):
                 mism.update({k: v["s"] for k, v in run_tasks(system_text(w["tools"]), p["spec"], p["end"], p["tasks"], BATCH["plain"]).items()})
