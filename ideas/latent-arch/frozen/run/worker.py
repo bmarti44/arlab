@@ -5,8 +5,12 @@ lockdown (readable: the Python install, /usr, /etc, /proc, /sys, this directory 
 GPU and its own scratch dir; nothing else: no eval data, no evaluator code, no result dir, no TCP, no signals or
 ptrace-style access to the evaluator) -> self-check (the --deny files and /proc/<parent>/mem must not open, /tmp must
 not be writable) -> hello -> import /work/train.py -> make_model(config) -> copy the checkpoint tensors into its
-parameters/buffers (names, shapes and dtypes must match exactly) -> eval() -> report the tensor hash and the
-hidden-state inventory -> serve forward requests; a "check" request re-reports hash + inventory (after scoring).
+parameters/buffers (names, shapes and dtypes must match exactly) -> eval() -> report the tensor hash, the
+hidden-state inventory (incl. storage bytes not covered by registered tensors) and new OS threads/child processes ->
+serve forward requests; a "check" request re-reports all three (after scoring). Before the surface is imported, torch's
+own thread pools are warmed up, the OS thread set is recorded, and every Python-level thread/process start is
+disabled: the metering dispatch modes are thread-local, so all surface computation must run on the calling thread
+(checked again at OS level after every forward).
 
 Request: a JSON line {"op": "fwd", "shape": [B, T], "last": bool} followed by B*T int32 token ids on stdin (the worker
 builds its own tensor from those bytes: nothing it receives aliases evaluator memory). Reply: a JSON line
@@ -103,6 +107,78 @@ def hidden_state(model: torch.nn.Module, work: str) -> list:
     return found
 
 
+def uncovered_storage(model: torch.nn.Module) -> list:
+    """Every byte of every storage behind a registered parameter/buffer must belong to a registered, contiguous
+    tensor (so it is checkpointed, counted and hashed): registering backing[:1] and keeping backing[1:] as a
+    hidden cache is rejected."""
+    by = {}
+    for name, t in list(model.named_parameters()) + list(model.named_buffers()):
+        st = t.untyped_storage()
+        if st.nbytes() == 0:
+            continue
+        e = by.setdefault(st.data_ptr(), [st.nbytes(), [], name])
+        if t.is_contiguous():
+            o = t.storage_offset() * t.element_size()
+            e[1].append((o, o + t.numel() * t.element_size()))
+    bad = []
+    for n, spans, name in by.values():
+        end = 0
+        for a, b in sorted(spans):
+            if a > end:
+                break
+            end = max(end, b)
+        if end < n:
+            bad.append(f"{name}: storage of {n} bytes, only the first {end} covered by registered tensors")
+    return bad
+
+
+def _forbidden(*args, **kwargs):
+    raise RuntimeError("threads and child processes are not allowed in the evaluation worker "
+                       "(FLOPs and ops are metered on the calling thread only)")
+
+
+def forbid_threads_and_processes():
+    """Before the surface is imported: every Python-level way to start a thread or a process raises."""
+    import _posixsubprocess
+    import _thread
+    import threading
+    import subprocess
+    for mod, names in ((_thread, ("start_new_thread", "start_new", "start_joinable_thread")),
+                       (threading, ("_start_new_thread", "_start_joinable_thread")),
+                       (_posixsubprocess, ("fork_exec",)), (subprocess, ("_fork_exec",)),
+                       (os, ("fork", "forkpty", "posix_spawn", "posix_spawnp", "system", "popen", "register_at_fork"))):
+        for n in names:
+            if hasattr(mod, n):
+                setattr(mod, n, _forbidden)
+
+
+def os_tasks() -> tuple:
+    """(thread ids of this process, child process ids) as seen by the kernel."""
+    tids = set(os.listdir("/proc/self/task"))
+    kids = set()
+    for t in tids:
+        try:
+            kids |= set(open(f"/proc/self/task/{t}/children").read().split())
+        except OSError:
+            pass
+    return tids, kids
+
+
+def warm_torch(dev: str):
+    """Run the common kernels once so torch's own thread pools (OpenMP / CUDA) exist before the baseline is taken."""
+    g = torch.Generator(device="cpu").manual_seed(0)
+    x = torch.randn(4, 256, 512, generator=g).to(dev)
+    w = torch.randn(512, 512, generator=g).to(dev)
+    with torch.no_grad(), torch.autocast(torch.device(dev).type, dtype=torch.bfloat16):
+        for _ in range(2):
+            h = torch.nn.functional.layer_norm(x @ w, (512,)).softmax(-1)
+            q = h.view(4, 256, 8, 64).transpose(1, 2)
+            h = torch.nn.functional.scaled_dot_product_attention(q, q, q, is_causal=True)
+            torch.nn.functional.embedding(torch.randint(0, 512, (4, 256), generator=g).to(dev), w).float().cumsum(1).sum()
+    if dev == "cuda":
+        torch.cuda.synchronize()
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--work", required=True)
@@ -144,6 +220,14 @@ def main():
         return
     try:
         cfg = json.loads(stdin.readline())["config"]
+        warm_torch(dev)
+        forbid_threads_and_processes()
+        base_tids, _ = os_tasks()
+
+        def new_tasks() -> list:
+            tids, kids = os_tasks()
+            return [f"thread {t}" for t in sorted(tids - base_tids)] + [f"child process {k}" for k in sorted(kids)]
+
         sys.path.insert(0, a.work)
         import train as surface
         model = surface.make_model(dict(cfg))
@@ -163,7 +247,8 @@ def main():
         model.eval()
 
         def state():
-            return {"tensors_hash": tensors_hash(model_tensors(model)), "hidden": hidden_state(model, a.work)}
+            return {"tensors_hash": tensors_hash(model_tensors(model)),
+                    "hidden": hidden_state(model, a.work) + uncovered_storage(model), "threads": new_tasks()}
 
         send({"op": "ready", **state()})
         while True:
@@ -180,6 +265,8 @@ def main():
             raw = stdin.read(B * T * 4)
             x = torch.from_numpy(np.frombuffer(raw, dtype=np.int32).astype(np.int64).reshape(B, T)).to(dev)
             lg, flops, bad = metered(model, x)
+            if new_tasks():
+                raise RuntimeError(f"threads/processes started by surface code: {new_tasks()[:5]}")
             if not isinstance(lg, torch.Tensor) or tuple(lg.shape) != (B, T, VOCAB):
                 raise ValueError(f"model(x) must return logits (B, T, {VOCAB}) for x {(B, T)}; "
                                  f"got {getattr(lg, 'shape', type(lg))}")

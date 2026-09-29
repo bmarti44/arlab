@@ -160,7 +160,7 @@ try:
     finally:
         w.close()
     if bad_ops:
-        invalid(f"ops outside aten/prims in the forward pass (custom kernels are not allowed): {sorted(bad_ops)[:5]}")
+        invalid(f"rejected ops in the forward pass (outside aten/prims, or compute without a FLOP price): {sorted(bad_ops)[:5]}")
     w = start()                                                            # fresh process: has never seen the originals
     causal = 0.0
     try:
@@ -178,7 +178,7 @@ try:
     finally:
         w.close()
     if bad_ops:
-        invalid(f"ops outside aten/prims in the forward pass (custom kernels are not allowed): {sorted(bad_ops)[:5]}")
+        invalid(f"rejected ops in the forward pass (outside aten/prims, or compute without a FLOP price): {sorted(bad_ops)[:5]}")
 except WorkerFailure as e:
     invalid(e)
 rep = accuracy_report(np.concatenate(preds), d, idx)

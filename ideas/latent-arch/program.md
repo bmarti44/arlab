@@ -31,7 +31,8 @@ file except the Python install and your two files; it scores the returned logits
 - params_m (every float element of every checkpointed tensor, buffers included; non-float tensors count per byte)
   ≤ 1.05× baseline (~27.7 M), and params_bytes (total checkpoint bytes) ≤ 1.05×: loops must reuse weights, and
   packing weights into other dtypes gains nothing. ALL tensor state must be registered parameters or buffers:
-  a tensor reachable from the model, its modules or your code that is not one of them makes the run invalid.
+  a tensor reachable from the model, its modules or your code that is not one of them makes the run invalid,
+  and every registered tensor's storage must be fully covered by registered tensors (no private tail of a buffer).
 - infer_flops_tok (FLOPs counted per token on the actual inputs, so adaptive depth is counted where it happens;
   matmul/attention by formula, every other op that reads tensors — elementwise, reductions, gathers — at least its
   element count) ≤ 2.0× baseline; infer_s (timed eval forward) ≤ 2.5×; RUN wall time ≤ 1.3×; peak memory ≤ 40 GB.
@@ -48,6 +49,8 @@ file except the Python install and your two files; it scores the returned logits
   tokens to reason over them), in training or in forward.
 - forward must be a pure function of its input: no caches or state carried across calls, no timing- or
   shape-dependent special paths, no kernels launched outside torch ops (FLOPs must be countable).
+  No threads or processes in make_model/forward (invalid: FLOPs are metered on the calling thread). Ops without
+  a FLOP formula that are not elementwise/reduction/data-movement are rejected (the error names them).
 - Train only on the batches the harness hands you: no generating synthetic programs, no reading files, the
   environment or the network, no touching the harness, its clock or its globals.
 ## Ideas worth trying (IDEA.md)

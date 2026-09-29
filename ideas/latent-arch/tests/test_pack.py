@@ -574,11 +574,73 @@ def test_evaluator_rejects_hidden_or_changing_model_state(tmp_path):
         assert not m["valid"] and why in m["message"], (name, m["message"])
 
 
+BACKED = """
+import torch
+class M(torch.nn.Module):
+    # registers backing[:1] as the buffer, keeps backing[1:] (same storage, never checkpointed) as a mutable cache
+    def __init__(self):
+        super().__init__()
+        backing = torch.zeros(1001)
+        self.register_buffer("w", backing[:1])
+        self.cache = backing[1:]
+    def forward(self, idx):
+        self.cache[:10] += 1.0
+        return torch.zeros(*idx.shape, 8192) + self.w
+def make_model(config):
+    return M()
+"""
+
+
+def test_registered_tensors_must_cover_their_whole_storage(tmp_path):
+    m = _fake_run(tmp_path, "backed", BACKED, ckpt={"w": torch.zeros(1)})
+    assert not m["valid"] and "unregistered tensor state" in m["message"] and "only the first 4" in m["message"], \
+        m["message"]
+
+
+THREADED = """
+import torch
+{setup}
+class M(torch.nn.Module):
+    def forward(self, idx):
+        {fwd}
+        return torch.zeros(*idx.shape, 8192)
+def make_model(config):
+    return M()
+"""
+NATIVE = """
+import ctypes, time
+libc = ctypes.CDLL(None)
+CB = ctypes.CFUNCTYPE(ctypes.c_void_p, ctypes.c_void_p)
+def body(arg):
+    time.sleep(60)          # runs torch ops unmetered in real life; here it only has to exist
+    return None
+cb, TID, started = CB(body), ctypes.c_ulong(), []
+def start():
+    if not started:
+        started.append(libc.pthread_create(ctypes.byref(TID), None, cb, None))
+"""
+
+
+def test_worker_forbids_threads_and_processes(tmp_path):
+    """The metering dispatch modes are thread-local: surface computation on another thread would be unmetered."""
+    for name, setup, fwd, why in (
+            ("pythread", "import threading", "threading.Thread(target=lambda: None).start()", "not allowed"),
+            ("proc", "import subprocess", "subprocess.run(['true'])", "not allowed"),
+            ("native", NATIVE, "start()", "started by surface code")):
+        m = _fake_run(tmp_path, name, THREADED.format(setup=setup, fwd=fwd))
+        assert not m["valid"] and why in m["message"], (name, m["message"])
+
+
 def test_worker_cannot_read_labels_patch_the_scorer_or_forge_results(tmp_path):
     out = tmp_path / "evil.json"
     m = _fake_run(tmp_path, "evil", EVIL.format(data=os.path.abspath(D), out=out))
     assert m["valid"], m["message"]                            # every attack failed (make_model asserts that) ...
     assert m["primary"] == 0.0 and m["metrics"]["acc_ext"] == 0.0   # ... and the scores are the honest ones
+
+
+class _Zero(torch.nn.Module):
+    def forward(self, idx):
+        return torch.zeros(*idx.shape, VOCAB)
 
 
 class Broadcast(torch.nn.Module):
@@ -632,6 +694,23 @@ def test_flop_counter_counts_loops_and_flags_custom_ops():
             return double(super().forward(idx))
 
     assert any("latentarch_test" in op for op in meter.metered(Custom(1), x)[2])
+    M_, K_, N_ = 64, 48, 32
+    a, w, b = torch.randn(M_, K_), torch.randn(K_, N_), torch.randn(N_)
+
+    class Fused(torch.nn.Module):   # fused matmul + bias + GELU: priced as a matmul, not as elementwise
+        def forward(self, idx):
+            torch.ops.aten._addmm_activation(b, a, w, use_gelu=True)
+            return torch.zeros(*idx.shape, VOCAB)
+
+    ff = meter.metered(Fused(), x)[1] - meter.metered(_Zero(), x)[1]
+    assert 2 * M_ * N_ * K_ <= ff <= 1.1 * 2 * M_ * N_ * K_, ff
+
+    class Unpriced(torch.nn.Module):  # a compute op with no FLOP formula and not on the elementwise allowlist
+        def forward(self, idx):
+            torch.linalg.solve(torch.eye(16) * 2, torch.ones(16, 4))
+            return torch.zeros(*idx.shape, VOCAB)
+
+    assert any(op.startswith("unpriced:") and "solve" in op for op in meter.metered(Unpriced(), x)[2])
     q = torch.randn(1, 2, 16, 8)
 
     class Attn(torch.nn.Module):   # SDPA on CPU is counted like the CUDA kernels

@@ -230,7 +230,7 @@ Seeds: calibration [1–5], screen 1, confirm [2, 3], holdout [101, 102, 103].
   future-peeking model, relabelling round-trip, a surface that hard-codes a token id loses accuracy under relabelling,
   harness deadline stops a slow `train_step` and marks > 360 s invalid.
 
-## As built / known limits (v0 build + hardening after two astra reviews)
+## As built / known limits (v0 build + hardening after three astra reviews)
 
 - **Programs.** Every program has exactly 2 constants (statements 0 and 1) + 12 operations (83 prompt tokens, 84
   with the answer), so length carries no depth signal. The queried statement's index is uniform on 11..13 for every
@@ -261,10 +261,18 @@ Seeds: calibration [1–5], screen 1, confirm [2, 3], holdout [101, 102, 103].
   attributes and the surface's modules, globals, closures and classes; the evaluator requires the hash to equal the
   supervisor's checkpoint hash and the inventory to be empty (views of registered storage allowed), before scoring
   and again after it (so `eval()`/`train()` overrides or forwards that modify weights, and caches, are caught).
+  Every byte of every storage behind a registered tensor must be covered by registered contiguous tensors (a
+  buffer registered as `backing[:1]` with `backing[1:]` kept as a cache is invalid). Threads and processes: before
+  the surface is imported the worker warms torch's own thread pools, records the OS thread set and disables every
+  Python-level thread/process start (`_thread`, `threading`, `subprocess`, `_posixsubprocess`, `os.fork/spawn/
+  system/popen`); after every forward and at each state check, any new OS thread (`/proc/self/task`) or child
+  process makes the run invalid — the metering dispatch modes are thread-local.
   Warm-up uses random tokens only; every held-out prompt is sent only in the metered, audited scoring pass.
-  FLOPs: matmul/attention by formula; every other op that reads tensors (elementwise, reductions, gathers, copies)
-  is charged max(elements read, written), so broadcast-multiply + sum costs about what the matmul does; views and
-  factories are free. `infer_flops_tok` = mean of the per-token counts on text and programs (actual shapes).
+  FLOPs: matmul/attention/conv/FFT by formula (torch's registry plus `_addmm_activation`, `addbmm`, `mv`,
+  `addmv`, `addr`, `dot`, `_int_mm`, CPU flash SDPA, FFTs); ops tagged pointwise/reduction and an explicit list of
+  normalization/softmax/data-movement/scan/sort ops are charged max(elements read, written), so broadcast-multiply +
+  sum costs about what the matmul does; views and factories are free; **any other op that reads tensors is
+  rejected** (`unpriced:<op>`, run invalid). Extending the formulas or the allowlist is a pack change. `infer_flops_tok` = mean of the per-token counts on text and programs (actual shapes).
   Causality: for 4 text rows, 16 cut points per row, one drawn at random (os.urandom) in each of 16 equal strata of
   positions 0..1022, so every region of the row, including the last 64 positions, is probed on every evaluation;
   the future after the cut is replaced by random tokens and re-scored in a *fresh* worker, invalid if any logit at
@@ -277,10 +285,13 @@ Seeds: calibration [1–5], screen 1, confirm [2, 3], holdout [101, 102, 103].
   inventory run inside the worker process, next to the surface, which could in principle tamper with them. (3) A
   symbolic interpreter inside the surface (relabelling is obfuscation: the token roles are learnable from training
   data) is forbidden by program.md, not detected. (4) `make_model()` runs in EVALUATE with a 120 s limit and no data
-  access; it could still do data-free precomputation. (5) Landlock + CUDA in the worker is tested on CPU only until
-  the GPU PROBE. (6) Causality is sampled (64 cut points per evaluation, fresh random positions each time), not
+  access; it could still do data-free precomputation. (5) Landlock + CUDA in the worker, and the strict OS-thread check
+  on CUDA (it assumes CUDA/cuBLAS create no new threads after the pre-import warm-up), are tested on CPU only until
+  the GPU PROBE; a baseline flagged for threads there means the warm-up must be widened, not the check dropped. (6) Causality is sampled (64 cut points per evaluation, fresh random positions each time), not
   exhaustive: a surface that peeks only at a few specific positions is caught only with probability ~ (positions
   hit by some cut) — it would have to be tuned to the eval format, which program.md forbids. (7) The inventory does
   not see state in Python lists/scalars, in modules outside the surface, or monkey-patched onto torch itself;
   element counting can be gamed by packing into float dtypes, bounded by the bytes guard (same bytes = same
-  information). (8) Elementwise FLOPs are a lower bound (e.g. exp counts 1 per element).
+  information). (8) Elementwise FLOPs are a lower bound (e.g. exp counts 1 per element). (9) Native threads started
+  through ctypes (`pthread_create`) that finish within a single forward leave no trace in `/proc/self/task`; only
+  threads still alive after a forward are caught (ctypes-level tricks are the same class as limit 2).

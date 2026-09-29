@@ -98,6 +98,8 @@ class Worker:
             raise WorkerFailure(f"model parameters/buffers differ from the checkpoint {when}")
         if msg.get("hidden") != []:
             raise WorkerFailure(f"unregistered tensor state {when}: {str(msg.get('hidden'))[:500]}")
+        if msg.get("threads") != []:
+            raise WorkerFailure(f"threads or child processes started by surface code {when}: {str(msg.get('threads'))[:300]}")
 
     def forward(self, x: np.ndarray, last: bool = False) -> tuple[torch.Tensor, int, list]:
         x = np.ascontiguousarray(x, dtype=np.int32)
