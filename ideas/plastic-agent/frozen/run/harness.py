@@ -17,13 +17,19 @@ descendant process, any orphan re-parented to this subreaper) and records each a
 invalidates the run), then kills the process group and every descendant BEFORE it saves the world's adapter. Nothing
 the surface started can run after adapt() returns, and the next world starts in a new process: no state carries over.
 
+World-specific control: for a candidate ("adapter" arm) every target world is followed by a second, identical pass on
+its TWIN (public/twins/<id>.json: the same tool names and argument vocabulary, other semantics, its own exploration
+transcript), whose adapter is saved as adapters/<id>x and scored by the evaluator on the TARGET world. The child cannot
+tell the passes apart by anything but the transcript it is given. Every pass has the full per-world budget.
+
 The arm is chosen by frozen code (common.arm_of: the sha256 of /work/adapt.py against the frozen references), never by
-the surface. Only the placebo reference changes what adapt() receives: for world i it gets the transcript and tool
-names of world i+1 (mod n). The base weights are hashed (sha256 over every parameter and buffer) at load and after
+the surface. The placebo reference adapts each world to its twin's transcript only (scored on the target).
+The base weights are hashed (sha256 over every parameter and buffer) at load and after
 every world. Any non-finite loss/gradient in any train() call makes the run invalid (stats.nan).
 
 Outputs in --out (written only by this process; scored only by the frozen evaluator):
   adapters/<world_id>/adapter.{safetensors,json}   one per world whose adapt() returned an adapter (this process's copy)
+  adapters/<world_id>x/...                         the candidate's twin (control) adapter of that world
   stats.json     arm, per-world timings / tokens / trainer stats / sandbox self-check / violations (all trusted)
   budget.json    {"adapt_s_max": the longest per-world adapt() wall time}
 """
@@ -130,12 +136,10 @@ def main():
     order = json.load(open(f"{a.data}/public/order.json"))
     if a.limit_worlds:
         order = order[:a.limit_worlds]
-    if arm == "placebo" and len(order) < 2:
-        raise SystemExit("the placebo arm needs at least two worlds")
     replay = np.load(f"{a.data}/train/replay.npy")
     # files the child's self-check must fail to open: every data file RUN can see, the model snapshot
     deny = [f"{a.data}/public/order.json", f"{a.data}/train/replay.npy", f"{MODEL_DIR}/config.json", f"{a.model}/config.json"] + \
-        [f"{a.data}/public/worlds/{x}.json" for x in order]
+        [f"{a.data}/public/{d}/{x}.json" for x in order for d in ("worlds", "twins")]
     deny = [p for p in dict.fromkeys(deny) if os.path.isfile(p)]
 
     tok = AutoTokenizer.from_pretrained(MODEL_DIR)
@@ -198,9 +202,9 @@ def main():
             r = {"ok": False, "kind": "value", "msg": repr(e)[:1000]}
         return {**r, "gen_left": budget.gen_cap - budget.gen_used, "train_left": budget.train_cap - budget.train_used}
 
-    def adapt_world(wi: int, wid: str, donor: str) -> dict:
-        w = json.load(open(f"{a.data}/public/worlds/{donor}.json"))
-        s = a.seed * 1000 + wi
+    def adapt_world(wid: str, src: str, s: int) -> dict:
+        """One adapt() pass in a fresh sandboxed child on the transcript file `src`; the adapter is saved as `wid`."""
+        w = json.load(open(src))
         pre = set(descendants(me))
         scratch = tempfile.mkdtemp(prefix=f"pa-{wid}-")    # the child's only writable dir; deleted after this world
         ch = Child(a.work, scratch, deny)
@@ -257,35 +261,44 @@ def main():
         if res is not None:
             cfg, tens = trainer.saved(res)
             lora.save(f"{a.out}/adapters/{wid}", cfg, tens)
-        return {"id": wid, "donor": donor, "adapter": res is not None, "adapt_s": t_end - t0, "killed": killed,
+        return {"id": wid, "donor": w["id"], "adapter": res is not None, "adapt_s": t_end - t0, "killed": killed,
                 "gen_tokens": budget.gen_used, "train_tokens": budget.train_used, "budget_hit": hit,
                 "adapter_params_m": lora.n_params(tens) / 1e6 if res is not None else 0.0, "train_calls": trainer.calls,
                 "nan_seen": trainer.nan_seen, "train": trainer.saved_stats(res) if res is not None else None,
                 "teacher_calls": len(teachers), "sandbox": sandbox, "violations": viol, "stray_processes_killed": n_strays}
 
-    per_world, t_all = [], time.monotonic()
+    per_world, per_twin, t_all = [], [], time.monotonic()
     try:
         for wi, wid in enumerate(order):
-            donor = order[(wi + 1) % len(order)] if arm == "placebo" else wid
-            rec = adapt_world(wi, wid, donor)
+            world, twin = f"{a.data}/public/worlds/{wid}.json", f"{a.data}/public/twins/{wid}.json"
+            # the placebo reference adapts to the twin (same names, other semantics) and is scored on the target
+            rec = adapt_world(wid, twin if arm == "placebo" else world, a.seed * 1000 + wi)
+            print(json.dumps(rec), flush=True)
+            per_world.append(rec)
+            if arm == "adapter":      # the world-specific control: the same surface adapts to the target's twin
+                lora.detach(model)
+                if lora.n_wrapped(model):
+                    raise Fatal("LoRA modules left attached")
+                rec = adapt_world(f"{wid}x", twin, a.seed * 1000 + 500 + wi)
+                print(json.dumps(rec), flush=True)
+                per_twin.append(rec)
             if dev == "cuda":
                 torch.cuda.empty_cache()
             check_base(f"after world {wid}")
-            per_world.append(rec)
-            print(json.dumps(rec), flush=True)
     except (Fatal, ValueError) as e:
         print(f"HARNESS: {e}", file=sys.stderr, flush=True)
         sys.exit(1)
 
-    for name, obj in (("budget.json", {"adapt_s_max": max((r["adapt_s"] for r in per_world), default=0.0)}),
-                      ("stats.json", {"arm": arm, "split": a.split, "seed": a.seed, "worlds": per_world,
+    passes = per_world + per_twin
+    for name, obj in (("budget.json", {"adapt_s_max": max((r["adapt_s"] for r in passes), default=0.0)}),
+                      ("stats.json", {"arm": arm, "split": a.split, "seed": a.seed, "worlds": per_world, "twins": per_twin,
                                       "run_s": time.monotonic() - t_all, "base_sha256": fp0,
-                                      "nan": any(r["nan_seen"] for r in per_world),
-                                      "violations": sum(len(r["violations"]) for r in per_world)})):
+                                      "nan": any(r["nan_seen"] for r in passes),
+                                      "violations": sum(len(r["violations"]) for r in passes)})):
         with open(f"{a.out}/{name}.tmp", "w") as f:
             json.dump(obj, f)
         os.replace(f"{a.out}/{name}.tmp", f"{a.out}/{name}")
-    print(json.dumps({k: v for k, v in obj.items() if k != "worlds"}), flush=True)
+    print(json.dumps({k: v for k, v in obj.items() if k not in ("worlds", "twins")}), flush=True)
 
 
 if __name__ == "__main__":

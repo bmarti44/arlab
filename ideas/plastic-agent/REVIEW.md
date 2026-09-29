@@ -166,3 +166,72 @@ Tested: the sums are consistent, and the retry context is counted when the tiny 
   the guard means at this scale.
 
 Pack tests: 25 CPU tests pass.
+
+---
+# gpt-6-astra review (round 3) and orchestrator response (2026-09-29)
+
+Round 3 finding (material): the round-2 control scored world i with the adapter of ANOTHER world (i+1). That world has
+different tool NAMES as well as semantics, so a surface that learns only fixed verb-family priors over tool names
+(transcript ignored) scored 33.3% val / 44.2% holdout while donor adapters scored ~0.4% (they emit names that do not
+exist). Generic name heuristics therefore looked world-specific and passed `world_specific_share`. Leakage, budget
+and scorer: none new.
+
+**Fixed with paired control ("twin") worlds.**
+- PREPARE: `fauxos.gen_twin(target_spec, seed)` builds one twin per validation / holdout world. Its seeds are
+  26_093_000+i (validation) and 26_093_100+i (holdout), disjoint from the target, guard and each other.
+  - Kept from the target: the tool names, the operation set (so the same task templates and wording), and the
+    argument vocabulary (kinds, places, tags, units).
+  - Redrawn: a derangement of which name does what (every name gets another operation), plus fresh argument orders,
+    variants, objects, error codes and unit conversion.
+  - The same frozen explorer writes the twin's own transcript to `public/twins/<id>.json`. The twin's spec and end
+    state go to `private/twins.json`, used by tests only.
+- RUN, candidates only: after each world the supervisor runs a second, identical `adapt()` pass on the twin's
+  transcript, with a fresh sandboxed child and the full per-world budget. The child learns nothing about which pass it
+  is. The adapter is saved as `adapters/<id>x`, and every pass counts for `adapt_s_max`, NaN and violations.
+- The placebo reference now adapts to the twin instead of world i+1.
+- EVALUATE: world i is scored with its twin adapter merged. The metrics are `twin_success` and
+  `world_specific_gain` = success − twin_success, and the guard `world_specific_share` (min 0.5, 1.0 when
+  success − none < 0.025) is unchanged. A candidate run without exactly one twin pass per world on the twin's
+  transcript is invalid, and so is a missing twin adapter.
+- Tests:
+  - (a) Twin and target share the sorted tool names, operation set / templates, kinds, places, tags and units.
+    Every name → operation mapping differs (11/11 in every world), the objects differ, and the twin transcript uses
+    only the target's names and vocabulary.
+  - (b) In memory on the prepared data, the real simulator and scorer:
+
+    | policy | control | validation success | validation control | share | holdout success | holdout control | share |
+    |---|---|---|---|---|---|---|---|
+    | names-only (review's counterexample) | twin | 0.296 | 0.296 | 0.0, fails | 0.369 | 0.369 | 0.0, fails |
+    | names-only | old donor world | 0.296 | 0.0 | 1.0 (the flaw) | 0.369 | 0.0 | 1.0 (the flaw) |
+    | reads operations and argument orders from the transcript | twin | 1.00 | 0.00 | 1.0 | 1.00 | 0.00 | 1.0 |
+
+  - (c) Twins are regenerated exactly from their seed and their target, as are their transcripts and end states.
+    Their seeds and seed ranges are disjoint from every other world, and every transcript is unique.
+  - The harness, evaluator and reference tests now cover the twin passes: four fresh processes in the probe run,
+    twin adapters on disk, twin donor / NaN / thread / missing-pass variants invalid, and the twin pass killed at
+    deadline + grace too.
+- Residual (IDEA.md caveat 5): twins are statistically distinguishable. Target names were drawn conditioned on target
+  semantics, so 1–10 of 11 verbs are consistent with what the transcript shows, against 0–2 in a twin (0 in 83% of
+  400 simulated twins).
+  - A surface that detected twins and deliberately adapted worse on them would get share ~1 for name-prior gains.
+  - program.md now forbids it, and it would be visible in the diff.
+  - A real fix needs worlds whose names do not depend on their semantics, i.e. new worlds (v2). The gate-2 worlds
+    and task difficulty are unchanged here.
+
+**Cost.**
+- PREPARE: +0.03 s (12 twins generated and explored), +108 KB of public data.
+- RUN (candidates): the twin pass doubles the adapt passes, to 8 on validation and 16 on holdout. The base-weight
+  hash runs once per world pair, so there are still n+1 hashes.
+  - Worst case, every pass using its full 180 s + 15 s grace: validation ~1,700 s, holdout ~3,350 s (16 × 195 +
+    9 × ~20 s hashes + ~45 s load).
+  - The old `run.timeout_s: 2700` would kill a full-budget holdout run, so it is raised to 4000 (holdout worst case
+    + ~20 %). Calibrate in the GPU pilot.
+  - A baseline-like surface (~30–60 s per pass, uncalibrated) should take ~9 min per validation RUN and ~16 min per
+    holdout RUN.
+  - The references do not run twin passes: the placebo still runs one pass per world, on the twin.
+- EVALUATE: one extra merge per world plus the control pass. That pass existed before as the cross-world pass. Est.
+  ~15–40 s validation, ~35–100 s holdout. `evaluate.timeout_s: 3000` is unchanged.
+- Campaign throughput: full-budget candidates now take up to ~30 min per validation run, so fewer experiments fit in
+  `max_hours: 16`. The campaign limits are unchanged; that is the orchestrator's call.
+
+Pack tests: 28 CPU tests pass.

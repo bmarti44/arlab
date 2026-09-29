@@ -5,6 +5,9 @@ Layout written under --out:
   {validation,holdout}/public/order.json     [world ids] in harness order                           <- all RUN sees
   {validation,holdout}/public/worlds/<id>.json  {id, tools (sorted names), transcript: [{call, obs}]}   (one file per
                                               world: the harness loads only the world being adapted)
+  {validation,holdout}/public/twins/<id>.json   the target world <id>'s paired CONTROL world ("twin"): {id: <id>x,
+                                              tools (the SAME sorted names), transcript of the twin (same explorer)}
+  {validation,holdout}/private/twins.json    {target id: {id, seed, spec, end}} of the twins (tests only)
   {validation,holdout}/private/worlds.json   {id: {spec, end, tasks: [{id, goal, template, n_calls, check_state,
                                               gold_state, answer, reference}]}}
   {validation,holdout}/private/guard.json    the split's guard world (own seed): tools, transcript, spec, end, tasks
@@ -13,7 +16,10 @@ Layout written under --out:
   {validation,holdout}/private/fauxos.py     the simulator, for the evaluator (a copy of /prepare/fauxos.py)
   train/replay.npy                           OASST2 rows for KL-to-base / replay (disjoint from text.npy)
   splits.json, info.json
-World seeds: validation, holdout and the two guard worlds come from disjoint seed ranges; each world's tasks start
+World seeds: validation, holdout, the two guard worlds and the twins come from disjoint seed ranges. A twin
+(fauxos.gen_twin) has the target's tool names, operation set and argument vocabulary but deranged name -> operation
+semantics, fresh argument orders, variants and objects; the surface adapts to it like to any world and the evaluator
+scores that control adapter on the TARGET world's tasks (world_specific_gain). each world's tasks start
 from the state its exploration ended in; tasks and gold outcomes are private. The forgetting batteries of the two
 splits (guard world, GSM8K items, text rows) are disjoint. The raw dataset files are read only here (their paths are
 not in frozen/run/); the evaluator reads the private copies.
@@ -37,7 +43,8 @@ OASST_FILE = ("/hf/hub/datasets--OpenAssistant--oasst2/snapshots/179dd21fc551921
               "2023-11-05_oasst2_ready.trees.jsonl.gz")
 GSM8K_FILE = "/hf/hub/datasets--openai--gsm8k/snapshots/740312add88f781978c0658806c59bc2815b9866/main/test-00000-of-00001.parquet"
 
-SEED_BASE = {"validation": 26_092_700, "holdout": 26_092_800, "guard": 26_092_900}   # disjoint ranges of 100
+SEED_BASE = {"validation": 26_092_700, "holdout": 26_092_800, "guard": 26_092_900,        # disjoint ranges of 100
+             "twin_validation": 26_093_000, "twin_holdout": 26_093_100}
 N_WORLDS = {"validation": 4, "holdout": 8}
 N_TASKS = {"validation": 60, "holdout": 80}   # per world: 240 / 640 items; power arithmetic in pack.yaml / IDEA.md
 N_EXPLORE = 120           # tool calls per exploration transcript (~2.5k tokens; CALIBRATE with the gate)
@@ -71,18 +78,25 @@ def build_world(wid: str, seed: int, n_explore: int, n_tasks: int) -> tuple[dict
 from transformers import AutoTokenizer  # noqa: E402
 
 tok = AutoTokenizer.from_pretrained(MODEL_DIR)
-info = {"seed_base": SEED_BASE, "n_explore": N_EXPLORE, "n_tasks": N_TASKS, "worlds": {}}
+info = {"seed_base": SEED_BASE, "n_explore": N_EXPLORE, "n_tasks": N_TASKS, "worlds": {}, "twins": {}}
 
 splits, guards = {}, {}
 for k, split in enumerate(("validation", "holdout")):
     g_pub, g_priv = build_world(f"g{k}", SEED_BASE["guard"] + k, GUARD_EXPLORE, GUARD_TASKS)
     guards[split] = guard = {**g_pub, **g_priv}
-    pubs, privs = [], {}
+    pubs, privs, twins = [], {}, {}
     for i in range(N_WORLDS[split]):
         wid = f"{split[0]}{i}"
         pub, priv = build_world(wid, SEED_BASE[split] + i, N_EXPLORE, N_TASKS[split])
         pubs.append(pub)
         privs[wid] = priv
+        tseed = SEED_BASE[f"twin_{split}"] + i
+        tspec = fauxos.gen_twin(priv["spec"], tseed)
+        tev, tend = fauxos.explore(tspec, N_EXPLORE)
+        twins[wid] = {"pub": {"id": f"{wid}x", "tools": sorted(t["name"] for t in tspec["tools"]), "transcript": tev},
+                      "priv": {"id": f"{wid}x", "seed": tseed, "spec": tspec, "end": tend}}
+        assert twins[wid]["pub"]["tools"] == pub["tools"]
+        info["twins"][f"{wid}x"] = {"seed": tseed, "twin_of": wid}
         n_icl = len(tok(chat_prefix(system_text(pub["tools"], pub["transcript"])), add_special_tokens=False)["input_ids"])
         n_sys = len(tok(chat_prefix(system_text(pub["tools"])), add_special_tokens=False)["input_ids"])
         info["worlds"][wid] = {"seed": SEED_BASE[split] + i, "tools": len(pub["tools"]), "objects_end": len(priv["end"]["objs"]),
@@ -91,6 +105,8 @@ for k, split in enumerate(("validation", "holdout")):
     write_json(f"{a.out}/{split}/public/order.json", [p["id"] for p in pubs])
     for p in pubs:
         write_json(f"{a.out}/{split}/public/worlds/{p['id']}.json", p)
+        write_json(f"{a.out}/{split}/public/twins/{p['id']}.json", twins[p["id"]]["pub"])
+    write_json(f"{a.out}/{split}/private/twins.json", {w: t["priv"] for w, t in twins.items()})
     write_json(f"{a.out}/{split}/private/worlds.json", privs)
     write_json(f"{a.out}/{split}/private/guard.json", guard)
     shutil.copyfile("/prepare/fauxos.py", f"{a.out}/{split}/private/fauxos.py")

@@ -132,6 +132,35 @@ def gen_world(seed: int) -> dict:
             "errors": errors, "tools": tools, "init": init}
 
 
+def gen_twin(spec: dict, seed: int) -> dict:
+    """The paired CONTROL world ("twin") of target `spec`, deterministic in `seed`: IDENTICAL tool names, operation set
+    (so the same task templates), kinds, places, tags and units (the argument vocabulary), but independently drawn
+    semantics: a derangement of which name does what (every name gets a different operation), fresh argument orders
+    and per-op variants, fresh objects, error codes and unit conversion (from gen_world(seed), renamed into the target's
+    vocabulary). A surface that learns only name / vocabulary priors adapts the same way to both; only what it learns
+    from the transcript differs."""
+    base = gen_world(seed)
+    rng = random.Random(f"fauxos-twin-{seed}")
+    ren = {"-": "-"}
+    for k in ("kinds", "places", "tags"):
+        ren.update(zip(base[k], spec[k]))
+    objs = {i: {**o, "kind": ren[o["kind"]], "place": ren[o["place"]], "tag": ren[o["tag"]]} for i, o in base["init"]["objs"].items()}
+    ops, names = [t["op"] for t in spec["tools"]], [t["name"] for t in spec["tools"]]
+    while True:
+        sigma = rng.sample(range(len(ops)), len(ops))
+        if all(sigma[k] != k for k in range(len(ops))):
+            break
+    tools = []
+    for k, name in enumerate(names):
+        op = ops[sigma[k]]
+        perm = list(range(len(OPS[op][0])))
+        rng.shuffle(perm)
+        tools.append({"name": name, "op": op, "perm": perm, "var": _variant(rng, op), "verbose": rng.random() < VERBOSE_P})
+    tools.sort(key=lambda t: list(OPS).index(t["op"]))
+    return {"seed": seed, "twin_of": spec["seed"], **{k: copy.deepcopy(spec[k]) for k in ("kinds", "places", "tags", "unit", "base_unit")},
+            "C": base["C"], "errors": base["errors"], "tools": tools, "init": {**base["init"], "objs": objs}}
+
+
 def _variant(rng, op) -> dict:
     v = {}
     if op == "count":

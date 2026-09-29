@@ -6,14 +6,14 @@ surface: "adapter" (any candidate), or the frozen references "none", "icl", "pla
 For each world j: merge adapter j (if any) into the base weights, then
   own      world j's tasks, prompt = system prompt with world j's tool names + goal (NO transcript; arm "icl" instead
            puts world j's transcript in the system prompt and uses no adapter). Every arm is scored on its own worlds;
-           for the placebo reference, adapter j was trained by the harness on world j+1's transcript.
-  mismatched  (arm "adapter" only) world j-1's tasks with adapter j, i.e. every target world i scored with the adapter
-           trained on a DIFFERENT world (donor i+1) of the same split: the same-run world-specific learning control.
-           mismatched_success, world_specific_gain = success - mismatched_success, and the guard
-           world_specific_share = (success - mismatched_success) / (success - none_success) (min 0.5; 1.0 when
-           success - none_success < 0.025, i.e. vacuous for a run that gains nothing). It re-uses the merge of adapter
-           j, so it costs one more pass over the split's tasks with a merged adapter (est. ~10-30 s validation,
-           ~25-80 s holdout on the GB10; see REVIEW.md round 2).
+           for the placebo reference, adapter j was trained by the harness on world j's TWIN transcript.
+  twin     (arm "adapter" only) world j's tasks with the candidate's adapter of world j's TWIN (adapters/<j>x: trained by
+           the same surface on the twin's transcript; the twin has the SAME tool names, operation set and argument
+           vocabulary, and other semantics): the world-specific learning control. twin_success, world_specific_gain =
+           success - twin_success, and the guard world_specific_share = (success - twin_success) / (success -
+           none_success) (min 0.5; 1.0 when success - none_success < 0.025, vacuous for a run that gains nothing).
+           A surface that learns only name / vocabulary priors adapts the same way to both and gets share ~0.
+           Cost: one more merge + one more pass over the split's tasks (est. ~15-40 s validation, ~35-100 s holdout).
   battery  this adapter's share of the forgetting battery: GSM8K items, guard-world tasks with the guard world's
            transcript in context ("can it still drive elsewhere"), OASST2 text NLL
 Each task: greedy program (<= 64 tokens), executed from the world's post-exploration state; on an execution or syntax
@@ -93,10 +93,12 @@ try:
     stats = json.load(open(f"{a.run}/stats.json"))
     wids = [w["id"] for w in stats["worlds"]]
     donors = [w["donor"] for w in stats["worlds"]]
-    has = [bool(w["adapter"]) for w in stats["worlds"]]
-    nan = bool(stats["nan"]) or any(bool(w["nan_seen"]) for w in stats["worlds"])
-    violations = [f"{w['id']}: {v}" for w in stats["worlds"] for v in w["violations"]]
-    sandbox_ok = all(w["sandbox"]["ok"] is True for w in stats["worlds"])
+    passes = stats["worlds"] + stats["twins"]
+    tw_ids, tw_donors = [w["id"] for w in stats["twins"]], [w["donor"] for w in stats["twins"]]
+    has = {w["id"]: bool(w["adapter"]) for w in passes}
+    nan = bool(stats["nan"]) or any(bool(w["nan_seen"]) for w in passes)
+    violations = [f"{w['id']}: {v}" for w in passes for v in w["violations"]]
+    sandbox_ok = all(w["sandbox"]["ok"] is True for w in passes)
 except Exception as e:  # missing, wrong format
     invalid(f"missing or unreadable run outputs: {e!r}"[:500])
 arm = arm_of(a.work, a.frozen)
@@ -104,16 +106,19 @@ if stats.get("arm") != arm:
     invalid(f"stats.json arm {stats.get('arm')!r} != the arm of this surface ({arm})")
 if wids != order:
     invalid("stats.json does not cover exactly this split's worlds in order")
-if donors != ([order[(i + 1) % len(order)] for i in range(len(order))] if arm == "placebo" else order):
+twin_ids = [f"{w}x" for w in order]
+if donors != (twin_ids if arm == "placebo" else order):
     invalid("stats.json: every candidate world must be adapted on its own transcript")
+if (tw_ids, tw_donors) != ((twin_ids, twin_ids) if arm == "adapter" else ([], [])):
+    invalid("stats.json: a candidate run must carry exactly one twin (control) pass per world, on the twin's transcript")
 if nan:
     invalid("training diverged (a non-finite loss or gradient in some train() call)")
 if not sandbox_ok or violations or stats.get("violations"):
     invalid(f"the surface process broke isolation (threads / processes / sandbox): {violations[:5]}")
 on_disk = sorted(os.listdir(f"{a.run}/adapters")) if os.path.isdir(f"{a.run}/adapters") else []
-if on_disk != sorted(w for w, h in zip(wids, has) if h):
+if len(has) != len(passes) or on_disk != sorted(w for w, h in has.items() if h):
     invalid("adapter files do not match stats.json")
-if arm in ("none", "icl") and any(has):
+if arm in ("none", "icl") and any(has.values()):
     invalid(f"the {arm} arm must not adapt")
 
 from transformers import AutoModelForCausalLM, AutoTokenizer  # noqa: E402
@@ -126,7 +131,7 @@ for p in model.parameters():
     p.requires_grad_(False)
 E = Engine(model, tok, dev)
 adapters = {}
-for wid, h in zip(wids, has):
+for wid, h in has.items():
     if h:
         try:
             cfg, tens = lora.load(f"{a.run}/adapters/{wid}")
@@ -222,13 +227,6 @@ for j, w in enumerate(pub):
             own.update(run_tasks(system_text(w["tools"]), p["spec"], p["end"], p["tasks"], BATCH["plain"]))
         else:
             own.update({t["id"]: base["none"][t["id"]] for t in p["tasks"]})
-        prev = pub[(j - 1) % n]
-        pp = priv[prev["id"]]
-        if arm == "adapter":      # the mismatched control: world j-1 scored with adapter j (trained on another world)
-            if ad and n > 1:
-                mism.update({k: v["s"] for k, v in run_tasks(system_text(prev["tools"]), pp["spec"], pp["end"], pp["tasks"], BATCH["plain"]).items()})
-            else:
-                mism.update({t["id"]: base["none"][t["id"]]["s"] for t in pp["tasks"]})
         mine_gsm = [x for k, x in enumerate(gsm) if k % n == j]
         mine_guard = [t for k, t in enumerate(guard["tasks"]) if k % n == j]
         mine_text = [k for k in range(len(text)) if k % n == j]
@@ -245,6 +243,13 @@ for j, w in enumerate(pub):
     finally:
         if ctx:
             ctx.__exit__(None, None, None)
+    if arm == "adapter":          # the control: world j scored with the adapter the surface made from j's twin
+        tw = adapters.get(f"{w['id']}x")
+        if tw:
+            with lora.Merged(model, *tw):
+                mism.update({k: v["s"] for k, v in run_tasks(system_text(w["tools"]), p["spec"], p["end"], p["tasks"], BATCH["plain"]).items()})
+        else:
+            mism.update({t["id"]: base["none"][t["id"]]["s"] for t in p["tasks"]})
     if lora.n_wrapped(model):
         invalid("internal: model left wrapped")
 
@@ -277,13 +282,14 @@ m = {"success": success, "none_success": none_s,
      "inference_tokens": float(np.mean([own[t["id"]]["ctx0"] + own[t["id"]]["ctx_retry"] + own[t["id"]]["dec"] for t in tasks])),
      "retry_rate": float(np.mean([bool(own[t["id"]]["retry"]) for t in tasks])),
      "syntax_error_rate": float(np.mean([bool((own[t["id"]]["first_error"] or "").startswith("syntax")) for t in tasks])),
-     "n_adapters": float(len(adapters)), "adapter_params_m": float(max([r["adapter_params_m"] for r in stats["worlds"]] or [0])),
+     "n_adapters": float(sum(has[w] for w in wids)), "n_twin_adapters": float(sum(has[w] for w in tw_ids)), "adapter_params_m": float(max([r["adapter_params_m"] for r in stats["worlds"]] or [0])),
      "adapt_s_mean": float(np.mean([r["adapt_s"] for r in stats["worlds"]])),
-     "killed_worlds": float(sum(bool(r["killed"]) for r in stats["worlds"])),
+     "killed_worlds": float(sum(bool(r["killed"]) for r in passes)),
+     "adapt_s_twin_mean": float(np.mean([r["adapt_s"] for r in stats["twins"]])) if stats["twins"] else 0.0,
      "train_tokens_mean": float(np.mean([r["train_tokens"] for r in stats["worlds"]])),
      "gen_tokens_mean": float(np.mean([r["gen_tokens"] for r in stats["worlds"]]))}
 if mism_s is not None:
-    m["mismatched_success"], m["world_specific_gain"] = mism_s, success - mism_s
+    m["twin_success"], m["world_specific_gain"] = mism_s, success - mism_s
     m["world_specific_share"] = world_specific_share(success, mism_s, none_s)
 if icl_s is not None:
     m["icl_success"] = icl_s

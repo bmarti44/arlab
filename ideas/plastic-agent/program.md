@@ -41,14 +41,16 @@ as a string; other lines are ignored). The simulator runs it from the state wher
 error the model gets one retry that shows the error. Success = no error, exact final state (for changes) and the right
 value in the output (for questions). Goals are like "Archive item 412.", "Move item 17 to <place>.",
 "Unlock item 305.", "What is the tally checksum of <place>?", "Which <KIND> item was created most recently?".
-Reported: mismatched_success (world i scored with YOUR adapter of world i+1) and world_specific_gain = success −
-mismatched_success: a gain that is only "format" shows up in both. Also gap_closure vs icl, per-template success s_*.
+Control: every world has a TWIN with the SAME tool names and argument vocabulary but other semantics (every name does
+something else) and its own transcript. adapt() runs on it too (same sandbox and budget; it cannot tell which is which)
+and that adapter is scored on the REAL world: twin_success. world_specific_gain = success − twin_success: gains from
+name / verb priors or format show up in both. Also gap_closure vs icl, per-template success s_*.
 ## Guards (runs that fail one are discarded)
 - battery_drop <= 0.02: 200 GSM8K + 100 tasks of another FauxOS world with ITS transcript in context, vs the base model.
 - prefill_tokens <= 1000: no transcript in the prompt at evaluation (prompt positions per task, retry call included).
-- world_specific_share >= 0.5: (success − mismatched_success) / (success − none_success) (1.0 if that gain < 0.025):
-  at least half of your gain over no adaptation must need the RIGHT world's transcript.
-- peak memory <= 60 GB; the longest per-world adapt() <= 210 s (else invalid; every world pays for importing adapt.py);
+- world_specific_share >= 0.5: (success − twin_success) / (success − none_success) (1.0 if that gain < 0.025):
+  at least half of your gain over no adaptation must come from what the RIGHT world's transcript shows.
+- peak memory <= 60 GB; the longest adapt() pass <= 210 s (else invalid; every pass pays for importing adapt.py);
   a non-finite loss or gradient in ANY train() call = invalid, even if you return an earlier adapter.
 - Budgets count processed positions: padded prompt blocks and every decode step of every batch row (gen), padded
   training batches plus 2 x replay_rows x replay length when kl_base > 0 (train). A gen batch reserves its worst case
@@ -66,7 +68,8 @@ Also: self-study (gen proposes goals with the transcript in context, keep only p
 learning rate / epochs / rank / targets, error-recovery demos in the retry format (gen.retry_prompt).
 ## Rules
 - Use only the transcript and what gen / train return. Never try to read files, the environment or the network from
-  adapt.py, or to get around the sandbox or the RPC stubs (the supervisor records every attempt it can see);
+  adapt.py, or to get around the sandbox or the RPC stubs (the supervisor records every attempt it can see); treat
+  every transcript alike: never try to detect twin worlds (e.g. by verb statistics) to adapt worse on them;
   relabel only from what the transcript shows: there is no simulator in RUN, and guessing hidden state is not allowed.
 - One change, one hypothesis_tag (reuse an existing tag for the same idea).
 - Read history.md: don't repeat a failed idea unless you change it materially. After 3 discards in a row, try something structurally different.

@@ -7,13 +7,16 @@ run:
   # Per-world budget of adapt(), owned by the trusted supervisor (the surface runs in a fresh Landlock-sandboxed child
   # per world and reaches the model only by RPC): wall clock (CLOCK_MONOTONIC, from "go", so the surface import counts)
   # + gen tokens + train tokens; the child's process group is killed at adapt-seconds + 15 s grace. CALIBRATE IN THE GPU
-  # PILOT (target: validation RUN <= ~13 min = 4 worlds x adapt-seconds + model load); keep budget.limit = adapt-seconds + 30.
+  # PILOT; keep budget.limit = adapt-seconds + 30. A CANDIDATE adapts twice per world: to the world and to its twin (the
+  # world-specific control: same tool names / vocabulary, other semantics), each pass with the full per-world budget.
   command: "python /frozen/harness.py --out /out --seed {seed} --split {split} --adapt-seconds 180 --gen-tokens 400000 --train-tokens 1500000"
-  timeout_s: 2700          # holdout has 8 worlds: 8 x 180 s + load; CALIBRATE
+  # worst case (every pass uses its full 180 s + 15 s grace): holdout 16 passes x 195 s + 9 base-weight hashes x ~20 s
+  # + load ~45 s = ~3350 s; validation 8 x 195 + 5 x 20 + 45 = ~1700 s. 4000 s = holdout worst case + ~20 %. CALIBRATE.
+  timeout_s: 4000
   gpu: true
   mem_gb: auto
 # EVALUATE (GB10, gate 2: none 155 s incl. the base-cache fill, icl 70 s). A candidate: model load + own-world pass +
-# the mismatched-world control pass (same merge, ~10-30 s validation / ~25-80 s holdout) + its battery share:
+# the twin control pass (one more merge + pass, ~15-40 s validation / ~35-100 s holdout) + its battery share:
 # est. ~3 min validation, ~5-6 min holdout (+~2 min for the first run's base-cache fill). 3000 s is ample. CALIBRATE.
 evaluate: {command: "python /eval/evaluate.py --run /run_out --out /result/metrics.json", timeout_s: 3000}
 budget: {unit: adapt_s_max, limit: 210}  # longest single-world adapt() wall time (s); a run over it is invalid
@@ -29,8 +32,9 @@ guards:
   - {name: battery_drop, max: 0.02}       # forgetting battery (the split's own 200 GSM8K + 100 guard-world ICL tasks) vs base
   - {name: prefill_tokens, max: 1000}     # no transcript in the prompt: prompt positions per task incl. the retry call
                                           # (surface arms ~140 first call, <= ~400 with a retry; the ICL arm ~3.2k)
-  # world-specific learning control: (success - mismatched_success) / (success - none_success), where mismatched =
-  # each world scored with the adapter trained on ANOTHER world of the split; 1.0 when success - none < 0.025
+  # world-specific learning control: (success - twin_success) / (success - none_success), where twin_success = each
+  # world scored with the adapter the surface made from its TWIN's transcript (same names and vocabulary, deranged
+  # semantics); 1.0 when success - none < 0.025
   - {name: world_specific_share, min: 0.5}
   - {name: peak_mem_gb, max: 60}
 seeds: {calibration: [1, 2, 3, 4, 5], screen: 1, confirm: [2, 3], holdout: [101, 102, 103]}
@@ -40,6 +44,7 @@ references:                               # frozen arms, run once on the screen 
   - {name: placebo, path: frozen/run/ref_placebo}   # (e) the baseline LoRA of world i+1 scored on world i
 verdict: {compare_to: baseline}
 agent: {model: gpt-6-sol, effort: high, visible: [program.md, IDEA.md, frozen/run/surface_api.py, frozen/run/child.py, frozen/run/engine.py, frozen/run/trainer.py, frozen/run/common.py], timeout_s: 900}
-# ~13 min RUN + ~6 min EVALUATE per validation run: a screen is 1 run, a confirm 2 more; ~2 experiments per active hour.
+# Validation run: RUN ~9 min for a baseline-like surface (8 adapt passes of ~30-60 s + hashes + load; uncalibrated) up to
+# ~28 min for a surface that uses every pass's full budget, + ~3 min EVALUATE; a screen is 1 run, a confirm 2 more.
 campaign: {max_experiments: 40, max_hours: 16, max_agent_calls: 80, stop_after_no_keep: 15, rescue_after: 6}
 acceptance: {allow_underpowered: false}

@@ -35,6 +35,11 @@ def pub_worlds(root) -> list[dict]:
     return [js(f"{root}/public/worlds/{w}.json") for w in js(f"{root}/public/order.json")]
 
 
+def pub_twins(root) -> list[dict]:
+    """The twins (control worlds) of a split's worlds, in the same order."""
+    return [js(f"{root}/public/twins/{w}.json") for w in js(f"{root}/public/order.json")]
+
+
 # ================================================================ generator: deterministic, well-formed, disjoint
 def test_generator_deterministic():
     a, b = fauxos.gen_world(123), fauxos.gen_world(123)
@@ -88,12 +93,147 @@ def test_prepared_data_matches_generator_and_splits_are_disjoint():
     assert not rows["validation"] & rows["holdout"] and not (rows["validation"] | rows["holdout"]) & replay
 
 
+# ================================================================ twin (control) worlds
+def test_twins_are_deterministic_and_disjoint_from_every_other_world():
+    """(c) Each twin is regenerated exactly from its own seed and its target; twin seeds are disjoint from the target,
+    guard and other twin seeds (and seed ranges); no twin transcript equals any other transcript."""
+    info = js(f"{D}/info.json")
+    target_seeds = {v["seed"] for v in info["worlds"].values()} | {v["seed"] for v in info["guard"].values()}
+    twin_seeds, transcripts = [], []
+    for split in SPLITS:
+        priv, tw = js(f"{D}/{split}/private/worlds.json"), js(f"{D}/{split}/private/twins.json")
+        assert list(tw) == js(f"{D}/{split}/public/order.json")
+        for wid, t in tw.items():
+            assert t["id"] == f"{wid}x" and info["twins"][t["id"]] == {"seed": t["seed"], "twin_of": wid}
+            again = fauxos.gen_twin(fauxos.gen_world(info["worlds"][wid]["seed"]), t["seed"])
+            assert t["spec"] == json.loads(json.dumps(again)) and again == fauxos.gen_twin(priv[wid]["spec"], t["seed"])
+            ev, end = fauxos.explore(again, len(js(f"{D}/{split}/public/twins/{wid}.json")["transcript"]))
+            assert ev == js(f"{D}/{split}/public/twins/{wid}.json")["transcript"] and json.loads(json.dumps(end)) == t["end"]
+            twin_seeds.append(t["seed"])
+        transcripts += [json.dumps(w["transcript"]) for w in pub_worlds(f"{D}/{split}") + pub_twins(f"{D}/{split}")]
+    assert len(set(twin_seeds)) == len(twin_seeds) and not set(twin_seeds) & target_seeds
+    assert not {s // 100 for s in twin_seeds} & {s // 100 for s in target_seeds}
+    assert len(set(transcripts)) == len(transcripts)
+
+
+def test_twins_share_names_vocabulary_and_templates_but_not_semantics():
+    """(a) Twin and target have exactly the same tool names, operation set (so the same task templates and wording
+    apply), kinds, places, tags and units, and the twin's transcript uses only those names; but every name does
+    something else (a derangement), with fresh argument orders, variants and objects."""
+    n_names = n_diff = 0
+    for split in SPLITS:
+        priv, tw = js(f"{D}/{split}/private/worlds.json"), js(f"{D}/{split}/private/twins.json")
+        for w, t in zip(pub_worlds(f"{D}/{split}"), pub_twins(f"{D}/{split}")):
+            a, b = priv[w["id"]]["spec"], tw[w["id"]]["spec"]
+            assert t["tools"] == w["tools"] == sorted(x["name"] for x in b["tools"])
+            for k in ("kinds", "places", "tags", "unit", "base_unit"):
+                assert a[k] == b[k], k
+            assert sorted(x["op"] for x in a["tools"]) == sorted(x["op"] for x in b["tools"])     # same templates
+            assert {x["template"] for x in priv[w["id"]]["tasks"]} <= {x["op"] for x in b["tools"]}
+            assert {e["call"].split("(")[0] for e in t["transcript"]} == set(w["tools"])
+            vocab = set(a["kinds"]) | set(a["places"]) | set(a["tags"])
+            for e in t["transcript"]:
+                (_, args), = fauxos.parse_program(e["call"])
+                assert all(isinstance(x, int) or x in vocab or x == "x" for x in args), e
+            ta, tb = fauxos.tool_map(a), fauxos.tool_map(b)
+            n_names += len(ta)
+            n_diff += sum(ta[n]["op"] != tb[n]["op"] for n in ta)
+            assert b["init"]["objs"] != a["init"]["objs"]
+    assert n_diff == n_names          # every name -> behaviour mapping differs (well above a "nontrivial fraction")
+
+
+VERB_OP = {v: op for op, vs in fauxos.TRUE_VERBS.items() for v in vs}
+VERB_OP.update({v: op for op, vs in fauxos.FALSE_VERBS.items() for v in vs})     # misleading verbs are likelier (35%)
+OBS_OP = [(r"#\d+ kind=", "inspect"), (r"count: ", "count"), (r"total: ", "weigh"), (r"(heaviest|lightest): ", "extreme"),
+          (r"(newest|oldest): ", "newest"), (r"tag \w+: ", "find_tag"), (r"checksum: ", "checksum"), (r"moved #", "move"),
+          (r"archived #", "archive"), (r"deleted #", "delete"), (r"restored #", "restore"), (r"locked #", "lock"),
+          (r"unlocked #", "unlock"), (r"tagged #", "retag"), (r"copied #", "clone"), (r"swapped #", "swap")]
+
+
+def names_only_policy(transcript, tools):
+    """The review's counterexample: fixed verb-family priors over tool names, the transcript ignored."""
+    out = {}
+    for n in tools:
+        op = VERB_OP.get(n.split("_", 1)[1])
+        if op:
+            out.setdefault(op, (n, None))
+    return out
+
+
+def transcript_oracle_policy(transcript, tools):
+    """Reads each tool's operation and argument order from what the transcript's observations show."""
+    import re
+    kind = lambda x: "id" if isinstance(x, int) else "kind" if x.isupper() else "str"  # noqa: E731
+    out = {}
+    for e in transcript:
+        op = next((o for rx, o in OBS_OP if re.match(rx, e["obs"])), None)
+        if op is None or op in out:
+            continue
+        (name, args), = fauxos.parse_program(e["call"])
+        canon = [t if t in ("id", "kind") else "str" for _, t in fauxos.OPS[op][0]]
+        free, perm = list(range(len(canon))), []
+        for x in args:
+            ci = next(c for c in free if canon[c] == kind(x))
+            free.remove(ci)
+            perm.append(ci)
+        out[op] = (name, perm)
+    return out
+
+
+def _policy_success(pol, spec, end, tasks) -> float:
+    """Mean task success of a {op: (tool name, argument order or None = canonical)} policy on the target world."""
+    got = []
+    for t in tasks:
+        (name, args), = fauxos.parse_program(t["reference"][0])
+        canon = [None] * len(args)
+        for pos, ci in enumerate(fauxos.tool_map(spec)[name]["perm"]):
+            canon[ci] = args[pos]
+        if t["template"] not in pol:
+            got.append(0.0)
+            continue
+        n, perm = pol[t["template"]]
+        prog = fauxos.fmt_call(n, canon if perm is None else [canon[ci] for ci in perm])
+        got.append(fauxos.score(t, fauxos.run_program(spec, end, prog)))
+    return float(np.mean(got))
+
+
+def test_twin_control_rejects_name_priors_and_credits_transcript_learning():
+    """(b) In memory, on the prepared data and the real simulator / scorer: the names-only policy scores the same with
+    the target's and the twin's transcript -> world_specific_share 0 (fails min 0.5), although the old donor-world
+    control would have credited it (share 1). A policy that reads the TARGET's transcript scores ~1 on the target and
+    ~0 with the twin's transcript -> share ~1. none = no adaptation (0 for these policies)."""
+    from scoring import world_specific_share
+    for split in SPLITS:
+        priv, order = js(f"{D}/{split}/private/worlds.json"), js(f"{D}/{split}/public/order.json")
+        pubs, twins = pub_worlds(f"{D}/{split}"), pub_twins(f"{D}/{split}")
+        res = {}
+        for name, pol in (("names", names_only_policy), ("oracle", transcript_oracle_policy)):
+            own, twin, donor = [], [], []
+            for i, (w, t) in enumerate(zip(pubs, twins)):
+                p = priv[w["id"]]
+                d = pubs[(i + 1) % len(pubs)]
+                n = len(p["tasks"])
+                own += [_policy_success(pol(w["transcript"], w["tools"]), p["spec"], p["end"], p["tasks"])] * n
+                twin += [_policy_success(pol(t["transcript"], t["tools"]), p["spec"], p["end"], p["tasks"])] * n
+                donor += [_policy_success(pol(d["transcript"], d["tools"]), p["spec"], p["end"], p["tasks"])] * n
+            res[name] = s, m, md = float(np.mean(own)), float(np.mean(twin)), float(np.mean(donor))
+        s, m, md = res["names"]
+        assert s >= 0.2 and m == s and world_specific_share(s, m, 0.0) == 0.0 < 0.5, (split, res)
+        assert md < 0.05 and world_specific_share(s, md, 0.0) > 0.9                  # the flaw of the donor control
+        s, m, _ = res["oracle"]
+        assert s >= 0.95 and m <= 0.1 and world_specific_share(s, m, 0.0) >= 0.9, (split, res)
+        assert len(order) == len(twins)
+
+
 # ================================================================ transcripts reveal only observable facts
 def test_transcript_is_a_faithful_replay():
     """Every observation is exactly what the simulator prints for that call, in order, from the initial state; the
     task start state is where the replay ends. Nothing else is in the transcript."""
     for split in SPLITS:
         pub, priv = pub_worlds(f"{D}/{split}"), js(f"{D}/{split}/private/worlds.json")
+        tw = js(f"{D}/{split}/private/twins.json")
+        pub = pub + pub_twins(f"{D}/{split}")          # the twins' transcripts come from the same explorer
+        priv = {**priv, **{t["id"]: t for t in tw.values()}}
         for w in pub:
             spec = priv[w["id"]]["spec"]
             st = copy.deepcopy(spec["init"])
@@ -117,13 +257,14 @@ PRIVATE_MARKERS = ('"op"', '"perm"', '"var"', '"verbose"', "skip_locked", "with_
 def test_public_and_train_data_reveal_no_hidden_state_or_labels():
     for split in SPLITS:
         order = js(f"{D}/{split}/public/order.json")
-        raw = "".join(open(f"{D}/{split}/public/worlds/{w}.json").read() for w in order)
+        raw = "".join(open(f"{D}/{split}/public/{d}/{w}.json").read() for w in order for d in ("worlds", "twins"))
         for m in PRIVATE_MARKERS:
             assert m not in raw, f"{m} in public data"
         pub, priv = pub_worlds(f"{D}/{split}"), js(f"{D}/{split}/private/worlds.json")
-        assert all(set(w) == {"id", "tools", "transcript"} for w in pub)
-        assert sorted(os.listdir(f"{D}/{split}/public")) == ["order.json", "worlds"]
-        assert sorted(os.listdir(f"{D}/{split}/public/worlds")) == sorted(f"{w}.json" for w in order)
+        assert all(set(w) == {"id", "tools", "transcript"} for w in pub + pub_twins(f"{D}/{split}"))
+        assert sorted(os.listdir(f"{D}/{split}/public")) == ["order.json", "twins", "worlds"]
+        for d in ("worlds", "twins"):
+            assert sorted(os.listdir(f"{D}/{split}/public/{d}")) == sorted(f"{w}.json" for w in order)
         for w in pub:
             text = render_transcript(w["transcript"])
             for t in priv[w["id"]]["tasks"]:
@@ -131,6 +272,8 @@ def test_public_and_train_data_reveal_no_hidden_state_or_labels():
                 if t["answer"] is None:      # a mutation task's full reference program never appears in the transcript
                     assert not all(f"> {line}\n" in text for line in t["reference"]), t
             assert str(priv[w["id"]]["spec"]["seed"]) not in raw
+        for t in js(f"{D}/{split}/private/twins.json").values():
+            assert str(t["seed"]) not in raw
     assert sorted(os.listdir(f"{D}/train")) == ["replay.npy"]
 
 
@@ -165,8 +308,10 @@ def test_run_side_code_cannot_reach_the_simulator_or_private_data():
             assert bad not in src, f"{bad} in frozen/run/{f}"
     src = _code("/frozen/harness.py")
     # the supervisor opens exactly: the world order, the replay rows, and ONE world file per world (the donor's)
-    assert src.count("open(f'{a.data}") == 2 and "json.load(open(f'{a.data}/public/order.json'))" in src
-    assert "json.load(open(f'{a.data}/public/worlds/{donor}.json'))" in src and "np.load(f'{a.data}/train/replay.npy')" in src
+    # (adapt_world opens exactly the one file it is handed: the world's or its twin's)
+    assert src.count("open(f'{a.data}") == 1 and "json.load(open(f'{a.data}/public/order.json'))" in src
+    assert src.count("json.load(open(") == 2 and "json.load(open(src))" in src and "np.load(f'{a.data}/train/replay.npy')" in src
+    assert "(f'{a.data}/public/worlds/{wid}.json', f'{a.data}/public/twins/{wid}.json')" in src
     assert "import adapt" not in src and "importlib" not in src and "/work" not in src.replace("default='/work'", "")
     # the sandboxed child reads no file: the world arrives over its stdin
     child = _code("/frozen/child.py") + _code("/frozen/surface_api.py")
@@ -462,11 +607,12 @@ def _mini_data(root, n_tasks=3, n_worlds=2):
     """A 2-world copy of the validation split with few tasks and small battery (fast on CPU)."""
     pub = pub_worlds(f"{D}/validation")[:n_worlds]
     priv = js(f"{D}/validation/private/worlds.json")
-    for sub in ("public/worlds", "private", "train"):
+    for sub in ("public/worlds", "public/twins", "private", "train"):
         os.makedirs(f"{root}/{sub}", exist_ok=True)
     json.dump([w["id"] for w in pub], open(f"{root}/public/order.json", "w"))
     for w in pub:
         json.dump(w, open(f"{root}/public/worlds/{w['id']}.json", "w"))
+        shutil.copy(f"{D}/validation/public/twins/{w['id']}.json", f"{root}/public/twins/{w['id']}.json")
     json.dump({w["id"]: {**priv[w["id"]], "tasks": priv[w["id"]]["tasks"][:n_tasks]} for w in pub},
               open(f"{root}/private/worlds.json", "w"))
     g = js(f"{D}/validation/private/guard.json")
@@ -516,7 +662,7 @@ def probe_run(tiny, tmp_path_factory):
     tmp = tmp_path_factory.mktemp("probe")
     data = _mini_data(tmp / "data")
     reads = [f"{data}/public/order.json", f"{data}/train/replay.npy", f"{MODEL_DIR}/config.json", f"{tiny}/config.json"] + \
-        [f"{data}/public/worlds/{w}.json" for w in js(f"{data}/public/order.json")] + \
+        [f"{data}/public/{d}/{w}.json" for w in js(f"{data}/public/order.json") for d in ("worlds", "twins")] + \
         _battery_sources()
     src = PROBE_SURFACE.replace("@READS@", repr(reads)).replace("@DATA@", str(data)).replace("@OUT@", str(tmp / "out"))
     work = _surface(tmp, "probe", src)
@@ -528,8 +674,9 @@ def probe_run(tiny, tmp_path_factory):
 
 def test_surface_runs_sandboxed_per_world_and_sees_only_its_transcript(probe_run):
     tmp, data, work, log, reads = probe_run
-    assert len(log) == 2 and len(reads) == 8 and all(os.path.isfile(p) for p in reads)   # (readable from outside)
-    worlds = [js(f"{data}/public/worlds/{w}.json") for w in ("v0", "v1")]
+    assert len(log) == 4 and len(reads) == 10 and all(os.path.isfile(p) for p in reads)   # (readable from outside)
+    # a candidate run adapts v0, its twin, v1, its twin: four fresh processes, each seeing one transcript
+    worlds = [js(f"{data}/public/{d}/{w}.json") for w in ("v0", "v1") for d in ("worlds", "twins")]
     for r, w in zip(log, worlds):
         assert r["calls"] == 1, "a fresh process per world: no module state carries over"
         assert r["transcript"] == w["transcript"] and r["tools"] == w["tools"] and r["keys"] == ["call", "obs"]
@@ -544,8 +691,9 @@ def test_surface_runs_sandboxed_per_world_and_sees_only_its_transcript(probe_run
         assert r["bad"] == {"unknown_fn": "ValueError", "prompts_str": "TypeError", "max_new_huge": "ValueError",
                             "teacher_forged": "ValueError", "init_forged": "ValueError", "replay_neg": "ValueError"}
         assert r["steps"] == [3, 1] and r["ad_attrs"] == ["id", "stats"]                # no weights in the child
-    assert log[0]["pid"] != log[1]["pid"] and all(r["scratch"]["empty"] for r in log)
-    assert log[0]["scratch"]["dir"] != log[1]["scratch"]["dir"] and not os.path.exists(log[0]["scratch"]["dir"])
+    assert len({r["pid"] for r in log}) == 4 and all(r["scratch"]["empty"] for r in log)
+    assert len({r["scratch"]["dir"] for r in log}) == 4 and not any(os.path.exists(r["scratch"]["dir"]) for r in log)
+    assert log[0]["tools"] == log[1]["tools"] and log[0]["transcript"] != log[1]["transcript"]   # twin: same names
     assert not os.path.exists(work / "x") and not os.path.exists(tmp / "out" / "x")
 
 
@@ -554,11 +702,12 @@ def test_supervisor_records_and_saves_only_its_own_copies(probe_run):
     stats = js(tmp / "out" / "stats.json")
     assert stats["arm"] == "adapter" and [w["id"] for w in stats["worlds"]] == ["v0", "v1"]   # ARM = "icl" ignored
     assert [w["donor"] for w in stats["worlds"]] == ["v0", "v1"] and stats["nan"] is False and stats["violations"] == 0
-    for w, r in zip(stats["worlds"], log):
+    assert [w["id"] for w in stats["twins"]] == [w["donor"] for w in stats["twins"]] == ["v0x", "v1x"]
+    for w, r in zip(stats["worlds"] + stats["twins"], log[0::2] + log[1::2]):
         assert w["sandbox"]["ok"] is True and w["sandbox"]["landlock_abi"] >= 1 and w["violations"] == []
         assert w["gen_tokens"] > 0 and w["train_tokens"] > 0 and not w["killed"] and w["teacher_calls"] == 1
         assert w["train"]["steps"] == 1 and w["train_calls"] == 2         # 11 tools: ad2 returned; its "999" edit is local
-    assert sorted(os.listdir(tmp / "out" / "adapters")) == ["v0", "v1"]
+    assert sorted(os.listdir(tmp / "out" / "adapters")) == ["v0", "v0x", "v1", "v1x"]
     (c0, a0), (c1, a1) = (lora.load(tmp / "out" / "adapters" / w) for w in ("v0", "v1"))
     assert any(not torch.equal(a0[k], a1[k]) for k in a0) and c0["rank"] == c1["rank"] == 2
     assert js(tmp / "out" / "budget.json")["adapt_s_max"] > 0
@@ -572,12 +721,12 @@ def test_evaluator_end_to_end_and_invalid_outputs(tiny, probe_run):
     assert m["valid"] and sorted(m["items"]) == sorted(tasks) and set(m["items"].values()) <= {0.0, 1.0}
     x = m["metrics"]
     assert m["primary"] == x["success"]
-    for k in ("success", "mismatched_success", "world_specific_gain", "world_specific_share", "none_success",
+    for k in ("success", "twin_success", "world_specific_gain", "world_specific_share", "none_success",
               "battery_drop", "prefill_tokens", "initial_context_tokens", "retry_prompt_tokens", "decode_tokens",
               "inference_tokens", "text_nll_ratio"):
         assert np.isfinite(x[k]), k
-    assert x["world_specific_gain"] == x["success"] - x["mismatched_success"]
-    assert x["world_specific_share"] == world_specific_share(x["success"], x["mismatched_success"], x["none_success"])
+    assert x["world_specific_gain"] == x["success"] - x["twin_success"]
+    assert x["world_specific_share"] == world_specific_share(x["success"], x["twin_success"], x["none_success"])
     # token accounting: the retry call's context is counted (the random tiny model always needs retries)
     assert x["retry_rate"] > 0 and x["retry_prompt_tokens"] > x["retry_rate"] * x["initial_context_tokens"]
     assert abs(x["prefill_tokens"] - x["initial_context_tokens"] - x["retry_prompt_tokens"]) < 1e-6
@@ -614,6 +763,18 @@ def test_evaluator_end_to_end_and_invalid_outputs(tiny, probe_run):
     assert not variant("claims_placebo", set_stat(arm="placebo"))["valid"]      # the arm is the surface's hash, not a claim
     assert not variant("foreign_world", world_stat(0, donor="v1"))["valid"]     # a candidate adapts on its own world
     assert not variant("missing", lambda d: shutil.rmtree(d / "adapters" / "v1"))["valid"]
+    assert not variant("missing_twin", lambda d: shutil.rmtree(d / "adapters" / "v1x"))["valid"]
+    assert not variant("no_twins", set_stat(twins=[]))["valid"]                  # the control pass is mandatory
+
+    def twin_stat(i, **kw):
+        def f(d):
+            s = js(d / "stats.json")
+            s["twins"][i].update(kw)
+            json.dump(s, open(d / "stats.json", "w"))
+        return f
+    assert not variant("twin_donor", twin_stat(0, donor="v0"))["valid"]         # the control must see the twin
+    assert not variant("twin_thread", twin_stat(1, violations=["thread 1"]))["valid"]
+    assert not variant("twin_nan", twin_stat(0, nan_seen=True))["valid"]
     assert not variant("nostats", lambda d: os.remove(d / "stats.json"))["valid"]
 
     def poison(d):
@@ -652,14 +813,14 @@ def test_reference_arms(tiny, probe_run):
         r = _harness(tiny, data, f"/frozen/ref_{arm}", tmp / f"ref_{arm}", train_tokens=4100)
         assert r.returncode == 0, r.stderr[-2000:]
         s = js(tmp / f"ref_{arm}" / "stats.json")
-        assert s["arm"] == arm and all(w["adapter"] == (arm == "placebo") for w in s["worlds"])
+        assert s["arm"] == arm and all(w["adapter"] == (arm == "placebo") for w in s["worlds"]) and s["twins"] == []
     s = js(tmp / "ref_placebo" / "stats.json")
-    assert [w["donor"] for w in s["worlds"]] == ["v1", "v0"]        # world i adapts on world i+1's transcript
+    assert [w["donor"] for w in s["worlds"]] == ["v0x", "v1x"] and s["twins"] == []   # world i adapts on its twin
     icl = _evaluate(tiny, data, tmp / "ref_icl", tmp, "/frozen/ref_icl")
     none = _evaluate(tiny, data, tmp / "ref_none", tmp, "/frozen/ref_none")
     plc = _evaluate(tiny, data, tmp / "ref_placebo", tmp, "/frozen/ref_placebo")
     assert icl["valid"] and none["valid"] and plc["valid"], plc["message"]
-    assert plc["primary"] == plc["metrics"]["success"] and "mismatched_success" not in plc["metrics"]
+    assert plc["primary"] == plc["metrics"]["success"] and "twin_success" not in plc["metrics"]
     # a run evaluated against a different surface than the one that produced it is invalid
     assert not _evaluate(tiny, data, tmp / "ref_placebo", tmp, "/work")["valid"]
     # the ICL arm carries the transcript in every prompt: far over the prefill guard; no-adaptation does not
@@ -775,12 +936,14 @@ def test_budgets_and_contract_are_enforced(tiny, probe_run):
     r = _harness(tiny, data, w["loop"], tmp / "o_loop", secs=4)
     assert r.returncode == 0, r.stderr[-2000:]
     s = js(tmp / "o_loop" / "stats.json")
-    assert all(x["adapter"] and x["budget_hit"] and not x["killed"] for x in s["worlds"])   # the last adapter is kept
+    assert all(x["adapter"] and x["budget_hit"] and not x["killed"] for x in s["worlds"] + s["twins"])   # last adapter kept
     assert js(tmp / "o_loop" / "budget.json")["adapt_s_max"] < 4 + 15
     for name in ("hang", "spin"):         # the supervisor stops serving at deadline + grace and kills the process group
         r = _harness(tiny, data, w[name], tmp / f"o_{name}", secs=3, grace=2, limit=1)
         assert r.returncode == 0, r.stderr[-2000:]
-        x = js(tmp / f"o_{name}" / "stats.json")["worlds"][0]
+        st = js(tmp / f"o_{name}" / "stats.json")
+        assert st["twins"][0]["killed"]
+        x = st["worlds"][0]
         assert x["killed"] and x["budget_hit"].startswith("killed") and 5 <= x["adapt_s"] < 9 and x["violations"] == []
         assert x["adapter"] == (name == "hang")
     for name in ("foreign", "forged"):
@@ -797,7 +960,8 @@ def test_budgets_and_contract_are_enforced(tiny, probe_run):
     assert 0 < x["gen_tokens"] <= 500 and not x["adapter"]
     r = _harness(tiny, data, w["slow"], tmp / "o_slow", secs=20)
     assert r.returncode == 0, r.stderr[-2000:]
-    assert all(x["adapt_s"] >= 3 for x in js(tmp / "o_slow" / "stats.json")["worlds"])
+    st = js(tmp / "o_slow" / "stats.json")
+    assert len(st["twins"]) == 2 and all(x["adapt_s"] >= 3 for x in st["worlds"] + st["twins"])
     assert js(tmp / "o_slow" / "budget.json")["adapt_s_max"] >= 3
 
 

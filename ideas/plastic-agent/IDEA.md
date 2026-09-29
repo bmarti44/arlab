@@ -59,12 +59,13 @@ the gold value in the output (answer tasks). No LLM judge. Splits (disjoint seed
 GSM8K items and text rows for the forgetting battery (disjoint between validation and holdout).
 
 **What RUN sees.** Only `public/order.json` + `public/worlds/<id>.json` (world id, sorted tool names, transcript; the
-harness loads one world at a time) and OASST2 replay rows. Goals, answers, specs, states, the simulator and the
+harness loads one world at a time), `public/twins/<id>.json` (the twin control worlds, same format) and OASST2 replay
+rows. Goals, answers, specs, states, the simulator and the
 battery items (copied from GSM8K / OASST2 at PREPARE) are in `private/` (EVALUATE only); no RUN-side code references a
 dataset under `/hf`. The arm is chosen by frozen code: the sha256 of `/work/adapt.py` against the frozen references
 (`common.arm_of`), never a constant in the surface.
 
-**Isolation (as built, v1 round 2).** `harness.py` is a trusted supervisor that owns the model and never imports the
+**Isolation (as built, v1 rounds 2–3).** `harness.py` is a trusted supervisor that owns the model and never imports the
 surface. Per world it starts a FRESH child (`child.py`, `python -s -B`, minimal env, CUDA hidden, its own session) that
 locks itself down with Landlock (the latent-arch sandbox): readable only the Python install, `/usr /lib /etc /opt /proc
 /sys`, `/frozen` and `/work`; writable only a fresh per-world scratch dir (deleted afterwards) and `/dev/null`; no GPU,
@@ -98,13 +99,26 @@ next-token LoRA on the raw transcript** (r16, all projections, 8 epochs, lr 2e-4
 | (b) icl | the whole transcript in the system prompt, no adapter | frozen reference `ref_icl` (fails the prefill guard by design; never a candidate) |
 | (c) guard | forgetting battery with each adapter | every run: guard `battery_drop` |
 | (d) surface | the per-world adapter; baseline = naive next-token LoRA | the campaign's candidates; the verdict compares (d) with the baseline |
-| (e) placebo | world i scored with the adapter trained on world i+1 | frozen reference `ref_placebo` (baseline LoRA; the harness hands world i the transcript of world i+1, the evaluator scores world i as for every arm) **and** every candidate run reports `mismatched_success` (world i scored with its adapter of world i+1) and `world_specific_gain` = (d) − that, guarded by `world_specific_share` |
+| (e) placebo / twin control | world i scored with an adapter trained on world i's TWIN | frozen reference `ref_placebo` (baseline LoRA on the twin's transcript, scored on world i) **and** every candidate run: the same surface adapts to each twin too, `twin_success` = world i scored with that adapter, `world_specific_gain` = (d) − that, guarded by `world_specific_share` |
 
 Only d − e measures environment-specific knowledge: TTT gains on ARC and in GTTA are partly format learning, and a
 LoRA from another world teaches the program format without the right facts (TTT-DEEP-DIVE §4).
 
+**Twin (control) worlds (round 3).** Round 2 used another world of the split as the control, but that changes the tool
+NAMES too: a names-only surface (fixed verb-family priors, transcript ignored) scored 30–37% (review: 33% / 44%) while
+donor adapters emit names that do not exist (~0%), so name priors looked world-specific. Now PREPARE builds, for every
+validation / holdout world, a twin (`fauxos.gen_twin`, own seed range): the SAME tool names, operation set (so the same
+task templates and wording) and argument vocabulary (kinds, places, tags, units), but a derangement of which name does
+what (every name maps to a different operation), fresh argument orders, variants, objects, error codes and unit
+conversion, and its own transcript from the same frozen explorer (`public/twins/<id>.json`). For a candidate, RUN runs a
+second `adapt()` pass per world on the twin (same sandbox, same budget, the child cannot tell the passes apart except
+by the transcript), and EVALUATE scores that twin adapter on the TARGET world's tasks. Name / vocabulary / format
+priors adapt identically to both and cancel in `world_specific_gain`; only what is learned from the transcript differs.
+In memory, on the real simulator and scorer: the names-only policy gets share 0 (validation 0.30 vs 0.30), a policy
+that reads operations and argument orders from the transcript gets 1.00 on its world and 0.00 with the twin's (share 1).
+
 **Metric.** `success` = mean task success over the split's worlds (primary; `items` = one 0/1 per task, so the SE is
-paired) for every arm. Also reported: `mismatched_success`, `world_specific_gain`, `world_specific_share` (candidates),
+paired) for every arm. Also reported: `twin_success`, `world_specific_gain`, `world_specific_share` (candidates),
 `none_success` and `icl_success` (from the evaluator's cache once the references ran), `gap_closure` = (d − a) / (b − a),
 per-template `s_*`, retry and syntax-error rates, adapt time and tokens, and the inference token accounting per task
 (context positions of each model call, the shared system prefix included in each): `initial_context_tokens` (first
@@ -128,10 +142,10 @@ the guard world with its transcript in context, each item scored with one of the
 RESEARCH.md §7, with ARC-Easy replaced by more GSM8K because ARC-Easy is not cached offline); `prefill_tokens <= 1000`
 (every prompt position processed per task, the retry call included: the surface arms use ~140 on the first call and
 <= ~400 with a retry, the ICL arm ~2.6k first call, ~3.2k with retries); `world_specific_share >= 0.5`
-(= (success − mismatched_success) / (success − none_success), 1.0 when success − none_success < 0.025, so a run that
-gains nothing passes vacuously; a gain that is mostly format / task-family learning, i.e. that an adapter trained on
-ANOTHER world of the split also produces, fails it); `peak_mem_gb <= 60`; budget `adapt_s_max <= 210` (the longest
-per-world `adapt()`, whose clock starts before the surface is imported); a non-finite loss or gradient in any `train()`
+(= (success − twin_success) / (success − none_success), 1.0 when success − none_success < 0.025, so a run that
+gains nothing passes vacuously; a gain that is mostly name-prior / format / task-family learning, i.e. that the same
+surface also produces from the twin's transcript, fails it); `peak_mem_gb <= 60`; budget `adapt_s_max <= 210` (the
+longest `adapt()` pass, target or twin, whose clock starts before the surface is imported); a non-finite loss or gradient in any `train()`
 call (sticky across calls), an adapter with non-finite or wrongly-shaped tensors, a failed sandbox self-check or a
 thread / process left by the surface makes a run invalid.
 Budgets count processed positions (padded prompt blocks, every decode step of every batch row, padded training
@@ -202,9 +216,15 @@ placebo arm, `world_specific_gain` and the `world_specific_share` guard are ther
 5. **Generator-family priors.** A surface could learn "semantics are often inverted" rather than this world's facts.
    That is arguably the legitimate general skill; the placebo arm and the `world_specific_share` guard (>= 0.5 of the
    gain over none must need the right world's transcript) bound how much of a kept gain may be of that kind. The guard
-   is noisy: on 240 validation items the paired SE of success − mismatched_success is ~0.02–0.03, so a gain of 0.06
+   is noisy: on 240 validation items the paired SE of success − twin_success is ~0.02–0.03, so a gain of 0.06
    passes only if its world-specific part is >= 0.03 (about 1 SE); a genuinely world-specific candidate can fail it by
    chance, and it is checked on the screen seed and both confirm seeds.
+   **Twins are distinguishable** (residual, not fixable without new worlds): target names were generated conditioned
+   on the target's semantics (15% truthful, 35% misleading English verbs), so in a target 1–10 of 11 tool verbs match
+   the verb tables for what the transcript shows the tool doing, in a twin 0–2 (83% of twins: 0; 400 simulated pairs).
+   A surface that detects twins that way and deliberately adapts worse on them would get share ~1 for gains that
+   come from name priors. program.md forbids it and it would be visible in the diff; making twins indistinguishable
+   needs worlds whose names do not depend on their semantics (v2, new worlds).
 6. **Wall-clock budget on a shared GPU.** Slow but uncontended periods shrink what fits in 180 s; token caps are the
    machine-independent part of the budget.
 7. **Claim scope: unseen worlds, not unseen task types.** Worlds (seeds, tool names, verbs, argument orders, units,
