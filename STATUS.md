@@ -5,7 +5,7 @@ ACTIVE — build (M0–M6) is DONE; owner follow-ups in progress. NEW: tree sear
 |---|---|
 | T0 build | DONE (commits 2ac0ea9, f6a0cd4; astra review: 18 fixed, 4 recorded): arlab/tree/ (model, replay, policy sandbox + 3 built-ins, online TreeCampaign, dream, report, CLI); `make accept-T1` PASS (13 tests: no-leak replay, sandbox isolation, held-out dream guard, fixture tree run with kill -9 resume + pre-registered finalize → supported). README rewritten in plain language. 4 greedy campaigns imported to ~/arlab-runs/_tree/imported (smoke replay only). |
 | T1 `_fixture` real-Codex shakedown | DONE: 3 paired rounds, 336 nodes; no dreamed-vs-fixed claim (noise ≥ effect); replay mis-ranked online; held-out guard rejected fx-d2. docs/TREE-SEARCH.md §Results |
-| T2 nanochat-lite tree (root m3b:0005, seal matches) | QUEUED: unit **arlab-tree-t2** (`_pilots/tree-t2.sh`, log `_pilots/tree-t2.log`) waits for arlab-campaigns to drain, then a0, a1 (controls) → dream n-d1 (held-out a1) → b1 (dreamed, if accepted) → g1 (greedy control); W4×32/round, ~20 GPU h |
+| T2 nanochat-lite tree (root m3b:0005, seal matches) | QUEUED (relaunched 23:2xZ after a0 was underpowered; holdout seeds now 101–105): unit **arlab-tree-t2** (`_pilots/tree-t2.sh`, log `_pilots/tree-t2.log`) waits for arlab-campaigns to drain, then a0, a1 (controls) → dream n-d1 (held-out a1) → b1 (dreamed, if accepted) → g1 (greedy control); W4×32/round, ~20 GPU h |
 | T3/T4 | **ttc-controller** built + astra-reviewed (static PASS, 39 tests; waits for GPU sampling: `build/sample.sh --pilot 100` then full ~3-5 GPU h). **latent-arch** built + 3 astra rounds (static PASS, 26 tests; next: full `arlab check` GPU PROBE + ~1-1.5 GPU-h pilot via build/pilot.sh). Both run after T2 in the GPU order. data-select, gpu-kernels later. |
 
 Note: accept-M1 45/47 under GPU-campaign load (fixture wall-clock guard noise, see WORKLOG); re-run when the GPU queue is idle.
@@ -17,7 +17,7 @@ Note: accept-M1 45/47 under GPU-campaign load (fixture wall-clock guard noise, s
 | looped-latent | **v0 done: not_found_at_this_scale** (upper bound 0.025 < MES 0.03, 20 loop designs) |
 | stencil-focus | **v0 done: not_found_at_this_scale** (15 policies, best +0.017 < MES 0.05; 7 guard_fail on output_failure_rate; reminder ≈ off 0.108/0.109 vs pilot oracle +0.27) |
 | ttt-context (TTT stage 0) | **v0 done: not_found_at_this_scale** (15 recipes; baseline TTT < no_ttt: holdout d = −0.024 ± 0.027; upper bound 0.003 < MES 0.05) |
-| plastic-agent (TTT stage 1) | **v0 done: not_found (guard-limited)**: 15 experiments, 13 guard_fail, mostly battery_drop 0.03–0.07 > 0.02. Best 0001 hindsight_pairs success 0.696 (none 0.092, icl 0.579, twin 0.008, share 1.14) at battery_drop 0.04. The baseline itself dropped 0/.027/.007/.05/.03, so the pre-registered IDEA.md rule sets the guard to 0.0398. **v1 queued after T2** (unit arlab-campaigns runs after-t2.sh) |
+| plastic-agent (TTT stage 1) | **v0 done: not_found (guard-limited)**: 15 experiments, 13 guard_fail, mostly battery_drop 0.03–0.07 > 0.02. Best 0001 hindsight_pairs success 0.696 (none 0.092, icl 0.579, twin 0.008, share 1.14) at battery_drop 0.04. The baseline itself dropped 0/.027/.007/.05/.03, so the pre-registered IDEA.md rule sets the guard to 0.0398. **v1 running** since 23:07Z (arlab-campaigns) |
 
 ## Resume after a CLI restart (2026-09-28)
 Running detached (unaffected by the CLI): `arlab-campaigns` (runs ~/arlab-runs/_pilots/campaign-queue.txt one by one:

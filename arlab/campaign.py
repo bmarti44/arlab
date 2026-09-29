@@ -510,6 +510,7 @@ class Campaign:
         mes, direction = p.metric.mes, p.metric.direction
         if self.state.get("underpowered") and not p.acceptance.allow_underpowered:
             self.save(verdict="inconclusive", verdict_reason="underpowered", holdout=None, phase="finalized")
+            self.log("VERDICT inconclusive: underpowered")
             return
         inc_commit, _, inc_id = self.incumbent(records)
         cmp_name = p.verdict.compare_to
@@ -570,6 +571,7 @@ class Campaign:
                 self.calibrate()
                 if self.state.get("underpowered") and not self.pack.acceptance.allow_underpowered:
                     self.save(stop_reason="underpowered")
+                    self.log("STOP: underpowered (2 x expected holdout SE > mes); no experiments run")
                 elif not self.state.get("stop_reason"):  # once the LOOP has stopped it never restarts (FINALIZE resumes)
                     self.loop()
                 self.finalize()
