@@ -61,12 +61,29 @@ GSM8K items and text rows for the forgetting battery (disjoint between validatio
 **What RUN sees.** Only `public/order.json` + `public/worlds/<id>.json` (world id, sorted tool names, transcript; the
 harness loads one world at a time) and OASST2 replay rows. Goals, answers, specs, states, the simulator and the
 battery items (copied from GSM8K / OASST2 at PREPARE) are in `private/` (EVALUATE only); no RUN-side code references a
-dataset under `/hf`. The harness gives `adapt()` only the world being adapted and checks, with a sha256 over every
-base parameter and buffer, that the base weights are byte-identical (and no LoRA module is left) at load, between
-worlds and at the end. The arm is chosen by frozen code: the sha256 of `/work/adapt.py` against the frozen references
+dataset under `/hf`. The arm is chosen by frozen code: the sha256 of `/work/adapt.py` against the frozen references
 (`common.arm_of`), never a constant in the surface.
 
-**Surface.** `surface/adapt.py`: `adapt(transcript, tool_names, gen, train) -> adapter | None`, within a frozen per-world
+**Isolation (as built, v1 round 2).** `harness.py` is a trusted supervisor that owns the model and never imports the
+surface. Per world it starts a FRESH child (`child.py`, `python -s -B`, minimal env, CUDA hidden, its own session) that
+locks itself down with Landlock (the latent-arch sandbox): readable only the Python install, `/usr /lib /etc /opt /proc
+/sys`, `/frozen` and `/work`; writable only a fresh per-world scratch dir (deleted afterwards) and `/dev/null`; no GPU,
+no TCP, no signals or ptrace-style access outside the sandbox. A self-check (every data file RUN can see, the model
+snapshot and `/proc/<parent>/mem` must not open; `/tmp` must not be writable) must pass or the run crashes. The child
+receives only that world's transcript and tool names over its stdin, disables every Python-level thread/process start,
+imports `adapt.py` and calls `adapt()` with RPC stubs (`surface_api.py`). Every generate / teacher / train request is
+validated, executed and metered by the supervisor (`engine.Gen`, `trainer.Trainer`, one `Budget` per world, CLOCK_MONOTONIC
+from "go", so the import counts for every world); the child cannot pass `budget=None`, touch a counter or move the
+deadline, and never holds adapter weights or teacher log-probs: they stay in the supervisor under immutable integer
+ids, and `adapt()` returns an id. At deadline + 15 s the child's process group is SIGKILLed (the last adapter trained is
+kept). On return the supervisor checks the child from outside (OS threads beyond its startup set, any descendant, any
+orphan re-parented to the subreaper supervisor) and records each as a violation (the evaluator invalidates the run),
+then kills the process group and every descendant before it saves ITS copy of the adapter (a data-only safetensors
+file that the evaluator re-validates: names, shapes, finiteness). Nothing the surface starts can run after `adapt()`
+returns (SIGKILL: no atexit), and no state carries from one world to the next. The base weights are sha256-hashed at
+load and after every world.
+
+**Surface.** `surface/adapt.py`: `adapt(transcript, tool_names, gen, train) -> AdapterRef | None`, within a frozen per-world
 budget (180 s wall clock, 400k gen tokens, 1.5M train tokens; calibrate). `gen` = budgeted base-model generation and
 teacher top-k log-probs in the evaluation's chat format, with or without the transcript in context. `train` = the frozen
 LoRA loop (surface chooses examples: raw text or prompt/completion pairs with optional teacher top-k; loss weights for
@@ -81,15 +98,18 @@ next-token LoRA on the raw transcript** (r16, all projections, 8 epochs, lr 2e-4
 | (b) icl | the whole transcript in the system prompt, no adapter | frozen reference `ref_icl` (fails the prefill guard by design; never a candidate) |
 | (c) guard | forgetting battery with each adapter | every run: guard `battery_drop` |
 | (d) surface | the per-world adapter; baseline = naive next-token LoRA | the campaign's candidates; the verdict compares (d) with the baseline |
-| (e) placebo | world i scored with the adapter trained on world i+1 | frozen reference `ref_placebo` (baseline LoRA; the harness hands world i the transcript of world i+1, the evaluator scores world i as for every arm) **and** every candidate run reports `cross_world_success` (its adapter j on world j−1) and `specific_gain` = (d) − that |
+| (e) placebo | world i scored with the adapter trained on world i+1 | frozen reference `ref_placebo` (baseline LoRA; the harness hands world i the transcript of world i+1, the evaluator scores world i as for every arm) **and** every candidate run reports `mismatched_success` (world i scored with its adapter of world i+1) and `world_specific_gain` = (d) − that, guarded by `world_specific_share` |
 
 Only d − e measures environment-specific knowledge: TTT gains on ARC and in GTTA are partly format learning, and a
 LoRA from another world teaches the program format without the right facts (TTT-DEEP-DIVE §4).
 
 **Metric.** `success` = mean task success over the split's worlds (primary; `items` = one 0/1 per task, so the SE is
-paired) for every arm. Also reported: `cross_world_success`, `specific_gain`, `none_success` and `icl_success` (from the evaluator's cache
-once the references ran), `gap_closure` = (d − a) / (b − a), `prefill_tokens`, per-template `s_*`, retry and syntax-error
-rates, adapt time and tokens.
+paired) for every arm. Also reported: `mismatched_success`, `world_specific_gain`, `world_specific_share` (candidates),
+`none_success` and `icl_success` (from the evaluator's cache once the references ran), `gap_closure` = (d − a) / (b − a),
+per-template `s_*`, retry and syntax-error rates, adapt time and tokens, and the inference token accounting per task
+(context positions of each model call, the shared system prefix included in each): `initial_context_tokens` (first
+call), `retry_prompt_tokens` (the retry call's full context; 0 without a retry), `prefill_tokens` = their sum,
+`decode_tokens`, `inference_tokens` = prefill + decode.
 
 **MES (fixed before calibration): 0.06** (6 points over the naive-LoRA baseline; RESEARCH.md §7). Item pack, holdout
 640 items, 3 holdout seeds: SE = sqrt(sd²/640 + 2σ²/3), where σ is the SD of the 5 calibration runs.
@@ -106,9 +126,14 @@ evaluation is greedy and deterministic).
 **Guards.** `battery_drop <= 0.02` (base minus adapted accuracy on 300 items: 200 GSM8K test problems and 100 tasks of
 the guard world with its transcript in context, each item scored with one of the run's adapters, round-robin; per
 RESEARCH.md §7, with ARC-Easy replaced by more GSM8K because ARC-Easy is not cached offline); `prefill_tokens <= 1000`
-(the surface arms use ~120 prompt tokens, the ICL arm ~2.7k); `peak_mem_gb <= 60`; budget `adapt_s_max <= 210`
-(the longest per-world `adapt()`, whose clock starts before the surface is imported); a non-finite loss or gradient in
-any `train()` call (sticky across calls) or an adapter with non-finite or wrongly-shaped tensors makes a run invalid.
+(every prompt position processed per task, the retry call included: the surface arms use ~140 on the first call and
+<= ~400 with a retry, the ICL arm ~2.6k first call, ~3.2k with retries); `world_specific_share >= 0.5`
+(= (success − mismatched_success) / (success − none_success), 1.0 when success − none_success < 0.025, so a run that
+gains nothing passes vacuously; a gain that is mostly format / task-family learning, i.e. that an adapter trained on
+ANOTHER world of the split also produces, fails it); `peak_mem_gb <= 60`; budget `adapt_s_max <= 210` (the longest
+per-world `adapt()`, whose clock starts before the surface is imported); a non-finite loss or gradient in any `train()`
+call (sticky across calls), an adapter with non-finite or wrongly-shaped tensors, a failed sandbox self-check or a
+thread / process left by the surface makes a run invalid.
 Budgets count processed positions (padded prompt blocks, every decode step of every batch row, padded training
 batches, replay rows); a generation batch reserves its worst case before it runs, so the caps are never exceeded. OASST2 `text_nll_ratio` is reported, not guarded. There is no `train_s` ratio guard: the budget
 itself is wall clock, and the naive baseline uses only a fraction of it.
@@ -155,7 +180,7 @@ An ARC-style surface (hindsight relabeling + dynamics pairs + augmentation, teac
 30–60% (+5 to +15 over none); TTT-DEEP-DIVE puts the chance that it clears MES 0.06 over the naive baseline at ~35–45%.
 Beating ICL at 1.7B is unlikely. The prefill saving (~2.5k tokens per call) holds
 either way. The largest single risk is that the relabeled demos teach the format but not the inverted semantics; the
-placebo arm and `specific_gain` are there to catch that.
+placebo arm, `world_specific_gain` and the `world_specific_share` guard are there to catch that.
 
 ## Caveats and open risks (for REVIEW.md)
 1. **Deviations from the brief.** The explorer is scripted, not the base model (PREPARE has no GPU). No vLLM: `gen` is
@@ -169,16 +194,33 @@ placebo arm and `specific_gain` are there to catch that.
    about these worlds. `s_*` per template and per-world numbers in the logs show heterogeneity.
 3. **Weak teacher.** 1.7B ICL may be too weak to distil (SDFT failed at 3B). The stretch model is Qwen3.5-4B; it needs a
    new tag and a check that the frozen LoRA and cache code handle its hybrid layers.
-4. **In-process surface.** adapt() runs in the harness process: it could read the model through `gen` internals or burn
-   time. The harness catches base-weight edits (sha256 of the weights at load, between worlds and at the end), saves
-   the trainer's private copy of each adapter, the budget is enforced by deadline and reserved token caps, and
-   program.md forbids the rest (good-faith proposer). A campaign mounts the whole HF cache read-only into RUN, so the
-   raw GSM8K test set is readable from adapt.py by file I/O; no frozen RUN code references it (tested) and program.md
-   forbids file reads. See REVIEW.md. No goal, answer, state or simulator is reachable
-   from RUN, and the generator code is not mounted there.
+4. **Surface isolation (round 2: fixed, see "Isolation").** adapt() no longer runs in the harness process: it runs in a
+   fresh Landlock-sandboxed child per world and reaches the model only by metered RPC; threads / processes it leaves
+   are caught from outside and invalidate the run. What remains: a thread started and ended between two RPCs without
+   the Python-level API (ctypes) is not seen, but it can only compute on the CPU inside the metered wall clock, with
+   no model, data or writable path, and is killed with the process group when adapt() returns.
 5. **Generator-family priors.** A surface could learn "semantics are often inverted" rather than this world's facts.
-   That is arguably the legitimate general skill; the placebo arm measures how much of a gain is world-specific.
+   That is arguably the legitimate general skill; the placebo arm and the `world_specific_share` guard (>= 0.5 of the
+   gain over none must need the right world's transcript) bound how much of a kept gain may be of that kind. The guard
+   is noisy: on 240 validation items the paired SE of success − mismatched_success is ~0.02–0.03, so a gain of 0.06
+   passes only if its world-specific part is >= 0.03 (about 1 SE); a genuinely world-specific candidate can fail it by
+   chance, and it is checked on the screen seed and both confirm seeds.
 6. **Wall-clock budget on a shared GPU.** Slow but uncontended periods shrink what fits in 180 s; token caps are the
    machine-independent part of the budget.
-7. **Next (v2):** sequential A→B adaptation in one LoRA with a re-test on A; surface-controlled exploration at a matched
+7. **Claim scope: unseen worlds, not unseen task types.** Worlds (seeds, tool names, verbs, argument orders, units,
+   objects) are disjoint between validation and holdout, but the 15 goal templates and their wording
+   (`fauxos.TEMPLATES` / `make_tasks`), the 15 operation types and the output grammar are shared across splits. A kept
+   result therefore says the surface consolidates never-seen WORLDS of known task families; it says nothing about
+   generalization to new templates, phrasings or operation types (that would need template / paraphrase families
+   partitioned by split: v2 with the perturbed-generator holdout).
+8. **HF cache in campaigns.** arlab mounts the whole HF cache read-only at `/hf` in RUN and EVALUATE (runner level,
+   `campaign.trial()`; `pack.yaml` cannot narrow it; only `build/pilot.sh` mounts just the model). So the raw GSM8K test
+   split and OASST2 dump from which PREPARE copies the private GSM8K battery, the text-NLL rows and the replay rows are
+   on disk in RUN. The pack no longer depends on them being unreadable to the surface: adapt.py runs under Landlock with
+   `/hf` (and every data file) unreadable, and a test opens exactly those two source files (and the model snapshot)
+   from the sandboxed surface and requires the open to fail. The trusted supervisor reads only the model snapshot from
+   `/hf`. The research agent's container does not mount `/hf` (`arlab/agent.py`: only its view, `/out` and CODEX_HOME). Residual: the base model
+   may have seen GSM8K test items in pretraining, which affects base and adapted models alike (battery_drop is a
+   difference).
+9. **Next (v2):** sequential A→B adaptation in one LoRA with a re-test on A; surface-controlled exploration at a matched
    token budget; a KV-prefix (Cartridge) arm; stage 2 meta-training of a "TTT-able" base if stage 1 clears the MES.

@@ -7,16 +7,27 @@ For each world j: merge adapter j (if any) into the base weights, then
   own      world j's tasks, prompt = system prompt with world j's tool names + goal (NO transcript; arm "icl" instead
            puts world j's transcript in the system prompt and uses no adapter). Every arm is scored on its own worlds;
            for the placebo reference, adapter j was trained by the harness on world j+1's transcript.
-  cross    (arm "adapter" only, reported, never primary) world j-1's tasks with adapter j: the same-run placebo check
+  mismatched  (arm "adapter" only) world j-1's tasks with adapter j, i.e. every target world i scored with the adapter
+           trained on a DIFFERENT world (donor i+1) of the same split: the same-run world-specific learning control.
+           mismatched_success, world_specific_gain = success - mismatched_success, and the guard
+           world_specific_share = (success - mismatched_success) / (success - none_success) (min 0.5; 1.0 when
+           success - none_success < 0.025, i.e. vacuous for a run that gains nothing). It re-uses the merge of adapter
+           j, so it costs one more pass over the split's tasks with a merged adapter (est. ~10-30 s validation,
+           ~25-80 s holdout on the GB10; see REVIEW.md round 2).
   battery  this adapter's share of the forgetting battery: GSM8K items, guard-world tasks with the guard world's
            transcript in context ("can it still drive elsewhere"), OASST2 text NLL
-Each task: greedy program (<= 256 tokens), executed from the world's post-exploration state; on an execution or syntax
+Each task: greedy program (<= 64 tokens), executed from the world's post-exploration state; on an execution or syntax
 error one retry that shows the failing line and its output. Success = no error, exact gold state (state tasks) and the
 gold value in the last output (answer tasks). Base-model results (no adapter) are cached in /cache.
+Token accounting per task (context positions of each model call, the shared system prefix included in each call):
+initial_context_tokens (the first call), retry_prompt_tokens (the retry call's full context, 0 without a retry),
+prefill_tokens = their sum (every prompt position processed, retries included: the guard), decode_tokens (generated),
+inference_tokens = prefill_tokens + decode_tokens.
 
 metrics.json: primary = success (own-world task success) for every arm; items = per task 0/1 for the primary.
-Guards read battery_drop and prefill_tokens. The forgetting battery (guard world, GSM8K items, text rows) is the
-split's own: validation and holdout batteries are disjoint.
+Guards read battery_drop, prefill_tokens and world_specific_share. The forgetting battery (guard world, GSM8K items,
+text rows) is the split's own: validation and holdout batteries are disjoint. A run whose supervisor recorded a sandbox
+failure or a thread / process violation in any world is invalid.
 """
 import argparse
 import hashlib
@@ -35,9 +46,9 @@ from common import (GSM8K_SYSTEM, GSM8K_USER, MAX_GSM8K_TOKENS, MAX_PROGRAM_TOKE
 from engine import Engine  # noqa: E402
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from scoring import gsm_score  # noqa: E402
+from scoring import gsm_score, world_specific_share  # noqa: E402
 
-EVAL_VERSION = "pa-eval-2"
+EVAL_VERSION = "pa-eval-3"
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--run", required=True)
@@ -84,6 +95,8 @@ try:
     donors = [w["donor"] for w in stats["worlds"]]
     has = [bool(w["adapter"]) for w in stats["worlds"]]
     nan = bool(stats["nan"]) or any(bool(w["nan_seen"]) for w in stats["worlds"])
+    violations = [f"{w['id']}: {v}" for w in stats["worlds"] for v in w["violations"]]
+    sandbox_ok = all(w["sandbox"]["ok"] is True for w in stats["worlds"])
 except Exception as e:  # missing, wrong format
     invalid(f"missing or unreadable run outputs: {e!r}"[:500])
 arm = arm_of(a.work, a.frozen)
@@ -95,6 +108,8 @@ if donors != ([order[(i + 1) % len(order)] for i in range(len(order))] if arm ==
     invalid("stats.json: every candidate world must be adapted on its own transcript")
 if nan:
     invalid("training diverged (a non-finite loss or gradient in some train() call)")
+if not sandbox_ok or violations or stats.get("violations"):
+    invalid(f"the surface process broke isolation (threads / processes / sandbox): {violations[:5]}")
 on_disk = sorted(os.listdir(f"{a.run}/adapters")) if os.path.isdir(f"{a.run}/adapters") else []
 if on_disk != sorted(w for w, h in zip(wids, has) if h):
     invalid("adapter files do not match stats.json")
@@ -129,20 +144,24 @@ def decode(ids) -> str:
 
 
 def run_tasks(system: str, spec: dict, end: dict, tasks: list[dict], batch: int) -> dict:
-    """{task id: {"s", "retry", "first_error", "prompt_tokens"}} for greedy programs with one retry on error."""
+    """{task id: {"s", "retry", "first_error", "ctx0", "ctx_retry", "dec"}} for greedy programs with one retry on error.
+    ctx0 / ctx_retry = context positions of the first / retry call (prefix + suffix), dec = generated tokens."""
     pre_ids = E.encode(chat_prefix(system))
     pre = E.prefix_kv(pre_ids)
     suf = [E.encode(task_suffix(t["goal"])) for t in tasks]
-    first = [decode(o) for o in E.generate(pre, suf, a.max_new, batch_size=batch)]
+    gen1 = E.generate(pre, suf, a.max_new, batch_size=batch)
+    first = [decode(o) for o in gen1]
     res = [fauxos.run_program(spec, end, txt) for txt in first]
     out = {t["id"]: {"s": fauxos.score(t, r), "retry": False, "first_error": r["error"]["obs"][:40] if r["error"] else None,
-                     "prompt_tokens": len(pre_ids) + len(s)} for t, r, s in zip(tasks, res, suf)}
+                     "ctx0": len(pre_ids) + len(s), "ctx_retry": 0, "dec": len(g)} for t, r, s, g in zip(tasks, res, suf, gen1)}
     redo = [i for i, r in enumerate(res) if r["error"] is not None]
     if redo:
         suf2 = [E.encode(retry_suffix(tasks[i]["goal"], first[i], res[i]["error"]["line"], res[i]["error"]["obs"])) for i in redo]
-        second = [decode(o) for o in E.generate(pre, suf2, a.max_new, batch_size=batch)]
-        for i, txt in zip(redo, second):
-            out[tasks[i]["id"]].update(s=fauxos.score(tasks[i], fauxos.run_program(spec, end, txt)), retry=True)
+        gen2 = E.generate(pre, suf2, a.max_new, batch_size=batch)
+        for i, s2, g in zip(redo, suf2, gen2):
+            o = out[tasks[i]["id"]]
+            o.update(s=fauxos.score(tasks[i], fauxos.run_program(spec, end, decode(g))), retry=True,
+                     ctx_retry=len(pre_ids) + len(s2), dec=o["dec"] + len(g))
     del pre
     return out
 
@@ -179,7 +198,7 @@ if base is None:
     base = {"none": {}, "guard": {}, "gsm": {}, "text": []}
     for w in pub:
         p = priv[w["id"]]
-        base["none"].update({k: v["s"] for k, v in run_tasks(system_text(w["tools"]), p["spec"], p["end"], p["tasks"], BATCH["plain"]).items()})
+        base["none"].update(run_tasks(system_text(w["tools"]), p["spec"], p["end"], p["tasks"], BATCH["plain"]))
     base["guard"] = {k: v["s"] for k, v in run_tasks(G_SYS, guard["spec"], guard["end"], guard["tasks"], BATCH["guard"]).items()}
     base["gsm"] = run_gsm(gsm)
     base["text"] = run_text(text)
@@ -189,7 +208,7 @@ if base is None:
 
 # ---------------------------------------------------------------- per-world evaluation
 n = len(pub)
-own, plc, bat_gsm, bat_guard, bat_text = {}, {}, {}, {}, [None] * len(text)
+own, mism, bat_gsm, bat_guard, bat_text = {}, {}, {}, {}, [None] * len(text)
 for j, w in enumerate(pub):
     p = priv[w["id"]]
     ad = adapters.get(w["id"])
@@ -202,16 +221,14 @@ for j, w in enumerate(pub):
         elif ad:
             own.update(run_tasks(system_text(w["tools"]), p["spec"], p["end"], p["tasks"], BATCH["plain"]))
         else:
-            own.update({t["id"]: {"s": base["none"][t["id"]], "retry": None, "first_error": None,
-                                  "prompt_tokens": len(E.encode(chat_prefix(system_text(w["tools"])) + task_suffix(t["goal"])))}
-                        for t in p["tasks"]})
+            own.update({t["id"]: base["none"][t["id"]] for t in p["tasks"]})
         prev = pub[(j - 1) % n]
         pp = priv[prev["id"]]
-        if arm == "adapter":      # reported only: adapter j on world j-1 (a LoRA trained on a different world)
+        if arm == "adapter":      # the mismatched control: world j-1 scored with adapter j (trained on another world)
             if ad and n > 1:
-                plc.update({k: v["s"] for k, v in run_tasks(system_text(prev["tools"]), pp["spec"], pp["end"], pp["tasks"], BATCH["plain"]).items()})
+                mism.update({k: v["s"] for k, v in run_tasks(system_text(prev["tools"]), pp["spec"], pp["end"], pp["tasks"], BATCH["plain"]).items()})
             else:
-                plc.update({t["id"]: base["none"][t["id"]] for t in pp["tasks"]})
+                mism.update({t["id"]: base["none"][t["id"]]["s"] for t in pp["tasks"]})
         mine_gsm = [x for k, x in enumerate(gsm) if k % n == j]
         mine_guard = [t for k, t in enumerate(guard["tasks"]) if k % n == j]
         mine_text = [k for k in range(len(text)) if k % n == j]
@@ -239,8 +256,8 @@ if arm == "icl":
     json.dump(own_items, open(icl_path + ".tmp", "w"))
     os.replace(icl_path + ".tmp", icl_path)
 icl = json.load(open(icl_path)) if os.path.exists(icl_path) else None
-none_s = float(np.mean([base["none"][t["id"]] for t in tasks]))
-plc_s = float(np.mean([plc[t["id"]] for t in tasks])) if arm == "adapter" else None
+none_s = float(np.mean([base["none"][t["id"]]["s"] for t in tasks]))
+mism_s = float(np.mean([mism[t["id"]] for t in tasks])) if arm == "adapter" else None
 icl_s = float(np.mean([icl[t["id"]] for t in tasks])) if icl and set(icl) == set(own_items) else None
 b_items = [base["gsm"][x["id"]] for x in gsm] + [base["guard"][t["id"]] for t in guard["tasks"]]
 a_items = [bat_gsm[x["id"]] for x in gsm] + [bat_guard[t["id"]] for t in guard["tasks"]]
@@ -253,15 +270,21 @@ m = {"success": success, "none_success": none_s,
      "gsm8k_drop": float(np.mean([base["gsm"][x["id"]] - bat_gsm[x["id"]] for x in gsm])),
      "guardworld_drop": float(np.mean([base["guard"][t["id"]] - bat_guard[t["id"]] for t in guard["tasks"]])),
      "text_nll_ratio": float(np.mean(bat_text) / np.mean(base["text"])),
-     "prefill_tokens": float(np.mean([own[t["id"]]["prompt_tokens"] for t in tasks])),
+     "prefill_tokens": float(np.mean([own[t["id"]]["ctx0"] + own[t["id"]]["ctx_retry"] for t in tasks])),
+     "initial_context_tokens": float(np.mean([own[t["id"]]["ctx0"] for t in tasks])),
+     "retry_prompt_tokens": float(np.mean([own[t["id"]]["ctx_retry"] for t in tasks])),
+     "decode_tokens": float(np.mean([own[t["id"]]["dec"] for t in tasks])),
+     "inference_tokens": float(np.mean([own[t["id"]]["ctx0"] + own[t["id"]]["ctx_retry"] + own[t["id"]]["dec"] for t in tasks])),
      "retry_rate": float(np.mean([bool(own[t["id"]]["retry"]) for t in tasks])),
      "syntax_error_rate": float(np.mean([bool((own[t["id"]]["first_error"] or "").startswith("syntax")) for t in tasks])),
      "n_adapters": float(len(adapters)), "adapter_params_m": float(max([r["adapter_params_m"] for r in stats["worlds"]] or [0])),
      "adapt_s_mean": float(np.mean([r["adapt_s"] for r in stats["worlds"]])),
+     "killed_worlds": float(sum(bool(r["killed"]) for r in stats["worlds"])),
      "train_tokens_mean": float(np.mean([r["train_tokens"] for r in stats["worlds"]])),
      "gen_tokens_mean": float(np.mean([r["gen_tokens"] for r in stats["worlds"]]))}
-if plc_s is not None:
-    m["cross_world_success"], m["specific_gain"] = plc_s, success - plc_s
+if mism_s is not None:
+    m["mismatched_success"], m["world_specific_gain"] = mism_s, success - mism_s
+    m["world_specific_share"] = world_specific_share(success, mism_s, none_s)
 if icl_s is not None:
     m["icl_success"] = icl_s
     if icl_s - none_s > 0.02:

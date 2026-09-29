@@ -81,3 +81,88 @@ Found issues in all four categories. No files were modified. Numeric-parser and 
   - The flag lives in the trainer object, so deliberately resetting it in-process falls under the first bounded item.
 
 Changing frozen code means new data: the stale `~/arlab-data/plastic-agent/e8b29e06821e4352` was deleted after `arlab check --static` built `da29c4038bdbef14`. 20 CPU tests pass through `arlab check` (~2.5 min).
+
+---
+# gpt-6-astra review (round 2) and orchestrator response (2026-09-29)
+
+Round 2 findings (review of v1 after round 1): `train.__self__` exposes `_kept` / `nan_seen`; world-specific
+improvement only reported; campaigns mount the whole HF cache; all current-split transcripts readable and one surface
+module persists across worlds; templates shared across splits; surface gets the raw engine and a mutable budget
+(`budget=None`, counters, deadline); threads / processes / exit callbacks outlive `adapt()`; `prefill_tokens` ignores
+retry prompts. Direct private-task leakage, scorer exploits and ICL-reference unfairness: none found.
+
+**Isolation and budget (findings 1, 4, 6, 7): fixed**, with the latent-arch / ttc-controller patterns.
+- `harness.py` is now a trusted supervisor that owns the model and never imports the surface. Per world it starts a
+  fresh `child.py` (own session, minimal env, CUDA hidden, single-threaded BLAS) that applies Landlock (the latent-arch
+  `sandbox.py`, plus single-file rules for `/dev/urandom`, `/dev/random`, `/dev/null`, which importing torch needs):
+  readable only the Python install, system dirs, `/frozen`, `/work`; writable only a fresh per-world scratch dir that
+  the supervisor deletes afterwards; no GPU, TCP, outside signals or ptrace. Its self-check (every RUN data file, the
+  model snapshot, `/proc/<parent>/mem`, `/tmp` write) must pass or RUN crashes.
+- The child gets only its world's transcript and tool names over stdin; `gen` / `train` are RPC stubs
+  (`surface_api.py`). The supervisor validates, runs and meters every request (`engine.Gen`, `trainer.Trainer`, one
+  `Budget` per world on CLOCK_MONOTONIC from "go", so every world pays its import). The child cannot pass `budget=None`
+  (extra fields are ignored), touch counters, or move the deadline (its `seconds_left` / `tokens_left` are local copies).
+  Adapters and teacher log-probs never enter the child: they stay in the supervisor under immutable integer ids;
+  `adapt()` returns an id, and the supervisor saves its own copy (data-only safetensors, re-validated by the evaluator).
+- At deadline + 15 s the supervisor stops serving and SIGKILLs the child's process group (the last adapter trained is
+  kept). After `adapt()` returns it inspects the child from outside (new OS threads, descendants, orphans re-parented
+  to the subreaper supervisor), records each as a violation (evaluator: invalid), then kills the group and every
+  descendant BEFORE saving the adapter. SIGKILL means no atexit callback ever runs.
+- Tests: a probe surface (both worlds, separate PIDs, empty module state, empty scratch) cannot read the other worlds,
+  order.json, replay rows, the model snapshot, or the raw GSM8K / OASST2 files under `/hf`. It cannot list `/data`,
+  `/hf`, `/tmp`, write `/work`, `/tmp`, `/out`, read the parent's mem / environ, open TCP, start a thread / fork /
+  subprocess. Forged teacher and adapter ids, `budget=None`, unknown calls, bad types and negative `replay_rows` are
+  refused, and its edits to returned stats change nothing saved. More surfaces: one that ignores the deadline while
+  spamming calls, and a pure spin loop, are both killed at deadline + grace. A forged `AdapterRef` or a dict return
+  crashes RUN. Local counter / deadline edits cannot exceed a 500-token gen cap. A ctypes pthread is caught (run
+  invalid), and a double-forked `setsid` daemon is caught and killed. numpy / torch imports work in the sandbox with no
+  violation. The sticky divergence flag and id validation are unit-tested in the supervisor-side trainer.
+- Side fix: the old harness charged the first base-weight fingerprint (~20 s on the GB10 in gate 2) to world 0's
+  `adapt_s`, and hashed before AND after every world. The clock now starts at "go", and the hash runs at load and
+  after each world (n+1 instead of 2n+1, ~80 s less per validation RUN).
+
+**World-specific learning control (finding 2): fixed.**
+- For candidates, the evaluator scores every target world i with the adapter trained on a DIFFERENT world (donor
+  i+1) of the same split. The old cross-world pass, renamed, reuses the merge of adapter i+1. It reports
+  `mismatched_success`, `world_specific_gain` = success − mismatched_success and `world_specific_share` =
+  (success − mismatched) / (success − none_success), defined as 1.0 when success − none_success < 0.025.
+- New guard `world_specific_share >= 0.5`. The guard is checked only on candidates, never on the baseline or the
+  references.
+- Tests: the formula's cases (`scoring.world_specific_share`), and the end-to-end metrics consistency.
+- Noise: the paired SE of success − mismatched on 240 items is ~0.02–0.03, so the guard can reject a real but small
+  world-specific gain by chance (IDEA.md caveat 5).
+- Extra EVALUATE time: the control is one more greedy pass over the split's tasks with an already-merged adapter.
+  Estimate from gate 2 (240 plain tasks at batch 48 × 64 decode steps, plus retries): ~10–30 s per validation run and
+  ~25–80 s per holdout run. A whole candidate EVALUATE is est. ~3 min validation, ~5–6 min holdout. The first run per
+  campaign adds ~2 min to fill the base cache.
+- Decision: keep `evaluate.timeout_s: 3000`. It is 10× the estimate, and the pass already existed as the reported
+  cross-world score, so the evaluator's cost did not change.
+
+**Token accounting (finding 8): fixed.** Per task, the evaluator records the full context of each model call (the
+shared prefix counted in each), for the first call and for the retry, plus the generated tokens. It reports:
+- `initial_context_tokens`;
+- `retry_prompt_tokens`;
+- `prefill_tokens` = their sum (the guard now includes retries; the surface arms stay ≤ ~400, so max 1000 is unchanged);
+- `decode_tokens`;
+- `inference_tokens`.
+
+The base-model cache stores these too (EVAL_VERSION pa-eval-3), so none-arm and no-adapter worlds count their retries.
+Tested: the sums are consistent, and the retry context is counted when the tiny model retries.
+
+**Recorded, not fixed (findings 3, 5).** IDEA.md caveats 7 and 8, with a test that the statements are there:
+- The claim is limited to unseen worlds, not unseen task types: the 15 templates, their wording and the operation
+  types are shared across splits, and a test asserts the template sets are equal.
+- Campaigns mount the whole HF cache at `/hf` (runner level). The pack no longer relies on the GSM8K / OASST2
+  sources being unreadable: the surface sandbox denies `/hf`, and the test opens exactly those two source files from
+  inside the sandbox.
+
+**Untested without the GPU:**
+- The whole path on CUDA as uid 1000: Landlock + CUDA parent + per-world `Popen`; per-RPC `/proc` scans; JSON RPC
+  overhead for large example lists.
+- The real adapt / EVALUATE timings (the estimates above).
+- The child's startup under the real image as non-root. The TESTS step runs as root; ttc-controller already runs a
+  Landlocked child as uid 1000 in RUN.
+- Whether the naive baseline's `world_specific_share` would pass. The guard does not apply to it, but it shows what
+  the guard means at this scale.
+
+Pack tests: 25 CPU tests pass.

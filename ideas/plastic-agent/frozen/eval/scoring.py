@@ -19,3 +19,14 @@ def gsm_answer(s: str):
 def gsm_score(text: str, gold: int) -> float:
     v = gsm_answer(text)
     return float(v is not None and abs(v - gold) < 1e-6)
+
+
+MIN_GAIN = 0.025
+
+
+def world_specific_share(success: float, mismatched: float, none: float) -> float:
+    """Share of the gain over no adaptation that needs the RIGHT world's transcript: (success - mismatched) /
+    (success - none), where mismatched = the same worlds scored with adapters trained on OTHER worlds. 1.0 when the
+    gain over none is below MIN_GAIN (nothing to attribute: vacuous for a do-nothing run). Guard: min 0.5."""
+    gain = success - none
+    return 1.0 if gain < MIN_GAIN else float((success - mismatched) / gain)

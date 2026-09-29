@@ -134,6 +134,16 @@ def test_public_and_train_data_reveal_no_hidden_state_or_labels():
     assert sorted(os.listdir(f"{D}/train")) == ["replay.npy"]
 
 
+def test_known_limits_are_recorded():
+    """Worlds are disjoint across splits (above) but goal templates are shared: IDEA.md must limit the claim to unseen
+    worlds, and record that campaigns mount the whole HF cache (the surface sandbox is what keeps it unreadable)."""
+    tpl = {s: {t["template"] for p in js(f"{D}/{s}/private/worlds.json").values() for t in p["tasks"]} for s in SPLITS}
+    assert tpl["validation"] == tpl["holdout"] and tpl["holdout"] <= set(fauxos.TEMPLATES)
+    idea = " ".join(open("/pack/IDEA.md").read().split())
+    assert "unseen worlds, not unseen task types" in idea and "templates and their wording" in idea
+    assert "mounts the whole HF cache read-only at `/hf` in RUN" in idea and "no longer depends on them being unreadable" in idea
+
+
 def _code(path) -> str:
     """Source without comments and docstrings (the checks below are about what the code does, not what it says)."""
     import ast
@@ -154,8 +164,13 @@ def test_run_side_code_cannot_reach_the_simulator_or_private_data():
         for bad in ("fauxos", "private", "holdout", "/eval", "/prepare", "gold"):
             assert bad not in src, f"{bad} in frozen/run/{f}"
     src = _code("/frozen/harness.py")
-    assert src.count("a.data") == 3 and "f'{a.data}/public/order.json'" in src and "f'{a.data}/train/replay.npy'" in src
-    assert "f'{a.data}/public/worlds/{wid}.json'" in src          # one world file at a time
+    # the supervisor opens exactly: the world order, the replay rows, and ONE world file per world (the donor's)
+    assert src.count("open(f'{a.data}") == 2 and "json.load(open(f'{a.data}/public/order.json'))" in src
+    assert "json.load(open(f'{a.data}/public/worlds/{donor}.json'))" in src and "np.load(f'{a.data}/train/replay.npy')" in src
+    assert "import adapt" not in src and "importlib" not in src and "/work" not in src.replace("default='/work'", "")
+    # the sandboxed child reads no file: the world arrives over its stdin
+    child = _code("/frozen/child.py") + _code("/frozen/surface_api.py")
+    assert "a.data" not in child and "np.load" not in child and "/data" not in child and "/hf" not in child
 
 
 def test_run_side_code_references_no_dataset_under_hf():
@@ -375,31 +390,70 @@ def test_lora_attach_merge_and_exact_reset(tiny):
 
 PROBE_SURFACE = '''
 import json, os, sys
-sys.path.insert(0, "/frozen")
-import lora
 ARM = "icl"          # ignored: the arm is decided by frozen code from the file hash
-LOG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "log.jsonl")
+CALLS = []           # module state: a fresh process per world must start empty
+
+
+def attempt(fn):
+    try:
+        fn()
+        return "OPEN"
+    except Exception as e:
+        return type(e).__name__
 
 
 def adapt(transcript, tool_names, gen, train):
-    m = gen._e.model
-    main = vars(sys.modules["__main__"])
-    worlds_seen = [k for k, v in main.items() if (isinstance(v, dict) and "transcript" in v)
-                   or (isinstance(v, list) and any(isinstance(x, dict) and "transcript" in x for x in v))]
-    rec = {"wrapped": lora.n_wrapped(m), "fp": lora.fingerprint(m), "n_events": len(transcript), "worlds_seen": worlds_seen,
-           "same": main["w"]["transcript"] == transcript,
-           "keys": sorted({k for e in transcript for k in e}), "gen_attrs": sorted(vars(gen)), "tools": tool_names}
+    import socket, subprocess, threading
+    import surface_api
+    CALLS.append(1)
+    rec = {"pid": os.getpid(), "calls": len(CALLS), "tools": tool_names, "transcript": transcript,
+           "keys": sorted({k for e in transcript for k in e}), "gen_attrs": sorted(vars(gen)),
+           "torch_loaded": "torch" in sys.modules, "seconds_left": gen.seconds_left()}
+    rec["reads"] = {p: attempt(lambda p=p: open(p, "rb").read(1)) for p in @READS@}
+    rec["listdir"] = {p: attempt(lambda p=p: os.listdir(p)) for p in ("@DATA@", "/hf", "/tmp", "/data")}
+    rec["writes"] = {p: attempt(lambda p=p: open(p, "wb").write(b"x"))
+                     for p in (os.path.join(os.path.dirname(os.path.abspath(__file__)), "x"), "/tmp/pa_probe", "@OUT@/x")}
+    import tempfile
+    tmpd = tempfile.gettempdir()
+    rec["scratch"] = {"dir": tmpd, "empty": os.listdir(tmpd) == []}
+    open(os.path.join(tmpd, "carry"), "w").write("state")          # writable, but deleted before the next world
+    rec["procmem"] = attempt(lambda: open("/proc/%d/mem" % os.getppid(), "rb").read(1))
+    rec["environ"] = attempt(lambda: open("/proc/%d/environ" % os.getppid(), "rb").read(1))
+    rec["thread"] = attempt(lambda: threading.Thread(target=print).start())
+    rec["fork"] = attempt(os.fork)
+    rec["subprocess"] = attempt(lambda: subprocess.run(["true"]))
+
+    def net():
+        s = socket.socket()
+        s.settimeout(1)
+        s.connect(("127.0.0.1", 9))
+    rec["net"] = attempt(net)
+    # every request is metered by the supervisor; extra fields (budget=None) are ignored, local counters are copies
+    left0 = gen.tokens_left
     out = gen.generate([gen.task_prompt("Archive item 100.")], max_new_tokens=3, context=False)
+    gen._c.call("generate", prompts=["x"], max_new_tokens=3, temperature=0.0, context=False, batch_size=1, budget=None)
+    rec["metered"] = left0 - gen.tokens_left
+    gen._deadline += 1e6
+    gen._c.gen_left = 10 ** 12
+    lora_cfg = {"rank": 1, "alpha": 1, "max_len": 64}
+    rec["bad"] = {
+        "unknown_fn": attempt(lambda: gen._c.call("reset_budget")),
+        "prompts_str": attempt(lambda: gen._c.call("generate", prompts="abc", max_new_tokens=3, temperature=0.0,
+                                                   context=False, batch_size=1)),
+        "max_new_huge": attempt(lambda: gen.generate(["x"], max_new_tokens=10 ** 6)),
+        "teacher_forged": attempt(lambda: train([{"prompt": "p", "completion": "c", "teacher": 12345}], lora_cfg)),
+        "init_forged": attempt(lambda: train([{"text": "> a(1)\\nok\\n"}], lora_cfg, init=surface_api.AdapterRef(999, {}))),
+        "replay_neg": attempt(lambda: train([{"text": "a b c"}], {**lora_cfg, "kl_base": 1.0, "replay_rows": -5})),
+    }
     p, c = gen.task_prompt("Lock item 7."), tool_names[0] + "(7)"
     t = gen.teacher([p], [c], k=4, context=True)[0]
     ad = train([{"prompt": p, "completion": c, "teacher": t}, {"text": "> x(1)\\nok\\n", "weight": 0.5}],
                {"rank": 2, "alpha": 4, "epochs": 3, "batch_size": 2, "max_len": 256, "kl_base": 0.1, "replay_rows": 1})
     ad2 = train([{"prompt": p, "completion": c}], {"rank": 2, "alpha": 4, "epochs": 1, "max_len": 256}, init=ad)
-    ad.tensors[next(iter(ad.tensors))].fill_(7.0)           # editing the returned copy changes nothing saved
-    ad.cfg["rank"] = 64
-    rec.update(out=out, gen_used=gen.tokens_left, stats=ad.stats, stats2=ad2.stats, wrapped_after=lora.n_wrapped(m))
-    with open(LOG, "a") as f:
-        f.write(json.dumps(rec) + "\\n")
+    rec.update(out=out, ids=[ad.id, ad2.id], steps=[ad.stats["steps"], ad2.stats["steps"]],
+               ad_attrs=sorted(a for a in dir(ad) if not a.startswith("__")))
+    ad2.stats["steps"] = 999             # a copy: the supervisor's record of the adapter is unaffected
+    print("PROBE " + json.dumps(rec), file=sys.stderr, flush=True)
     return ad2 if len(tool_names) % 2 else ad
 '''
 
@@ -424,12 +478,12 @@ def _mini_data(root, n_tasks=3, n_worlds=2):
     return root
 
 
-def _harness(tiny, data, work, out, secs=120, gen_tokens=10**6, train_tokens=10**6, limit=0):
+def _harness(tiny, data, work, out, secs=120, gen_tokens=10**6, train_tokens=10**6, limit=0, grace=None):
     os.makedirs(out, exist_ok=True)
     return subprocess.run([sys.executable, "/frozen/harness.py", "--out", str(out), "--seed", "1", "--split", "validation",
                            "--adapt-seconds", str(secs), "--gen-tokens", str(gen_tokens), "--train-tokens", str(train_tokens),
                            "--device", "cpu", "--model", tiny, "--data", str(data), "--work", str(work),
-                           "--limit-worlds", str(limit)],
+                           "--limit-worlds", str(limit)] + (["--grace", str(grace)] if grace is not None else []),
                           capture_output=True, text=True, env=ENV, timeout=600)
 
 
@@ -442,49 +496,93 @@ def _evaluate(tiny, data, run, tmp, work):
     return js(out)
 
 
+def _surface(tmp, name, src):
+    (tmp / f"w_{name}").mkdir()
+    (tmp / f"w_{name}" / "adapt.py").write_text(src)
+    return tmp / f"w_{name}"
+
+
+def _battery_sources() -> list:
+    """The raw GSM8K / OASST2 files under /hf that PREPARE builds the private batteries and replay rows from (a campaign
+    mounts the whole HF cache at /hf in RUN): the sandboxed surface must not be able to read them."""
+    import ast
+    tree = ast.parse(open("/pack/frozen/prepare/prepare.py").read())
+    return [ast.literal_eval(n.value) for n in tree.body if isinstance(n, ast.Assign)
+            and getattr(n.targets[0], "id", "") in ("GSM8K_FILE", "OASST_FILE")]
+
+
 @pytest.fixture(scope="module")
 def probe_run(tiny, tmp_path_factory):
     tmp = tmp_path_factory.mktemp("probe")
     data = _mini_data(tmp / "data")
-    work = tmp / "work"
-    work.mkdir()
-    (work / "adapt.py").write_text(PROBE_SURFACE)
+    reads = [f"{data}/public/order.json", f"{data}/train/replay.npy", f"{MODEL_DIR}/config.json", f"{tiny}/config.json"] + \
+        [f"{data}/public/worlds/{w}.json" for w in js(f"{data}/public/order.json")] + \
+        _battery_sources()
+    src = PROBE_SURFACE.replace("@READS@", repr(reads)).replace("@DATA@", str(data)).replace("@OUT@", str(tmp / "out"))
+    work = _surface(tmp, "probe", src)
     r = _harness(tiny, data, work, tmp / "out")
     assert r.returncode == 0, r.stderr[-3000:]
-    return tmp, data, [json.loads(x) for x in open(work / "log.jsonl")]
+    log = [json.loads(x[len("PROBE "):]) for x in r.stderr.splitlines() if x.startswith("PROBE ")]
+    return tmp, data, work, log, reads
 
 
-def test_harness_resets_adapters_between_worlds_and_exposes_only_the_transcript(probe_run):
-    tmp, data, log = probe_run
-    assert len(log) == 2
-    assert all(r["wrapped"] == 0 for r in log) and log[0]["fp"] == log[1]["fp"]      # fresh base model per world
-    assert all(r["wrapped_after"] == 0 for r in log)
-    assert all(r["keys"] == ["call", "obs"] for r in log)
-    assert all(r["worlds_seen"] == ["w"] and r["same"] for r in log), "adapt() may see only the world being adapted"
-    assert log[0]["gen_attrs"] == ["_budget", "_calls", "_e", "_prefix", "_seed", "tool_names", "transcript", "transcript_text"]
-    for r in log:
-        assert r["stats"]["steps"] == 3 and r["stats"]["nan"] is False and r["stats2"]["steps"] == 1
+def test_surface_runs_sandboxed_per_world_and_sees_only_its_transcript(probe_run):
+    tmp, data, work, log, reads = probe_run
+    assert len(log) == 2 and len(reads) == 8 and all(os.path.isfile(p) for p in reads)   # (readable from outside)
+    worlds = [js(f"{data}/public/worlds/{w}.json") for w in ("v0", "v1")]
+    for r, w in zip(log, worlds):
+        assert r["calls"] == 1, "a fresh process per world: no module state carries over"
+        assert r["transcript"] == w["transcript"] and r["tools"] == w["tools"] and r["keys"] == ["call", "obs"]
+        assert r["gen_attrs"] == ["_c", "_deadline", "tool_names", "transcript", "transcript_text"]
+        assert not r["torch_loaded"] and 0 < r["seconds_left"] <= 120
+        assert all(v != "OPEN" for v in r["reads"].values()), r["reads"]     # other worlds, replay, model, /hf datasets
+        assert all(v != "OPEN" for v in r["listdir"].values()), r["listdir"]
+        assert all(v != "OPEN" for v in r["writes"].values()), r["writes"]    # /work, /tmp, the run's /out
+        assert r["procmem"] != "OPEN" and r["environ"] != "OPEN" and r["net"] != "OPEN"
+        assert r["thread"] == "RuntimeError" and r["fork"] == "RuntimeError" and r["subprocess"] != "OPEN"
+        assert r["metered"] > 0
+        assert r["bad"] == {"unknown_fn": "ValueError", "prompts_str": "TypeError", "max_new_huge": "ValueError",
+                            "teacher_forged": "ValueError", "init_forged": "ValueError", "replay_neg": "ValueError"}
+        assert r["steps"] == [3, 1] and r["ad_attrs"] == ["id", "stats"]                # no weights in the child
+    assert log[0]["pid"] != log[1]["pid"] and all(r["scratch"]["empty"] for r in log)
+    assert log[0]["scratch"]["dir"] != log[1]["scratch"]["dir"] and not os.path.exists(log[0]["scratch"]["dir"])
+    assert not os.path.exists(work / "x") and not os.path.exists(tmp / "out" / "x")
+
+
+def test_supervisor_records_and_saves_only_its_own_copies(probe_run):
+    tmp, data, work, log, _ = probe_run
     stats = js(tmp / "out" / "stats.json")
     assert stats["arm"] == "adapter" and [w["id"] for w in stats["worlds"]] == ["v0", "v1"]   # ARM = "icl" ignored
-    assert [w["donor"] for w in stats["worlds"]] == ["v0", "v1"] and stats["nan"] is False
-    assert all(w["gen_tokens"] > 0 and w["train_tokens"] > 0 for w in stats["worlds"])
+    assert [w["donor"] for w in stats["worlds"]] == ["v0", "v1"] and stats["nan"] is False and stats["violations"] == 0
+    for w, r in zip(stats["worlds"], log):
+        assert w["sandbox"]["ok"] is True and w["sandbox"]["landlock_abi"] >= 1 and w["violations"] == []
+        assert w["gen_tokens"] > 0 and w["train_tokens"] > 0 and not w["killed"] and w["teacher_calls"] == 1
+        assert w["train"]["steps"] == 1 and w["train_calls"] == 2         # 11 tools: ad2 returned; its "999" edit is local
     assert sorted(os.listdir(tmp / "out" / "adapters")) == ["v0", "v1"]
     (c0, a0), (c1, a1) = (lora.load(tmp / "out" / "adapters" / w) for w in ("v0", "v1"))
-    assert any(not torch.equal(a0[k], a1[k]) for k in a0)
-    assert c0["rank"] == c1["rank"] == 2 and not any(bool((t == 7.0).all()) for t in list(a0.values()) + list(a1.values()))
+    assert any(not torch.equal(a0[k], a1[k]) for k in a0) and c0["rank"] == c1["rank"] == 2
     assert js(tmp / "out" / "budget.json")["adapt_s_max"] > 0
 
 
 def test_evaluator_end_to_end_and_invalid_outputs(tiny, probe_run):
-    tmp, data, _ = probe_run
-    work = tmp / "work"
+    from scoring import world_specific_share
+    tmp, data, work, _, _ = probe_run
     m = _evaluate(tiny, data, tmp / "out", tmp, work)
     tasks = [t["id"] for p in js(data / "private" / "worlds.json").values() for t in p["tasks"]]
     assert m["valid"] and sorted(m["items"]) == sorted(tasks) and set(m["items"].values()) <= {0.0, 1.0}
-    assert m["primary"] == m["metrics"]["success"]
-    for k in ("success", "cross_world_success", "none_success", "battery_drop", "prefill_tokens", "text_nll_ratio"):
-        assert np.isfinite(m["metrics"][k])
-    assert m["metrics"]["prefill_tokens"] < 1500 and m["metrics"]["n_adapters"] == 2
+    x = m["metrics"]
+    assert m["primary"] == x["success"]
+    for k in ("success", "mismatched_success", "world_specific_gain", "world_specific_share", "none_success",
+              "battery_drop", "prefill_tokens", "initial_context_tokens", "retry_prompt_tokens", "decode_tokens",
+              "inference_tokens", "text_nll_ratio"):
+        assert np.isfinite(x[k]), k
+    assert x["world_specific_gain"] == x["success"] - x["mismatched_success"]
+    assert x["world_specific_share"] == world_specific_share(x["success"], x["mismatched_success"], x["none_success"])
+    # token accounting: the retry call's context is counted (the random tiny model always needs retries)
+    assert x["retry_rate"] > 0 and x["retry_prompt_tokens"] > x["retry_rate"] * x["initial_context_tokens"]
+    assert abs(x["prefill_tokens"] - x["initial_context_tokens"] - x["retry_prompt_tokens"]) < 1e-6
+    assert abs(x["inference_tokens"] - x["prefill_tokens"] - x["decode_tokens"]) < 1e-6 and x["decode_tokens"] > 0
+    assert x["prefill_tokens"] < 1000 and x["n_adapters"] == 2 and x["killed_worlds"] == 0
     assert os.listdir(tmp / "cache")                                   # base results cached (surface-independent)
 
     def variant(name, edit):
@@ -509,6 +607,8 @@ def test_evaluator_end_to_end_and_invalid_outputs(tiny, probe_run):
 
     assert not variant("nan", set_stat(nan=True))["valid"]
     assert not variant("nan_seen", world_stat(1, nan_seen=True))["valid"]
+    assert not variant("thread", world_stat(1, violations=["thread 4242"]))["valid"]
+    assert not variant("sandbox", world_stat(0, sandbox={"ok": False}))["valid"]
     assert not variant("arm", set_stat(arm="oracle"))["valid"]
     assert not variant("icl_with_adapters", set_stat(arm="icl"))["valid"]
     assert not variant("claims_placebo", set_stat(arm="placebo"))["valid"]      # the arm is the surface's hash, not a claim
@@ -525,8 +625,20 @@ def test_evaluator_end_to_end_and_invalid_outputs(tiny, probe_run):
     assert not variant("inf", poison)["valid"]
 
 
+def test_world_specific_share():
+    from scoring import MIN_GAIN, world_specific_share
+    assert MIN_GAIN == 0.025
+    assert world_specific_share(0.30, 0.20, 0.10) == pytest.approx(0.5)     # half the gain needs the right world
+    assert world_specific_share(0.30, 0.25, 0.10) == pytest.approx(0.25)    # mostly format learning: fails min 0.5
+    assert world_specific_share(0.30, 0.10, 0.10) == pytest.approx(1.0)
+    assert world_specific_share(0.30, 0.35, 0.10) < 0                        # another world's adapter does better
+    assert world_specific_share(0.10, 0.30, 0.10) == 1.0                     # no gain: vacuous (do-nothing baseline)
+    assert world_specific_share(0.12, 0.30, 0.10) == 1.0 and world_specific_share(0.05, 0.3, 0.10) == 1.0
+    assert world_specific_share(0.126, 0.126, 0.10) == pytest.approx(0.0)    # gain 0.026: attributable, all format
+
+
 def test_reference_arms(tiny, probe_run):
-    tmp, data, _ = probe_run
+    tmp, data, _, _, _ = probe_run
     assert _code("/work/adapt.py") == _code("/frozen/ref_placebo/adapt.py"), \
         "ref_placebo must be the baseline surface's code (only the docstring differs)"
     import hashlib
@@ -547,12 +659,12 @@ def test_reference_arms(tiny, probe_run):
     none = _evaluate(tiny, data, tmp / "ref_none", tmp, "/frozen/ref_none")
     plc = _evaluate(tiny, data, tmp / "ref_placebo", tmp, "/frozen/ref_placebo")
     assert icl["valid"] and none["valid"] and plc["valid"], plc["message"]
-    assert plc["primary"] == plc["metrics"]["success"] and "cross_world_success" not in plc["metrics"]
+    assert plc["primary"] == plc["metrics"]["success"] and "mismatched_success" not in plc["metrics"]
     # a run evaluated against a different surface than the one that produced it is invalid
     assert not _evaluate(tiny, data, tmp / "ref_placebo", tmp, "/work")["valid"]
     # the ICL arm carries the transcript in every prompt: far over the prefill guard; no-adaptation does not
-    assert icl["metrics"]["prefill_tokens"] > 1000
-    assert none["metrics"]["prefill_tokens"] < 1500 and none["metrics"]["battery_drop"] == 0.0
+    assert icl["metrics"]["prefill_tokens"] > 1000 and icl["metrics"]["initial_context_tokens"] > 1000
+    assert none["metrics"]["prefill_tokens"] < 1000 and none["metrics"]["battery_drop"] == 0.0
     assert none["primary"] == none["metrics"]["none_success"]
 
 
@@ -560,86 +672,175 @@ LOOP_SURFACE = '''
 
 def adapt(transcript, tool_names, gen, train):
     ad = None
-    while True:        # never returns by itself: the harness deadline must stop it
+    while True:        # never returns by itself: the deadline must stop it (BudgetExceeded escapes adapt())
         ad = train([{"text": "> a(1)\\nok\\n"}], {"rank": 1, "alpha": 1, "epochs": 1, "max_len": 64}, init=ad)
+'''
+HANG_SURFACE = '''
+from surface_api import BudgetExceeded
+
+
+def adapt(transcript, tool_names, gen, train):
+    ad = train([{"text": "> a(1)\\nok\\n"}], {"rank": 1, "alpha": 1, "epochs": 1, "max_len": 64})
+    while True:        # ignores the deadline and keeps calling: the supervisor must stop serving and kill it
+        try:
+            train([{"text": "> a(1)\\nok\\n"}], {"rank": 1, "alpha": 1, "epochs": 1, "max_len": 64}, init=ad)
+        except BudgetExceeded:
+            pass
+'''
+SPIN_SURFACE = '''
+
+def adapt(transcript, tool_names, gen, train):
+    while True:        # pure CPU, no calls: killed at deadline + grace
+        pass
 '''
 FOREIGN_SURFACE = '''
 
 def adapt(transcript, tool_names, gen, train):
     return {"weights": "from somewhere else"}
 '''
-TAMPER_SURFACE = '''
-import torch
+FORGED_SURFACE = '''
+from surface_api import AdapterRef
 
 
 def adapt(transcript, tool_names, gen, train):
-    with torch.no_grad():
-        gen._e.model.lm_head.weight[0, 0] += 1.0     # edits the base model instead of returning an adapter
-    return None
+    return AdapterRef(3, {"steps": 1})      # an id the supervisor never issued in this world
 '''
 BIG_SURFACE = '''
 
 def adapt(transcript, tool_names, gen, train):
     return train([{"text": "> a(1)\\nok\\n" * 8}] * 20, {"rank": 1, "alpha": 1, "epochs": 50, "max_len": 64, "batch_size": 4})
 '''
+GREEDY_SURFACE = '''
+from surface_api import BudgetExceeded
 
 
+def adapt(transcript, tool_names, gen, train):
+    gen._c.gen_left = 10 ** 12          # local copies: the supervisor's counters and deadline are unaffected
+    gen._deadline += 10 ** 6
+    try:
+        for _ in range(1000):
+            gen.generate(["x" * 50], max_new_tokens=8, context=False)
+    except BudgetExceeded:
+        pass
+    return None
+'''
 SLOW_IMPORT_SURFACE = '''
 import time
-time.sleep(3)          # module-level work is charged to world 0's adapt budget
+time.sleep(3)          # module-level work is charged to every world's adapt budget (a fresh import per world)
 
 
 def adapt(transcript, tool_names, gen, train):
     return None
 '''
-NAN_SURFACE = '''
-import sys
+THREAD_SURFACE = '''
+import ctypes
+
+
+def adapt(transcript, tool_names, gen, train):
+    libc = ctypes.CDLL(None)            # an OS thread that bypasses the Python-level block: seen from outside
+    tid = ctypes.c_ulong()
+    assert libc.pthread_create(ctypes.byref(tid), None, ctypes.cast(libc.sleep, ctypes.c_void_p), ctypes.c_void_p(100)) == 0
+    return train([{"text": "> a(1)\\nok\\n"}], {"rank": 1, "alpha": 1, "epochs": 1, "max_len": 64})
+'''
+FORK_SURFACE = '''
+import ctypes
+
+
+def adapt(transcript, tool_names, gen, train):
+    libc = ctypes.CDLL(None)            # a double-forked daemon in its own session: left running after adapt()
+    if libc.fork() == 0:
+        libc.setsid()
+        if libc.fork() == 0:
+            libc.sleep(100)
+        libc._exit(0)
+    return None
+'''
+TORCH_SURFACE = '''
+import numpy as np
 import torch
 
 
 def adapt(transcript, tool_names, gen, train):
-    good = train([{"text": "> a(1)\\nok\\n"}], {"rank": 1, "alpha": 1, "epochs": 1, "max_len": 64})
-    T = sys.modules["trainer"].Trainer
-    real = T._loss
-    T._loss = lambda self, *a: real(self, *a) * float("nan")       # simulate a diverging second call
-    try:
-        train([{"text": "> a(1)\\nok\\n"}], {"rank": 1, "alpha": 1, "epochs": 1, "max_len": 64})
-    finally:
-        T._loss = real
-    return good                                                     # a finite adapter from before the divergence
+    x = torch.randn(64, 64) @ torch.randn(64, 64)       # CPU, single-threaded in the sandbox
+    assert np.isfinite(x.numpy()).all()
+    return None
 '''
 
 
 def test_budgets_and_contract_are_enforced(tiny, probe_run):
-    tmp, data, _ = probe_run
-    for name, src in (("loop", LOOP_SURFACE), ("foreign", FOREIGN_SURFACE), ("tamper", TAMPER_SURFACE), ("big", BIG_SURFACE),
-                      ("slow", SLOW_IMPORT_SURFACE), ("nan", NAN_SURFACE)):
-        (tmp / f"w_{name}").mkdir()
-        (tmp / f"w_{name}" / "adapt.py").write_text(src)
-    r = _harness(tiny, data, tmp / "w_loop", tmp / "o_loop", secs=4)
+    tmp, data, _, _, _ = probe_run
+    w = {n: _surface(tmp, n, s) for n, s in (("loop", LOOP_SURFACE), ("hang", HANG_SURFACE), ("spin", SPIN_SURFACE),
+                                            ("foreign", FOREIGN_SURFACE), ("forged", FORGED_SURFACE), ("big", BIG_SURFACE),
+                                            ("greedy", GREEDY_SURFACE), ("slow", SLOW_IMPORT_SURFACE))}
+    r = _harness(tiny, data, w["loop"], tmp / "o_loop", secs=4)
     assert r.returncode == 0, r.stderr[-2000:]
     s = js(tmp / "o_loop" / "stats.json")
-    assert all(w["adapter"] and w["budget_hit"] for w in s["worlds"])            # the last adapter trained is kept
+    assert all(x["adapter"] and x["budget_hit"] and not x["killed"] for x in s["worlds"])   # the last adapter is kept
     assert js(tmp / "o_loop" / "budget.json")["adapt_s_max"] < 4 + 15
-    r = _harness(tiny, data, tmp / "w_foreign", tmp / "o_foreign")
-    assert r.returncode != 0 and "adapt() must return" in r.stderr
-    r = _harness(tiny, data, tmp / "w_tamper", tmp / "o_tamper")
-    assert r.returncode != 0 and "base model changed" in r.stderr
-    r = _harness(tiny, data, tmp / "w_big", tmp / "o_big", gen_tokens=10, train_tokens=3_000)
+    for name in ("hang", "spin"):         # the supervisor stops serving at deadline + grace and kills the process group
+        r = _harness(tiny, data, w[name], tmp / f"o_{name}", secs=3, grace=2, limit=1)
+        assert r.returncode == 0, r.stderr[-2000:]
+        x = js(tmp / f"o_{name}" / "stats.json")["worlds"][0]
+        assert x["killed"] and x["budget_hit"].startswith("killed") and 5 <= x["adapt_s"] < 9 and x["violations"] == []
+        assert x["adapter"] == (name == "hang")
+    for name in ("foreign", "forged"):
+        r = _harness(tiny, data, w[name], tmp / f"o_{name}", limit=1)
+        assert r.returncode != 0 and "adapt() must return" in r.stderr, r.stderr[-2000:]
+    r = _harness(tiny, data, w["big"], tmp / "o_big", gen_tokens=10, train_tokens=3_000)
     assert r.returncode == 0, r.stderr[-2000:]      # (this surface uses no gen tokens, so gen_tokens=10 is fine)
-    w = js(tmp / "o_big" / "stats.json")["worlds"][0]
-    assert w["train"]["stopped"] == "train_tokens" and w["train_tokens"] <= 3_000 and w["train"]["steps"] < w["train"]["planned_steps"]
-    assert w["train_tokens"] % 4 == 0          # charged as batch_size x padded length
-    r = _harness(tiny, data, tmp / "w_slow", tmp / "o_slow", secs=2, limit=1)
+    x = js(tmp / "o_big" / "stats.json")["worlds"][0]
+    assert x["train"]["stopped"] == "train_tokens" and x["train_tokens"] <= 3_000 and x["train"]["steps"] < x["train"]["planned_steps"]
+    assert x["train_tokens"] % 4 == 0          # charged as batch_size x padded length
+    r = _harness(tiny, data, w["greedy"], tmp / "o_greedy", gen_tokens=500, limit=1)
     assert r.returncode == 0, r.stderr[-2000:]
-    w = js(tmp / "o_slow" / "stats.json")["worlds"][0]
-    assert w["import_s"] >= 3 and w["adapt_s"] >= 3 and js(tmp / "o_slow" / "budget.json")["adapt_s_max"] >= 3
-    r = _harness(tiny, data, tmp / "w_nan", tmp / "o_nan", limit=1)
+    x = js(tmp / "o_greedy" / "stats.json")["worlds"][0]
+    assert 0 < x["gen_tokens"] <= 500 and not x["adapter"]
+    r = _harness(tiny, data, w["slow"], tmp / "o_slow", secs=20)
     assert r.returncode == 0, r.stderr[-2000:]
-    s = js(tmp / "o_nan" / "stats.json")
-    assert s["nan"] is True and s["worlds"][0]["nan_seen"] and s["worlds"][0]["train"]["nan"] is False
-    m = _evaluate(tiny, _mini_data(tmp / "data1", n_worlds=1), tmp / "o_nan", tmp, tmp / "w_nan")
-    assert not m["valid"] and "diverged" in m["message"]
+    assert all(x["adapt_s"] >= 3 for x in js(tmp / "o_slow" / "stats.json")["worlds"])
+    assert js(tmp / "o_slow" / "budget.json")["adapt_s_max"] >= 3
+
+
+def test_threads_and_processes_left_by_the_surface_are_caught_and_killed(tiny, probe_run):
+    tmp, data, _, _, _ = probe_run
+    w = {n: _surface(tmp, n, s) for n, s in (("thread", THREAD_SURFACE), ("fork", FORK_SURFACE), ("torch", TORCH_SURFACE))}
+    r = _harness(tiny, data, w["thread"], tmp / "o_thread", limit=1)
+    assert r.returncode == 0, r.stderr[-2000:]
+    x = js(tmp / "o_thread" / "stats.json")["worlds"][0]
+    assert any(v.startswith("thread") for v in x["violations"]) and js(tmp / "o_thread" / "stats.json")["violations"] >= 1
+    m = _evaluate(tiny, _mini_data(tmp / "data1", n_worlds=1), tmp / "o_thread", tmp, w["thread"])
+    assert not m["valid"] and "isolation" in m["message"]
+    r = _harness(tiny, data, w["fork"], tmp / "o_fork", limit=1)
+    assert r.returncode == 0, r.stderr[-2000:]
+    x = js(tmp / "o_fork" / "stats.json")["worlds"][0]
+    procs = [int(v.split()[1]) for v in x["violations"] if v.startswith("process")]
+    assert procs and x["stray_processes_killed"] >= 1
+    for p in procs:                       # killed before the adapter was accepted (reaped or at most a zombie)
+        assert not os.path.exists(f"/proc/{p}") or open(f"/proc/{p}/stat").read().rsplit(")", 1)[1].split()[0] in "ZX"
+    r = _harness(tiny, data, w["torch"], tmp / "o_torch", limit=1)
+    assert r.returncode == 0, r.stderr[-2000:]
+    assert js(tmp / "o_torch" / "stats.json")["worlds"][0]["violations"] == []   # numpy / torch on CPU are fine
+
+
+def test_divergence_flag_is_sticky_and_adapter_ids_are_checked(tiny, tok):
+    import trainer as T
+    m = _load(tiny)
+    tr = T.Trainer(m, Engine(m, tok, "cpu"), ["a_go"], np.load(f"{D}/train/replay.npy"), Budget(120, 0, 10**6), 0, "cpu")
+    cfg = {"rank": 1, "alpha": 1, "epochs": 1, "max_len": 64}
+    good = tr.train([{"text": "> a(1)\nok\n"}], cfg)
+    real = tr._loss
+    tr._loss = lambda *a: real(*a) * float("nan")       # a diverging second call
+    tr.train([{"text": "> a(1)\nok\n"}], cfg)
+    tr._loss = real
+    assert tr.nan_seen and tr.saved_stats(good)["nan"] is False and tr.produced == [0, 1]
+    for bad in (5, -1, True, "0", None, 1.0):
+        with pytest.raises(ValueError):
+            tr.saved(bad)
+    with pytest.raises(ValueError):
+        tr.train([{"text": "> a(1)\nok\n"}], cfg, init=7)
+    with pytest.raises(ValueError):
+        tr.train([{"text": "> a(1)\nok\n"}], {**cfg, "rank": 2}, init=good)   # init must match rank / targets / layers
+    assert lora.n_wrapped(m) == 0                            # a refused call never leaves LoRA modules attached
 
 
 def test_train_config_is_validated():

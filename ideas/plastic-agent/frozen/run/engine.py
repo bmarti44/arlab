@@ -1,23 +1,16 @@
-"""Frozen inference engine (HF transformers, no vLLM) and the budgeted `gen` handle given to the surface.
+"""Frozen inference engine (HF transformers, no vLLM) and the budgeted base-model service `Gen`.
 
 Engine: batched greedy/sampled decoding and teacher top-k log-probs over a SHARED PREFIX (system prompt + optional
 transcript) whose KV is computed once and copied into a static cache per batch; suffixes are left-padded between the
 prefix and the suffix with explicit position ids, so every row sees exactly `prefix + its own suffix`.
 The evaluator uses the same Engine, so the surface's self-generated data and the evaluation share one format.
 
-Gen (what adapt() receives as `gen`; the base model, never an adapter):
-  gen.tool_names, gen.transcript (list of {"call", "obs"}), gen.transcript_text (rendered as in the ICL arm)
-  gen.generate(prompts, max_new_tokens=256, temperature=0.0, context=True, batch_size=16) -> list[str]
-      prompts are user messages; each is answered in the evaluation's chat format (system prompt with this world's
-      tool names; plus the transcript when context=True). Sampling uses the harness seed.
-  gen.teacher(prompts, completions, k=20, context=True, batch_size=8) -> list[Teacher]
-      top-k log-probs of the base model (with the transcript in context by default) for every completion token
-      (completion + <|im_end|>); attach as example["teacher"] for distillation in train().
-  gen.task_prompt(goal) -> the evaluation's user message for a goal; gen.retry_prompt(line, obs) -> its retry message
-  gen.n_tokens(text), gen.tokens_left, gen.seconds_left()
-Every position processed counts toward the world's gen-token budget: each prefix once, padded prompt blocks, every
-decode step of every row of a batch (finished rows too), padded teacher rows. A batch reserves its worst case before
-it runs, so the cap is never exceeded; after the world's deadline or budget every call raises BudgetExceeded.
+Gen and Budget live ONLY in the trusted RUN supervisor (harness.py): the surface runs in a sandboxed child process and
+reaches them through the RPC stubs in surface_api.py (same method names and arguments). Every position processed
+counts toward the world's gen-token budget: each prefix once, padded prompt blocks, every decode step of every row of
+a batch (finished rows too), padded teacher rows. A batch reserves its worst case before it runs, so the cap is never
+exceeded; after the world's deadline (CLOCK_MONOTONIC, set by the supervisor) or budget every call raises
+BudgetExceeded.
 """
 from __future__ import annotations
 
@@ -47,12 +40,12 @@ class Budget:
     rows included) and padded training batches (plus replay rows, twice when KL-to-base runs a base forward)."""
 
     def __init__(self, seconds: float, gen_tokens: int, train_tokens: int, start: float | None = None):
-        self.deadline = (time.time() if start is None else start) + seconds
+        self.deadline = (time.monotonic() if start is None else start) + seconds
         self.gen_cap, self.train_cap = gen_tokens, train_tokens
         self.gen_used = self.train_used = 0
 
     def seconds_left(self) -> float:
-        return self.deadline - time.time()
+        return self.deadline - time.monotonic()
 
     def charge_gen(self, n: int):
         """Reserve n positions before the work is done; refuses (BudgetExceeded) past the deadline or the cap."""

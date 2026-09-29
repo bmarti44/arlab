@@ -13,12 +13,18 @@ The baseline is naive next-token LoRA on the raw transcript text.
 adapt.py only: adapt(transcript, tool_names, gen, train) -> an adapter returned by train(...), or None. You choose the
 training data built from the transcript, the loss mix, the LoRA config and the schedule. adapt() receives only the
 world being adapted, and its adapter is scored on that world. (The arm is chosen by frozen code, not by adapt.py.)
-API (read frozen_run/engine.py, frozen_run/trainer.py, frozen_run/common.py):
+adapt.py runs in a FRESH sandboxed CPU process per world (frozen_run/child.py): no file but /work and the Python install
+is readable, nothing is writable but tempfile's per-world scratch dir (deleted afterwards), no network, no GPU, no
+threads or subprocesses (one left running = invalid run). gen / train are RPC stubs (frozen_run/surface_api.py) to the
+supervisor, which owns the model, validates and meters every call and keeps every adapter (you get AdapterRef: .id,
+.stats). Module state does not survive between worlds; `random` is seeded per world (seed numpy/torch yourself).
+API (read frozen_run/surface_api.py, frozen_run/trainer.py, frozen_run/engine.py, frozen_run/common.py):
 - transcript: list of {"call": 'name(arg, ...)', "obs": output text or "error <code>"} (120 calls, ~2.6k tokens).
 - gen.generate(prompts, max_new_tokens, temperature, context=True|False) and gen.teacher(prompts, completions, k,
-  context=True): the BASE model, answering in the evaluation's chat format (context=True adds the transcript).
+  context=True) -> TeacherRefs: the BASE model, in the evaluation's chat format (context=True adds the transcript).
   gen.task_prompt(goal) is the evaluation's user message; gen.transcript_text the ICL arm's log text.
-- train(examples, config, init=None): examples {"text"} or {"prompt", "completion"} (+ "weight", "teacher");
+- train(examples, config, init=None) -> AdapterRef: examples {"text"} or {"prompt", "completion"} (+ "weight",
+  "teacher": a TeacherRef);
   config: rank <= 64, alpha, targets, layers, lr, epochs, batch_size, max_len, ce_weight, teacher_weight, kl_base,
   replay_rows, grad_ckpt, warmup, min_lr_frac, weight_decay, grad_clip. Several train() calls per world are allowed.
 ## What the code does
@@ -27,20 +33,23 @@ lock, unlock, retag, clone, swap, count, weigh, extreme, newest, checksum, find_
 English verbs, some misleading: an "_open" that locks), random positional-argument orders, a weight unit, three error
 codes and hidden objects. Every tool prints what it did. A frozen scripted explorer produced the transcript (every
 tool several times, error probes, 15% random probes). The harness gives adapt() one world at a time on a fresh base
-model (per-world budget: 180 s wall clock, 400k gen tokens, 1.5M train tokens; when the budget runs out the last adapter
-trained in that world is kept). The evaluator merges each world's adapter and asks for ONE call per goal: the first
+model (per-world budget: 180 s wall clock from before the import of adapt.py, 400k gen tokens, 1.5M train tokens;
+when the budget runs out, or at 180 + 15 s when the process is killed, the last adapter trained in that world is kept).
+The evaluator merges each world's adapter and asks for ONE call per goal: the first
 line of the answer that looks like name(arg, ...) is executed (positional int / "string" literals; a bare word counts
 as a string; other lines are ignored). The simulator runs it from the state where the exploration ended; after an
 error the model gets one retry that shows the error. Success = no error, exact final state (for changes) and the right
 value in the output (for questions). Goals are like "Archive item 412.", "Move item 17 to <place>.",
 "Unlock item 305.", "What is the tally checksum of <place>?", "Which <KIND> item was created most recently?".
-Reported (not the metric): cross_world_success (your LoRA of world i+1 scored on world i) and specific_gain = success −
-cross_world_success; a gain that is only "format" shows up in both. Also gap_closure vs icl, per-template success s_*.
+Reported: mismatched_success (world i scored with YOUR adapter of world i+1) and world_specific_gain = success −
+mismatched_success: a gain that is only "format" shows up in both. Also gap_closure vs icl, per-template success s_*.
 ## Guards (runs that fail one are discarded)
 - battery_drop <= 0.02: 200 GSM8K + 100 tasks of another FauxOS world with ITS transcript in context, vs the base model.
-- prefill_tokens <= 1000: no transcript in the prompt at evaluation.
-- peak memory <= 60 GB; the longest per-world adapt() <= 210 s (else invalid; world 0 also pays for importing
-  adapt.py); a non-finite loss or gradient in ANY train() call = invalid, even if you return an earlier adapter.
+- prefill_tokens <= 1000: no transcript in the prompt at evaluation (prompt positions per task, retry call included).
+- world_specific_share >= 0.5: (success − mismatched_success) / (success − none_success) (1.0 if that gain < 0.025):
+  at least half of your gain over no adaptation must need the RIGHT world's transcript.
+- peak memory <= 60 GB; the longest per-world adapt() <= 210 s (else invalid; every world pays for importing adapt.py);
+  a non-finite loss or gradient in ANY train() call = invalid, even if you return an earlier adapter.
 - Budgets count processed positions: padded prompt blocks and every decode step of every batch row (gen), padded
   training batches plus 2 x replay_rows x replay length when kl_base > 0 (train). A gen batch reserves its worst case
   (rows x (longest prompt + max_new_tokens)) before it runs; unused decode steps are refunded. Every train config
@@ -56,9 +65,8 @@ cross_world_success; a gain that is only "format" shows up in both. Also gap_clo
 Also: self-study (gen proposes goals with the transcript in context, keep only programs consistent with the log),
 learning rate / epochs / rank / targets, error-recovery demos in the retry format (gen.retry_prompt).
 ## Rules
-- Use only the transcript and what gen / train return. Never read files (including other worlds' data or anything
-  under /hf), the environment or the network from adapt.py; never touch the base model or gen/train internals (the
-  harness hashes the base weights at load, between worlds and at the end);
+- Use only the transcript and what gen / train return. Never try to read files, the environment or the network from
+  adapt.py, or to get around the sandbox or the RPC stubs (the supervisor records every attempt it can see);
   relabel only from what the transcript shows: there is no simulator in RUN, and guessing hidden state is not allowed.
 - One change, one hypothesis_tag (reuse an existing tag for the same idea).
 - Read history.md: don't repeat a failed idea unless you change it materially. After 3 discards in a row, try something structurally different.

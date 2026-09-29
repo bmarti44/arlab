@@ -1,22 +1,25 @@
-"""Frozen LoRA trainer: what adapt() receives as `train`. The surface supplies the data, the loss mix and the
-hyper-parameters; this loop owns the optimizer steps, the token budget and the deadline.
+"""Frozen LoRA trainer behind adapt()'s `train`. It runs ONLY in the trusted RUN supervisor (harness.py); the surface
+(a sandboxed child process) calls it through the RPC stub in surface_api.py. The surface supplies the data, the loss
+mix and the hyper-parameters; this loop owns the optimizer steps, the token budget, the deadline and the adapters.
 
-    adapter = train(examples, config=None, init=None)
+    adapter = train(examples, config=None, init=None)        # an AdapterRef in the surface, an int id here
 
 examples: a list of dicts, each one of
     {"text": str}                                   next-token loss on every token (cut into max_len windows)
     {"prompt": str, "completion": str}              the evaluation's chat format: system prompt with this world's tool
                                                     names (no transcript), user turn `prompt`, assistant turn
                                                     `completion` + <|im_end|>; loss on the assistant tokens only
-  optional keys: "weight" (float, default 1.0), "teacher" (a gen.teacher() result for exactly this prompt/completion:
-  adds teacher_weight * KL(teacher top-k || student) on every assistant token).
+  optional keys: "weight" (float, default 1.0), "teacher" (a gen.teacher() ref for exactly this completion, from this
+  world: adds teacher_weight * KL(teacher top-k || student) on every assistant token).
 config (defaults below): rank (<= 64), alpha, targets (subset of q/k/v/o/gate/up/down_proj), layers (None = all 28),
   lr, epochs, batch_size, max_len (batch_size * max_len <= 32768), warmup, min_lr_frac, weight_decay, grad_clip,
   ce_weight, teacher_weight, kl_base (weight of KL(base || adapted) on generic OASST2 replay rows supplied by the
   harness), replay_rows (rows per step), grad_ckpt.
 init: an adapter from an earlier train() call in the same world to continue from (same rank/targets/layers).
-Returns an opaque adapter; adapt() must return one of these (or None for no adaptation). Training stops early (and
-returns what it has) when the world's train-token budget or deadline is reached; the base weights never change.
+Returns the adapter's immutable id (index into this world's private list of (cfg, tensors, stats); the weights never
+leave this process until the supervisor saves them); adapt() must return one of these (or None for no adaptation).
+Training stops early (and returns what it has) when the world's train-token budget or deadline is reached; the base
+weights never change.
 Every config field is type- and range-checked (replay_rows: int in [0, 64]). The train-token budget counts processed
 positions: batch_size x the padded batch length per step, plus 2 x replay_rows x replay length when kl_base > 0.
 A non-finite loss, gradient norm or adapter in ANY train() call marks the whole run invalid (sticky), even if an
@@ -84,36 +87,31 @@ def check_config(config) -> dict:
     return out
 
 
-class Adapter:
-    """Opaque result of train(): LoRA tensors on the CPU plus bookkeeping. These attributes are copies for the
-    surface to read; the harness saves the trainer's private copy (Trainer.saved), so editing them changes nothing."""
-
-    def __init__(self, cfg: dict, tensors: dict, stats: dict):
-        self.cfg, self.tensors, self.stats = cfg, tensors, stats
-
-
 class Trainer:
     def __init__(self, model, engine, tool_names: list[str], replay: np.ndarray, budget, seed: int, device: str):
         self.model, self.e, self.budget, self.seed, self.device = model, engine, budget, seed, device
         self.replay = replay
         self.system = chat_prefix(system_text(tool_names))
-        self.produced: list[Adapter] = []
-        self._kept: list[tuple[Adapter, dict, dict, dict]] = []     # (adapter, cfg, tensors, stats) as trained
+        self._kept: list[tuple[dict, dict, dict]] = []     # adapter id -> (cfg, tensors, stats) as trained
         self.calls = 0
         self.nan_seen = False        # sticky: any non-finite loss/gradient/adapter in any train() call of this world
 
-    def saved(self, ad) -> tuple[dict, dict]:
-        """The (cfg, tensors) train() produced for this adapter object (never the surface-visible attributes)."""
-        for a, cfg, tens, _ in self._kept:
-            if a is ad:
-                return cfg, tens
-        raise ValueError("adapt() must return an adapter produced by train() in this world (or None)")
+    @property
+    def produced(self) -> list[int]:
+        return list(range(len(self._kept)))
 
-    def saved_stats(self, ad) -> dict:
-        for a, _, _, stats in self._kept:
-            if a is ad:
-                return stats
-        raise ValueError("unknown adapter")
+    def _id(self, ad) -> int:
+        if isinstance(ad, bool) or not isinstance(ad, int) or not 0 <= ad < len(self._kept):
+            raise ValueError("adapt() must return an adapter produced by train() in this world (or None)")
+        return ad
+
+    def saved(self, ad: int) -> tuple[dict, dict]:
+        """The (cfg, tensors) train() produced under this id."""
+        cfg, tens, _ = self._kept[self._id(ad)]
+        return cfg, tens
+
+    def saved_stats(self, ad: int) -> dict:
+        return dict(self._kept[self._id(ad)][2])
 
     def _items(self, examples, max_len):
         items, skipped = [], 0
@@ -145,15 +143,21 @@ class Trainer:
             items.append((p + c, len(p), w, t))
         return items, skipped
 
-    def train(self, examples: list[dict], config: dict | None = None, init: Adapter | None = None) -> Adapter:
+    def train(self, examples: list[dict], config: dict | None = None, init: int | None = None) -> int:
         if self.budget.seconds_left() <= 0:
             raise BudgetExceeded("deadline passed before train()")
+        if not isinstance(examples, list):
+            raise TypeError("examples must be a list of dicts")
         cfg = check_config(config)
         lcfg = lora.check_config(cfg)
         max_len, bs = cfg["max_len"], cfg["batch_size"]
         items, skipped = self._items(examples, max_len)
         if not items:
             raise ValueError("no usable training examples")
+        if init is not None:
+            icfg, itens = self.saved(init)
+            if icfg != lcfg:
+                raise ValueError("init must be an adapter from this world's train() with the same rank/targets/layers")
         self.calls += 1
         seed = self.seed * 101 + self.calls
         rng = random.Random(seed)
@@ -161,10 +165,6 @@ class Trainer:
         assert lora.n_wrapped(model) == 0
         mods = lora.attach(model, lcfg, seed)
         if init is not None:
-            icfg, itens = self.saved(init)
-            if icfg != lcfg:
-                lora.detach(model)
-                raise ValueError("init must be an adapter from this world's train() with the same rank/targets/layers")
             with torch.no_grad():
                 for k, m in mods.items():
                     m.A.copy_(itens[f"{k}.A"])
@@ -228,10 +228,8 @@ class Trainer:
         stats = {"steps": steps, "planned_steps": total, "tokens": tokens, "examples": len(items), "skipped": skipped,
                  "loss_first": losses[0] if losses else None, "loss_last": float(np.mean(losses[-10:])) if losses else None,
                  "stopped": stop, "nan": nan, "time": time.time()}
-        ad = Adapter(copy.deepcopy(lcfg), {k: v.clone() for k, v in tens.items()}, dict(stats))
-        self.produced.append(ad)
-        self._kept.append((ad, lcfg, tens, stats))
-        return ad
+        self._kept.append((copy.deepcopy(lcfg), tens, stats))
+        return len(self._kept) - 1
 
     def _hidden(self, ids, mask):
         return self.model.model(input_ids=ids, attention_mask=mask, use_cache=False).last_hidden_state

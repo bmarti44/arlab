@@ -3,10 +3,11 @@
 BASELINE = naive next-token LoRA on the raw transcript text (the SEAL / CodeUpdateArena control, expected to close
 little of the gap to the transcript-in-context arm).
 
-The frozen harness calls, once per world (fresh model, adapters reset between worlds):
-    adapt(transcript, tool_names, gen, train) -> adapter from train(...) | None
+The frozen harness calls, once per world, in a FRESH sandboxed CPU process (fresh base model, nothing carried over):
+    adapt(transcript, tool_names, gen, train) -> AdapterRef from train(...) | None
 transcript: list of {"call": 'name(arg, ...)', "obs": 'output or "error <code>"'} in the order they happened;
-tool_names: this world's tool names; gen / train: see frozen_run/engine.py and frozen_run/trainer.py.
+tool_names: this world's tool names; gen / train: RPC stubs to the supervisor, see frozen_run/surface_api.py (API),
+frozen_run/trainer.py (examples, config) and frozen_run/engine.py (budget accounting).
 adapt() only ever receives the world being adapted; the evaluator scores the adapter on that same world.
 At evaluation the adapted model sees only the system prompt with the tool names and one goal (no transcript) and must
 write a program; see frozen_run/common.py for the exact format (gen.task_prompt(goal) builds the user message).
