@@ -13,11 +13,11 @@ Note: accept-M1 45/47 under GPU-campaign load (fixture wall-clock guard noise, s
 ## Owner follow-ups (2026-09-28)
 | Pack | State |
 |---|---|
-| agentic-coding-small | **m7 running** since 06:50Z (check CALIBRATE timeout_rate) |
+| agentic-coding-small | **m7 done: not_found_at_this_scale** (12 experiments, 0 timeouts, all discard; candidates 0.125–0.225 vs baseline seeds 0.15/0.25/0.225; upper bound 0.176 < MES 0.20) |
 | looped-latent | **v0 done: not_found_at_this_scale** (upper bound 0.025 < MES 0.03, 20 loop designs) |
 | stencil-focus | **v0 done: not_found_at_this_scale** (15 policies, best +0.017 < MES 0.05; 7 guard_fail on output_failure_rate; reminder ≈ off 0.108/0.109 vs pilot oracle +0.27) |
 | ttt-context (TTT stage 0) | **v0 done: not_found_at_this_scale** (15 recipes; baseline TTT < no_ttt: holdout d = −0.024 ± 0.027; upper bound 0.003 < MES 0.05) |
-| plastic-agent (TTT stage 1) | gate 2 GO (none 0.092, icl 0.579); hardened over 3 astra rounds (sandboxed per-world adapt, metered RPC, twin-world control + world_specific_share ≥ 0.5); **v0 queued after agentic m7** |
+| plastic-agent (TTT stage 1) | gate 2 GO (none 0.092, icl 0.579); hardened over 3 astra rounds (sandboxed per-world adapt, metered RPC, twin-world control + world_specific_share ≥ 0.5); **v0 running** since 19:39Z (first GPU run of the sandboxed harness: watch PROBE) |
 
 ## Resume after a CLI restart (2026-09-28)
 Running detached (unaffected by the CLI): `arlab-campaigns` (runs ~/arlab-runs/_pilots/campaign-queue.txt one by one:
