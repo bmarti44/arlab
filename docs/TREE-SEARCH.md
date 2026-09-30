@@ -147,6 +147,40 @@ already reaches about 6.8 of the ~7.1 MES found.
 - Include `greedy_best_leaf` and `ucb_chains` as extra online controls.
 - Dream only on wide trees.
 
+### T2: nanochat-lite, rooted at m3b:0005 (2026-09-30)
+Pack nanochat-lite (val_bpb at a fixed token budget, MES 0.01, train_s ≤ 1.3× baseline), root = m3b's supported keep.
+σ = 0.0029, 5 holdout seeds (widened from 3 after a load-noisy calibration, see DECISIONS). Proposer gpt-6-sol, pinned
+for the whole comparison. Dream step gpt-6.1-sol, M = 8, train a0, held-out a1.
+
+| round | policy | nodes | chosen | holdout d (± 2·SE) | params / train_s |
+|---|---|---|---|---|---|
+| a0 | parallel_refine (W4) | 32 | n0024: 8 layers, MLP 3×, wd 0.1, matrix lr 0.05 | 0.0127 ± 0.0037 | 30.7M / 1.19× |
+| a1 | parallel_refine (W4) | 32 | n0026: 7 layers, MLP 5×, wd 0.1 | 0.0165 ± 0.0037 | 42.8M / 1.26× |
+| b1 | dreamed n-d1 | **4** (policy stop) | n0001: 7 layers | 0.0125 ± 0.0037 | 31.3M / 1.14× |
+| g1 | greedy_best_leaf | 32 | n0025: 7 layers, wd 0.05, MLP 5×, VE gate 1.5, unembed lr 0.003 | **0.0177 ± 0.0037** | 33.3M / 1.23× |
+
+All four rounds are *supported*, with every holdout seed positive.
+
+**The pack's time slack is the main lever.** Every winner adds depth or width and uses 14–26% more training time,
+inside the 1.3× guard. These are fixed-token (data-efficiency) gains, not compute-matched ones. A compute-matched
+guard (train_s ≤ 1.05× or FLOP-matched) is the fairer follow-up.
+
+**Dreaming:** n-d1 was accepted, with held-out replay V 1.240 against 1.200 for parallel_refine and train V 1.267
+against 0.975. What it learned is to stop once a ≥ 1-MES gain appears, and otherwise refine the top 2 leaves one at a
+time. Online it stopped after its first batch, which was the same 4 root children a fixed policy draws, so stopping is
+the only learned behaviour exercised. It matched a0 at 1/8 of the nodes and fell 0.004 short of a1, about 1.5 SE of
+the difference. The early stop benefited from a lucky first batch: depth 7 came up in batch 1, while a0 found it only
+in batch 4.
+
+**Greedy vs parallel:** greedy's deep chain (depth 6) found the best node. Same-policy spread (a0 vs a1) is 0.004,
+though, and greedy − a1 is 0.001, so policies can't be ranked from one round each.
+
+**Verdict on the research question:** as in T1, no "dreamed beats fixed" claim. The learned policy saves nodes, which
+matches Dream-RSI's actual claim (fewer calls for similar quality), but n = 1 per arm. Next, if repeated:
+- 3+ rounds per policy, now cheap because a dreamed round took about 80 min including finalize;
+- a compute-matched guard;
+- dreaming on all four trees.
+
 ## Known limits
 
 - **Recorded trees are biased by the recording policy.** A replayed policy can only find what that policy happened
