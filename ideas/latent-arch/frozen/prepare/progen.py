@@ -23,7 +23,7 @@ DIFFICULTY = {
     "n_const": 2,     # constant statements per program (fixed; chain root + N_CONST-1 distractor constants)
     "c_max": 9,       # constants in v=u±c are 1..c_max
     "p_bin": 0.3,     # probability that an operation's second operand is a variable (v=u±w)
-    "mod": 100,
+    "mod": 10,
     "query_min": 11,  # the queried statement is uniform over indices query_min..n_stmt-1 for every k <= 10
     "distractor_max_depth": 6,  # no statement outside the queried chain is deeper than this (in every split)
 }
