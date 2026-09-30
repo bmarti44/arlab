@@ -17,7 +17,7 @@ Note: accept-M1 45/47 under GPU-campaign load (fixture wall-clock guard noise, s
 | looped-latent | **v0 done: not_found_at_this_scale** (upper bound 0.025 < MES 0.03, 20 loop designs) |
 | stencil-focus | **v0 done: not_found_at_this_scale** (15 policies, best +0.017 < MES 0.05; 7 guard_fail on output_failure_rate; reminder ≈ off 0.108/0.109 vs pilot oracle +0.27) |
 | ttt-context (TTT stage 0) | **v0 done: not_found_at_this_scale** (15 recipes; baseline TTT < no_ttt: holdout d = −0.024 ± 0.027; upper bound 0.003 < MES 0.05) |
-| plastic-agent (TTT stage 1) | **v0 done: not_found (guard-limited)**: 15 experiments, 13 guard_fail, mostly battery_drop 0.03–0.07 > 0.02. Best 0001 hindsight_pairs success 0.696 (none 0.092, icl 0.579, twin 0.008, share 1.14) at battery_drop 0.04. The baseline itself dropped 0/.027/.007/.05/.03, so the pre-registered IDEA.md rule sets the guard to 0.0398. **v1 running** (paused 23:49–00:41Z on codex auth; owner re-logged in) |
+| plastic-agent (TTT stage 1) | **v1 SUPPORTED (with caveats)**: 0008 hindsight goal→call LoRA r8; holdout success 0.80 vs baseline 0.14 (d=0.660±0.039), none 0.117, twin 0.01–0.03. Astra audit (AUDIT-v1.md): no gaming. Caveats: hand-coded operation recognizer (learns tool↔operation mapping, not new operations); GSM8K −3..−6.5 pts masked by the pooled battery; ICL 0.58 is validation-only. v2 design (component guards, holdout ICL, unseen-operation worlds) pending |
 
 ## Resume after a CLI restart (2026-09-28)
 Running detached (unaffected by the CLI): `arlab-campaigns` (runs ~/arlab-runs/_pilots/campaign-queue.txt one by one:
