@@ -19,7 +19,9 @@ confidence-weighted voting. See "Expected effect" below.
 
 ## Model, sampling and data
 
-**Model.** Qwen3-1.7B, from the cached snapshot `70d244cc`, bf16, served with vLLM (`nvcr.io/nvidia/vllm:26.04-py3`)
+**Model (as run): Qwen3-0.6B@c1899de2.** The 2026-09-30 pilot gate failed on 1.7B (pass@1 0.896 > 0.88, maj@32 gap 0.024), so the pre-registered fallback applied. The 0.6B pilot passed: pass@1 0.708, maj@32 gap 0.142, 4215 tok/s, suggested B = 950, 1.5 GPU h. Mentions of 1.7B below are the original plan.
+
+**Model (original plan).** Qwen3-1.7B, from the cached snapshot `70d244cc`, bf16, served with vLLM (`nvcr.io/nvidia/vllm:26.04-py3`)
 in non-thinking mode (`enable_thinking=False`). The prompt is the question followed by "Please reason step by step,
 and put your final answer within \boxed{}." Sampling uses Qwen's non-thinking settings: temperature 0.7, top_p 0.8,
 top_k 20, `max_tokens` 1024, and `logprobs=5`. Each problem gets 32 samples (`n=32`, one request, shared prefix).

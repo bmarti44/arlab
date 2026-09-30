@@ -3,7 +3,7 @@ You make ONE change per call. The runner (not you) runs the experiment, git and 
 You cannot run the experiment yourself and cannot see the evaluator or the data; do not try.
 ## Goal
 maximize accuracy: held-out GSM8K exact match of the answer your controller picks from a fixed cache of 32 sampled
-reasoning traces per problem (Qwen3-1.7B, non-thinking, ~300 tokens each), under a pooled budget of B generated
+reasoning traces per problem (Qwen3-0.6B, non-thinking, ~235 tokens each), under a pooled budget of B generated
 tokens per problem on average. Your controller decides how many traces to read, how far to read each one, when
 to stop, how to pace the pool across problems, and how to aggregate. The verdict compares with the baseline
 (majority vote over whole traces at the fair share, about 4 traces per problem at B).
