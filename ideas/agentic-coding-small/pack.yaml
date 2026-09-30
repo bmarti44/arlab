@@ -21,6 +21,6 @@ services:
     mem_gb: 36
     max_model_len: 32768
     gpu: true
-agent: {model: gpt-6-sol, effort: high, visible: [program.md, IDEA.md, frozen/run/codetools.py, frozen/run/harness.py], timeout_s: 900}
+agent: {model: gpt-6.1-sol, effort: high, visible: [program.md, IDEA.md, frozen/run/codetools.py, frozen/run/harness.py], timeout_s: 900}
 campaign: {max_experiments: 14, max_hours: 14, max_agent_calls: 60, stop_after_no_keep: 12, rescue_after: 8}   # ≥ 10 experiments for a verdict; ~35-45 min each
 acceptance: {allow_underpowered: false}

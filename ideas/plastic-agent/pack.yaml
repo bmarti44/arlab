@@ -43,7 +43,7 @@ references:                               # frozen arms, run once on the screen 
   - {name: icl, path: frozen/run/ref_icl}           # (b) the transcript in context
   - {name: placebo, path: frozen/run/ref_placebo}   # (e) the baseline LoRA of world i+1 scored on world i
 verdict: {compare_to: baseline}
-agent: {model: gpt-6-sol, effort: high, visible: [program.md, IDEA.md, frozen/run/surface_api.py, frozen/run/child.py, frozen/run/engine.py, frozen/run/trainer.py, frozen/run/common.py], timeout_s: 900}
+agent: {model: gpt-6.1-sol, effort: high, visible: [program.md, IDEA.md, frozen/run/surface_api.py, frozen/run/child.py, frozen/run/engine.py, frozen/run/trainer.py, frozen/run/common.py], timeout_s: 900}
 # Validation run: RUN ~9 min for a baseline-like surface (8 adapt passes of ~30-60 s + hashes + load; uncalibrated) up to
 # ~28 min for a surface that uses every pass's full budget, + ~3 min EVALUATE; a screen is 1 run, a confirm 2 more.
 campaign: {max_experiments: 40, max_hours: 16, max_agent_calls: 80, stop_after_no_keep: 15, rescue_after: 6}

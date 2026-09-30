@@ -28,7 +28,7 @@ references:
   - {name: conf_vote, path: frozen/run/ref_conf_vote}  # DeepConf-offline: top 50 % by lowest group conf, weighted vote
   - {name: asc, path: frozen/run/ref_asc}              # Adaptive-Consistency Beta stopping, threshold fit on train
 verdict: {compare_to: baseline}
-agent: {model: gpt-6-sol, effort: high, visible: [program.md, IDEA.md, frozen/run/api.md], timeout_s: 900}
+agent: {model: gpt-6.1-sol, effort: high, visible: [program.md, IDEA.md, frozen/run/api.md], timeout_s: 900}
 # ~2 min per trial: sized for a tree search (arlab tree) or a long linear campaign.
 campaign: {max_experiments: 200, max_hours: 24, max_agent_calls: 400, stop_after_no_keep: 40, rescue_after: 8}
 acceptance: {allow_underpowered: false}

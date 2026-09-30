@@ -13,7 +13,12 @@ import yaml
 
 from .execute import kill_cid
 
-AGENT_IMAGE = "arlab-agent:0.157.1"
+AGENT_IMAGE = "arlab-agent:0.159.2"
+PINNED_IMAGES = {"gpt-6-sol": "arlab-agent:0.157.1"}  # model -> the Codex CLI its recorded campaigns ran with
+
+
+def agent_image(model: str) -> str:
+    return PINNED_IMAGES.get(model, AGENT_IMAGE)
 CODEX_HOME = Path.home() / ".cache" / "arlab" / "codex-home"
 SCHEMA = Path(__file__).resolve().parent / "proposal.schema.json"
 AUTH_MARKERS = ("401 unauthorized", "status 401", "unauthorized:", "not logged in", "login required", "please log in",
@@ -82,7 +87,7 @@ class CodexBackend:
         cmd = ["docker", "run", "--rm", "-i", "--cidfile", str(cidfile), "--name", name, "--user", "1000:1000", "-e", "HOME=/tmp",
                "-v", f"{CODEX_HOME}:/codex", "-e", "CODEX_HOME=/codex",
                "-v", f"{view.resolve()}:/work", "-v", f"{out.resolve()}:/out", "-v", f"{SCHEMA}:/schema.json:ro",
-               AGENT_IMAGE, "codex", "exec", "--ephemeral", "-C", "/work", "--skip-git-repo-check",
+               agent_image(model), "codex", "exec", "--ephemeral", "-C", "/work", "--skip-git-repo-check",
                "--dangerously-bypass-approvals-and-sandbox", "-m", model, "-c", f'model_reasoning_effort="{effort}"',
                "--output-schema", "/schema.json", "-o", "/out/proposal.json", "--json", "-"]
         t0 = time.monotonic()

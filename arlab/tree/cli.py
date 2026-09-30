@@ -95,6 +95,6 @@ def add_parser(sub):
     s.add_argument("--json", action="store_true"); s.set_defaults(f=cmd_replay)
     s = ts.add_parser("dream"); s.add_argument("--policy", required=True); s.add_argument("--train", nargs="+", required=True)
     s.add_argument("--heldout", nargs="*"); s.add_argument("--name", required=True); s.add_argument("-m", type=int, default=8)
-    s.add_argument("--model", default="gpt-6-sol"); s.add_argument("--effort", default="high"); s.set_defaults(f=cmd_dream)
+    s.add_argument("--model", default="gpt-6.1-sol"); s.add_argument("--effort", default="high"); s.set_defaults(f=cmd_dream)
     s = ts.add_parser("import"); s.add_argument("campaigns", nargs="+", help="<pack>/<tag> of finished greedy campaigns"); s.set_defaults(f=cmd_import)
     s = ts.add_parser("status"); s.add_argument("spec", help="<pack>/<tag>"); s.set_defaults(f=cmd_status)

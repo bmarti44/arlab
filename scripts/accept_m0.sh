@@ -12,9 +12,9 @@ for r in 'Bash(docker:*)' 'Bash(systemd-run:*)' 'Bash(make:*)' 'Bash(uv:*)' 'Bas
 ok "CLAUDE.md, .claude/settings.json, docs/spark-notes.md"
 avail=$(df --output=avail -BG / | tail -1 | tr -dc 0-9); (( avail >= 60 )) || fail "only ${avail}G free"
 ok "disk ${avail}G free"
-docker image inspect arlab-agent:0.157.1 >/dev/null || fail "arlab-agent:0.157.1 missing"
-[[ "$(docker run --rm arlab-agent:0.157.1 codex --version)" == *0.157.1* ]] || fail "agent image codex version"
-ok "arlab-agent:0.157.1"
+docker image inspect arlab-agent:0.159.2 >/dev/null || fail "arlab-agent:0.159.2 missing"
+[[ "$(docker run --rm arlab-agent:0.159.2 codex --version)" == *0.159.2* ]] || fail "agent image codex version"
+ok "arlab-agent:0.159.2"
 
 if (( ! CPU_ONLY )); then
   docker run --rm --gpus all --user 1000:1000 -e HOME=/tmp nvcr.io/nvidia/pytorch:25.10-py3 python -c "
@@ -44,8 +44,8 @@ for n in 1 2 3; do
   docker run --rm -i --name "arlab-m0-agent-$n" --user 1000:1000 -e HOME=/tmp \
     -v "$HOME/.cache/arlab/codex-home:/codex" -e CODEX_HOME=/codex \
     -v "$R/view:/work" -v "$R/agent:/out" -v "$PWD/arlab/proposal.schema.json:/schema.json:ro" \
-    arlab-agent:0.157.1 codex exec --ephemeral -C /work --skip-git-repo-check \
-      --dangerously-bypass-approvals-and-sandbox -m gpt-6-sol -c model_reasoning_effort='"high"' \
+    arlab-agent:0.159.2 codex exec --ephemeral -C /work --skip-git-repo-check \
+      --dangerously-bypass-approvals-and-sandbox -m gpt-6.1-sol -c model_reasoning_effort='"high"' \
       --output-schema /schema.json -o /out/proposal.json --json - \
     < "$R/view/prompt.md" > "$R/agent/events.jsonl" || fail "codex call $n exit code"
   .venv/bin/python -c "

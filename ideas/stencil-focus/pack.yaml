@@ -31,7 +31,7 @@ references:
   - {name: "off", path: frozen/run/ref_off}
   - {name: evicted_1024, path: frozen/run/ref_evicted_1024}
 verdict: {compare_to: baseline}
-agent: {model: gpt-6-sol, effort: high, visible: [program.md, frozen/run/window.py], timeout_s: 900}
+agent: {model: gpt-6.1-sol, effort: high, visible: [program.md, frozen/run/window.py], timeout_s: 900}
 # ~15-25 min per run (pilot measures it): expect 20-30 experiments (3 calibration + 2 references, confirms, 4 holdout runs).
 campaign: {max_experiments: 40, max_hours: 12, max_agent_calls: 80, stop_after_no_keep: 15, rescue_after: 8}
 acceptance: {allow_underpowered: false}

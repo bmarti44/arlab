@@ -29,7 +29,7 @@ arlab calls. Read `CLAUDE.md` (hard prohibitions) first; they always apply.
    EOF
    docker run --rm -i --name arlab-review-<name> --user 1000:1000 -e HOME=/tmp \
      -v ~/.cache/arlab/codex-home:/codex -e CODEX_HOME=/codex -v $P:/pack:ro -v $R:/out \
-     arlab-agent:0.157.1 codex exec --ephemeral -C /pack --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox \
+     arlab-agent:0.159.2 codex exec --ephemeral -C /pack --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox \
        -m gpt-6-astra -c model_reasoning_effort='"high"' -o /out/review.md - < $R/prompt.md > $R/events.jsonl 2>$R/stderr.log
    cat $R/review.md
    ```

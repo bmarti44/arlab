@@ -96,7 +96,7 @@ def replay_md(res: list[dict]) -> str:
     return "\n".join(L)
 
 
-def dream(policy: str, train: list[str], heldout: list[str], name: str, M: int = 8, model: str = "gpt-6-sol",
+def dream(policy: str, train: list[str], heldout: list[str], name: str, M: int = 8, model: str = "gpt-6.1-sol",
           effort: str = "high", backend=None, sandbox=SandboxPolicy) -> dict:
     out = tree_root() / "dream" / name
     out.mkdir(parents=True, exist_ok=True)

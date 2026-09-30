@@ -133,7 +133,7 @@ Each direction is a folder in `ideas/` with a plain-language `IDEA.md`, and some
 
 ```bash
 cd ~/arlab && uv sync                                  # creates .venv with the `arlab` CLI
-docker build -t arlab-agent:0.157.1 -f docker/Dockerfile.agent docker   # the Codex agent image
+docker build -t arlab-agent:0.159.2 -f docker/Dockerfile.agent docker   # the Codex agent image
 mkdir -p ~/.cache/arlab/codex-home && CODEX_HOME=~/.cache/arlab/codex-home codex login --device-auth
 
 arlab new my-idea --idea ~/ideas/my-idea.md   # scaffold ideas/my-idea/ from templates/pack/

@@ -30,7 +30,7 @@ references:
 # no_doc (frozen/run/ref_no_doc, question only) is a pilot-only floor: as a reference its paired sd (~0.5 vs any arm
 # that reads the document) would be the max item sd in the runner's power check and mark the pack underpowered.
 verdict: {compare_to: no_ttt}
-agent: {model: gpt-6-sol, effort: high, visible: [program.md, IDEA.md], timeout_s: 900}
+agent: {model: gpt-6.1-sol, effort: high, visible: [program.md, IDEA.md], timeout_s: 900}
 # ~45 min per run (calibrate: pilot): a screen is 1 run, a confirm 1 more; CALIBRATE 4 runs, FINALIZE 4 runs.
 campaign: {max_experiments: 40, max_hours: 24, max_agent_calls: 80, stop_after_no_keep: 15, rescue_after: 6}
 acceptance: {allow_underpowered: false}

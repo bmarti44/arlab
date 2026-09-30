@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import execute, guards, stats
-from .agent import AuthError, CodexBackend, ScriptedBackend, codex_login_ok, AGENT_IMAGE
+from .agent import AuthError, CodexBackend, ScriptedBackend, codex_login_ok, agent_image
 from .pack import ARLAB_ROOT, compile_error, load_pack, seal, seal_hash, surface_files, validate_dir
 from .record import counted, load_records, read_json, write_json, write_results_tsv
 
@@ -212,7 +212,7 @@ class Campaign:
         self.log(f"TESTS (data {ddir.name})")
         self.run_tests(tmp, image, ddir)
         os.replace(tmp, self.sealed)
-        codex_v = subprocess.run(["docker", "run", "--rm", AGENT_IMAGE, "codex", "--version"], capture_output=True, text=True)
+        codex_v = subprocess.run(["docker", "run", "--rm", agent_image(self.pack.agent.model), "codex", "--version"], capture_output=True, text=True)
         self.save(phase="sealed", created=now(), seal_hash=shash, data_hash=dh, data_dir=str(ddir), image=image, image_id=iid,
                   manifest_hash=file_hash(ddir / "MANIFEST.json"), uv_lock_hash=file_hash(ARLAB_ROOT / "uv.lock"),
                   codex_version=codex_v.stdout.strip() or "unavailable", arlab_commit=arlab_commit(), pack_dir=str(self.pack_dir))

@@ -110,7 +110,7 @@ class Verdict(_M):
 
 
 class Agent(_M):
-    model: str = "gpt-6-sol"
+    model: str = "gpt-6.1-sol"
     effort: str = "high"
     visible: list[str] = ["program.md", "IDEA.md"]
     timeout_s: int = 900

@@ -29,7 +29,7 @@ guards:
 seeds: {calibration: [1, 2, 3, 4, 5], screen: 1, confirm: [2, 3], holdout: [101, 102, 103]}
 references:
   - {name: depth12, path: frozen/run/ref_depth12}        # the same GPT at 12 x 384, same 330 s (reported only)
-agent: {model: gpt-6-sol, effort: high, visible: [program.md, IDEA.md], timeout_s: 900}
+agent: {model: gpt-6.1-sol, effort: high, visible: [program.md, IDEA.md], timeout_s: 900}
 # ~7.5 min RUN + EVALUATE per trial (estimate; re-measure in the pilot): one tree round of 32 nodes ~ 4-4.5 GPU-h.
 campaign: {max_experiments: 32, max_hours: 6, max_agent_calls: 96, stop_after_no_keep: 32, rescue_after: 8}
 acceptance: {allow_underpowered: false}

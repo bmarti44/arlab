@@ -8,6 +8,8 @@ ACTIVE — build (M0–M6) is DONE; owner follow-ups in progress. NEW: tree sear
 | T2 nanochat-lite tree (root m3b:0005, seal matches) | a0 **supported** (n0024 8L/MLP3×: holdout d=0.0127±0.0037, 5/5 seeds; train_s 1.19×, params 30.7M vs 26.3M: fixed-token win, not compute-matched); a1 running since 09:37Z: unit **arlab-tree-t2** (`_pilots/tree-t2.sh`, log `_pilots/tree-t2.log`) waits for arlab-campaigns to drain, then a0, a1 (controls) → dream n-d1 (held-out a1) → b1 (dreamed, if accepted) → g1 (greedy control); W4×32/round, ~20 GPU h |
 | T3/T4 | **ttc-controller** built + astra-reviewed (static PASS, 39 tests; waits for GPU sampling: `build/sample.sh --pilot 100` then full ~3-5 GPU h). **latent-arch** built + 3 astra rounds (static PASS, 26 tests; next: full `arlab check` GPU PROBE + ~1-1.5 GPU-h pilot via build/pilot.sh). Both run after T2 in the GPU order. data-select, gpu-kernels later. |
 
+**Model switch (2026-09-30):** routine agent = gpt-6.1-sol (arlab-agent:0.159.2). TODO when T2 ends: set ideas/nanochat-lite/pack.yaml agent.model to gpt-6.1-sol.
+
 Note: accept-M1 45/47 under GPU-campaign load (fixture wall-clock guard noise, see WORKLOG); re-run when the GPU queue is idle.
 
 ## Owner follow-ups (2026-09-28)

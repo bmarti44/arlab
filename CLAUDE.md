@@ -7,8 +7,8 @@
 - **Claude Code** (interactive, owner's subscription) builds arlab, then orchestrates: turns prose ideas into packs,
   launches/monitors campaigns, handles pauses/blocks, reads reports, calls Codex for reviews.
 - **arlab runner** (Python, `systemd --user` job) owns the experiment loop, git, evaluation, stats and the ledger.
-- **Codex CLI (GPT-6)** is the only research agent: `gpt-6-sol` routine, `gpt-6-astra` rare/high-stakes.
-  Always containerized (`arlab-agent:0.157.1`) with arlab's own `CODEX_HOME=~/.cache/arlab/codex-home`.
+- **Codex CLI (GPT-6)** is the only research agent: `gpt-6.1-sol` routine (owner switch 2026-09-30; `gpt-6-sol` stays pinned to 0.157.1 for runs that started on it), `gpt-6-astra` rare/high-stakes.
+  Always containerized (`arlab-agent:0.159.2`) with arlab's own `CODEX_HOME=~/.cache/arlab/codex-home`.
 
 ## Hard prohibitions (never, even to unblock yourself)
 1. No `sudo`.

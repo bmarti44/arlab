@@ -20,6 +20,6 @@ services:
     mem_gb: 30
     max_model_len: 32768
     gpu: true
-agent: {model: gpt-6-sol, effort: high, visible: [program.md, IDEA.md, frozen/run/memtools.py], timeout_s: 900}
+agent: {model: gpt-6.1-sol, effort: high, visible: [program.md, IDEA.md, frozen/run/memtools.py], timeout_s: 900}
 campaign: {max_experiments: 200, max_hours: 6, max_agent_calls: 400, stop_after_no_keep: 25, rescue_after: 8}
 acceptance: {allow_underpowered: false}

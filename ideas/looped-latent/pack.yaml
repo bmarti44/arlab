@@ -31,7 +31,7 @@ guards:
   - {name: trainable_m, max: 18}                     # ~3% of the 596M base: frozen LoRA r16 10.09M + loop params (baseline 1.06M)
   - {name: peak_mem_gb, max: 40}
 seeds: {calibration: [1, 2, 3, 4, 5], screen: 1, confirm: [2, 3], holdout: [101, 102, 103]}
-agent: {model: gpt-6-sol, effort: high, visible: [program.md, IDEA.md], timeout_s: 900}
+agent: {model: gpt-6.1-sol, effort: high, visible: [program.md, IDEA.md], timeout_s: 900}
 # ~16 min per run: a screen is 1 run, a confirm 2 more; ~3 experiments per active hour.
 campaign: {max_experiments: 60, max_hours: 12, max_agent_calls: 120, stop_after_no_keep: 20, rescue_after: 8}
 acceptance: {allow_underpowered: false}
