@@ -6,12 +6,12 @@ prepare: {command: "python /prepare/prepare.py --out /data", timeout_s: 1800}
 run:
   # --budget-tokens = B = 4 x mean train trace length, rounded to 50 (PREPARE prints it in info.json as
   # suggested_budget_tokens). SET IT FROM THE PILOT before calibration and keep run and evaluate identical.
-  # 1200 is a placeholder (4 x ~300). RUN = 24 sequential episodes (3 budget levels x 8 replicates), ~1-2 min on CPU.
-  command: "python /frozen/harness.py --out /out --seed {seed} --split {split} --budget-tokens 1200 --replicates 8"
+  # B = 1000 = suggested_budget_tokens from the Qwen3-0.6B cache (mean train length 252; set 2026-09-30). RUN = 24 sequential episodes (3 budget levels x 8 replicates), ~1-2 min on CPU.
+  command: "python /frozen/harness.py --out /out --seed {seed} --split {split} --budget-tokens 1000 --replicates 8"
   timeout_s: 900
   gpu: false
   mem_gb: 8
-evaluate: {command: "python /eval/evaluate.py --run /run_out --out /result/metrics.json --budget-tokens 1200 --replicates 8", timeout_s: 300}
+evaluate: {command: "python /eval/evaluate.py --run /run_out --out /result/metrics.json --budget-tokens 1000 --replicates 8", timeout_s: 300}
 budget: {unit: budget_fraction, limit: 1}           # max over episodes of charged / pool; the harness refuses reads past it
 # MES 0.03 (3 points of accuracy), fixed before calibration. Power (item pack, 1,319 holdout problems, 3 holdout seeds):
 #   conservative SE = sqrt(0.2/1319 + 2 sigma^2/3) = 0.0126 at sigma = 0.003 (2SE 0.025); powered iff sigma <= 0.0105.
