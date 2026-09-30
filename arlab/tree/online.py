@@ -20,7 +20,7 @@ from ..campaign import Campaign, ConfigError, debug_kill, now
 from ..experiment import NOTES_MAX, apply_view, build_view, candidate_trial, guard_failures, safe_read, strip
 from ..campaign import DISK_FLOOR_GB
 from ..guards import disk_free_gb
-from ..pack import surface_files
+from ..pack import SEAL_ITEMS, hash_paths, surface_files
 from ..record import add_constraints, read_json, write_json
 from .model import DROPPED, Tree, clean_selection, public_view
 from .policy import PolicyError, SandboxPolicy, resolve, sha
@@ -84,7 +84,7 @@ class TreeCampaign(Campaign):
         loc, nid = spec.rsplit(":", 1)
         pack, tag = loc.split("/")
         src = Campaign(self.pack_dir.parent / pack, tag, runs_root=self.dir.parent.parent)
-        if src.state.get("seal_hash") != self.state.get("seal_hash"):
+        if src.state.get("seal_hash") != self.state.get("seal_hash") and not _same_but_holdout(src, self):
             raise ConfigError(f"--root-from {spec}: sealed pack differs from this run's")
         rec = read_json(src.dir / "runs" / nid / "record.json")
         if rec:
@@ -397,3 +397,16 @@ class TreeCampaign(Campaign):
             self.log(f"CHOICE {pick and pick['node']} from {[t['node'] for t in table]}")
         super().finalize()
 
+
+def _same_but_holdout(a: Campaign, b: Campaign) -> bool:
+    """Root commits carry across packs that differ only in seeds.holdout (more holdout seeds never change the code)."""
+    import yaml
+    if a.state.get("data_hash") != b.state.get("data_hash"):
+        return False
+    items = [i for i in SEAL_ITEMS if i != "pack.yaml"] + ["arlab_lib"]
+    if hash_paths([a.sealed / i for i in items]) != hash_paths([b.sealed / i for i in items]):
+        return False
+    ya, yb = (yaml.safe_load((c.sealed / "pack.yaml").read_text()) for c in (a, b))
+    for y in (ya, yb):
+        y.get("seeds", {}).pop("holdout", None)
+    return ya == yb
