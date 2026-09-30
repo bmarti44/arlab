@@ -175,6 +175,9 @@ def warm_torch(dev: str):
             q = h.view(4, 256, 8, 64).transpose(1, 2)
             h = torch.nn.functional.scaled_dot_product_attention(q, q, q, is_causal=True)
             torch.nn.functional.embedding(torch.randint(0, 512, (4, 256), generator=g).to(dev), w).float().cumsum(1).sum()
+    big = torch.ones(1 << 22)  # a parallel CPU op: torch starts its OpenMP pool lazily (19 threads on 20 cores)
+    (big * 2).sum()
+    torch.randn(256, 256, generator=g) @ torch.randn(256, 256, generator=g)
     if dev == "cuda":
         torch.cuda.synchronize()
 
