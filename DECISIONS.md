@@ -94,3 +94,12 @@
   - LR constant to 80 %.
   MES stays 0.04, now 4 depth points. The baseline at depth chance is accepted: the question is whether an architecture escapes it. Fallback, if all arms stay at chance: train k 1..3 and evaluate depth on k 4..7. The pilot is 5 baseline calibration seeds + depth12 + loop_naive.
 - 2026-10-01 latent-arch, third sol consult (FIX-sol-v2.2.md), on the depth-at-chance result. I confirmed per prompt that the v2.1 baseline is exactly uniform at depth: 256 prompts, max |p−0.2| ≤ 0.002, entropy = ln 5; it always predicts the same state through a tiny bias, which is why acc_depth = 0.1995 on both seeds. sol: the pack is a valid comparison but an UNVALIDATED screen. Adopted: a positive control before any campaign, build/deltaproduct = baseline + one DeltaProduct branch (4 heads, d 16, 4 Householder factors, β∈[0,2], scan verified against the naive recurrence, causal), run on seeds 1–3. Gate: every seed acc_depth ≥ 0.24, mean ≥ 0.26, σ ≤ 0.02, all guards. If it fails, stop: the pack has no demonstrated signal at this budget. Also recorded: v2.1 had 1.88× the v2 program tokens, not 4×.
+- 2026-10-01 latent-arch CLOSED by the pre-registered positive-control rule (FIX-sol-v2.2.md). At 660 s, acc_depth was:
+  - baseline seeds 1–5: 0.1995 / 0.1995 / 0.1974 / 0.2002 / 0.1974 (acc_id 0.54–0.60);
+  - DeltaProduct seeds 1–3: 0.1995 / 0.1974 / 0.1974, all < 0.24;
+  - depth12: 0.207; loop_naive: 0.208.
+  logp_depth = ln(1/5) for every arm. No campaign is run: a screen where every candidate sits at chance has no gradient, and a powered null would only say "nothing escapes chance in 11 min". Caveat recorded: the control ran only 930 steps against ~2,420 (the pure-PyTorch scan over 1,024-token text rows is slow), so it is a weak control. Restart options for a larger budget, not taken now:
+  (a) a faster DeltaProduct, e.g. a chunked scan or the branch only on records, to recover step parity;
+  (b) sol's fallback (train k1..3, depth k4..7);
+  (c) a longer training budget.
+  The pack, data and controls stay in the repo.

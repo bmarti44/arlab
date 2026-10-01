@@ -7,7 +7,13 @@
 - **Owner decision needed:** allow Claude Code to launch the containerized Codex agent (and the arlab runner that launches it). For example, approve it interactively, or add a permission rule you're comfortable with. Everything that doesn't need Codex (M0 GPU/vLLM parts, M1, M2) continues meanwhile.
 - **Resolved 2026-09-26 23:35Z:** the owner approved running Codex without the sandbox. A test `codex exec` call (gpt-6-sol) returned a schema-valid proposal and made the edit.
 
-## B2: latent-arch (T4.2) program task not learnable at pack scale (2026-10-01) — IN PROGRESS: v2 task per FIX-sol.md, pilot running (arlab-latent-v2)
+## B2: latent-arch (T4.2) program task not learnable at pack scale (2026-10-01) — CLOSED 2026-10-01: pack stopped (no demonstrated signal)
+- **Outcome after 3 sol consults** (FIX-sol.md, -v2.1, -v2.2):
+  - v2 (permutation composition) made the task learnable: k 1–3 are mastered.
+  - v2.1 (acc_depth primary, 660 s): the baseline is exactly uniform at depth on all 5 seeds (0.197–0.200).
+  - The pre-registered DeltaProduct positive control also stayed at chance on all 3 seeds (0.197–0.1995; gate ≥ 0.24 each). It got only ~930 steps against ~2,420, because the scan is slow.
+  - The rule fixed beforehand says: stop, no useful screening signal within this budget. Not tuned further.
+  - Restart options are in DECISIONS.md 2026-10-01 (latent-arch closed).
 - **Check:** the IDEA.md GPU pilot gate requires the baseline to score 30–70 % in-distribution (ID) on the synthetic programs before calibration.
 - **Evidence:** text is learned normally in every arm (val_bpb 1.15–1.25). Program accuracy is at chance in every arm, at every depth including k = 1.
   - Pilot (mod 100, programs 9 % of rows, 330 s): baseline 1.8 % ID, depth12 1.2 %, loop_naive 0.5 %, depth12_2x 1.8 %. Floor (answer = last constant) 1.7 %.
