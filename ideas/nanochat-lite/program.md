@@ -13,7 +13,7 @@ save(state, path), load(path, device) -> model whose forward(idx) returns logits
 The harness calls train_step once per 64×1024-token batch until the fixed token budget is spent
 (total_steps calls); train_step accumulates gradients and steps the optimizer every TOTAL_BATCH_SIZE tokens.
 The evaluator loads the checkpoint with load(), feeds tokens and computes cross-entropy from the returned
-logits itself; the model must be causal (it is checked). Runs that take >1.3× the baseline's wall time,
+logits itself; the model must be causal (it is checked). Runs that take >1.05× the baseline's wall time (compute-matched),
 exceed 60 M params or 60 GB peak memory fail their guards.
 ## Ideas worth trying
 Learning rates and schedule shape, warmup/warmdown, batch size per optimizer step, width/depth/aspect

@@ -10,7 +10,7 @@ evaluate: {command: "python /eval/evaluate.py --run /run_out --out /result/metri
 budget: {unit: tokens, limit: 62914560}
 metric: {name: val_bpb, direction: minimize, mes: 0.01}
 guards:
-  - {name: train_s, max_ratio_vs_baseline: 1.3}
+  - {name: train_s, max_ratio_vs_baseline: 1.05}   # compute-matched since T2b (was 1.3: T2 winners scaled the model into the slack)
   - {name: params_m, max: 60}
   - {name: peak_mem_gb, max: 60}
 seeds: {calibration: [1, 2, 3, 4, 5], screen: 1, confirm: [2, 3], holdout: [101, 102, 103, 104, 105]}

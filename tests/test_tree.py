@@ -258,17 +258,19 @@ def test_fixture_tree_run_kill_resume_finalize(runs_root, tmp_path):
     assert st2["root_from"] == f"_fixture/t1:{ch['node']}" and t2.used() == 2
 
 
-def test_root_from_allows_holdout_only_pack_change(tmp_path):
+def test_root_from_allows_code_neutral_pack_changes(tmp_path):
     from types import SimpleNamespace
-    from arlab.tree.online import _same_but_holdout
-    def mk(name, seeds, frozen="x = 1\n", data="d1"):
+    from arlab.tree.online import _same_code
+    def mk(name, seeds, frozen="x = 1\n", data="d1", extra=""):
         s = tmp_path / name
         (s / "frozen").mkdir(parents=True)
         (s / "frozen" / "e.py").write_text(frozen)
-        (s / "pack.yaml").write_text(f"name: p\nseeds: {seeds}\n")
+        (s / "pack.yaml").write_text(f"name: p\nseeds: {seeds}\n{extra}")
         return SimpleNamespace(sealed=s, state={"data_hash": data})
     base = mk("a", "{screen: 1, holdout: [101, 102, 103]}")
-    assert _same_but_holdout(base, mk("b", "{screen: 1, holdout: [101, 102, 103, 104, 105]}"))
-    assert not _same_but_holdout(base, mk("c", "{screen: 2, holdout: [101, 102, 103]}"))
-    assert not _same_but_holdout(base, mk("d", "{screen: 1, holdout: [101, 102, 103]}", frozen="x = 2\n"))
-    assert not _same_but_holdout(base, mk("e", "{screen: 1, holdout: [101, 102, 103]}", data="d2"))
+    assert _same_code(base, mk("b", "{screen: 1, holdout: [101, 102, 103, 104, 105]}"))
+    assert not _same_code(base, mk("c", "{screen: 2, holdout: [101, 102, 103]}"))
+    assert not _same_code(base, mk("d", "{screen: 1, holdout: [101, 102, 103]}", frozen="x = 2\n"))
+    assert not _same_code(base, mk("e", "{screen: 1, holdout: [101, 102, 103]}", data="d2"))
+    assert _same_code(base, mk("f", "{screen: 1, holdout: [101]}", extra="guards: [{name: t, max: 1}]\nagent: {model: m}\n"))
+    assert not _same_code(base, mk("g", "{screen: 1, holdout: [101]}", extra="run: {command: other}\n"))

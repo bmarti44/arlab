@@ -84,7 +84,7 @@ class TreeCampaign(Campaign):
         loc, nid = spec.rsplit(":", 1)
         pack, tag = loc.split("/")
         src = Campaign(self.pack_dir.parent / pack, tag, runs_root=self.dir.parent.parent)
-        if src.state.get("seal_hash") != self.state.get("seal_hash") and not _same_but_holdout(src, self):
+        if src.state.get("seal_hash") != self.state.get("seal_hash") and not _same_code(src, self):
             raise ConfigError(f"--root-from {spec}: sealed pack differs from this run's")
         rec = read_json(src.dir / "runs" / nid / "record.json")
         if rec:
@@ -398,15 +398,20 @@ class TreeCampaign(Campaign):
         super().finalize()
 
 
-def _same_but_holdout(a: Campaign, b: Campaign) -> bool:
-    """Root commits carry across packs that differ only in seeds.holdout (more holdout seeds never change the code)."""
+CODE_NEUTRAL = ("guards", "agent", "campaign")  # pack.yaml keys that never change what a root commit computes
+
+
+def _same_code(a: Campaign, b: Campaign) -> bool:
+    """Root commits carry across packs that differ only in docs, seeds.holdout, guards, the agent or campaign limits."""
     import yaml
     if a.state.get("data_hash") != b.state.get("data_hash"):
         return False
-    items = [i for i in SEAL_ITEMS if i != "pack.yaml"] + ["arlab_lib"]
+    items = [i for i in SEAL_ITEMS if i not in ("pack.yaml", "program.md", "IDEA.md")] + ["arlab_lib"]  # docs: agent-facing only
     if hash_paths([a.sealed / i for i in items]) != hash_paths([b.sealed / i for i in items]):
         return False
     ya, yb = (yaml.safe_load((c.sealed / "pack.yaml").read_text()) for c in (a, b))
     for y in (ya, yb):
         y.get("seeds", {}).pop("holdout", None)
+        for k in CODE_NEUTRAL:
+            y.pop(k, None)
     return ya == yb
