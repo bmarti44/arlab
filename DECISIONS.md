@@ -107,3 +107,8 @@
   - (3) ICL reference on the v1 holdout (data 849c, seeds 101–103): success 0.603 on every seed (deterministic, no training), prefill ~3,045 tokens. The winner's 0.80 beats notes-in-view on the same worlds by ~0.20.
   - (2) the per-component forgetting numbers were already in the holdout metrics. Winner gsm8k_drop is 0.04 / 0.03 / 0.065 against the baseline's 0.005 / −0.02 / −0.035, so ~6 points of extra GSM8K forgetting. Guard-world ICL improved under both arms.
   - (1) a new "novel" split (fauxos style "novel", data c3295b02): 4 operation types the recognizer never saw (bump, pin, count_tag, oldest_at) and reworded observations/goals for every op. Standard worlds are verified byte-identical to v1. Running: none, ICL (1 seed each), winner 0008 and baseline (3 seeds each). This is a robustness measurement, not a campaign: the winner was never told about this distribution.
+- 2026-10-01 plastic-agent v1 robustness result (novel split, data c3295b02), success:
+  - none 0.080; ICL 0.559 (1 seed each, deterministic);
+  - baseline 0.155 / 0.147 / 0.148;
+  - winner 0008 0.063 / 0.070 / 0.066, BELOW none.
+  The winner fails even on standard ops once they are reworded (archive 0.0, move 0.0, swap 0.02), while ICL shows the information is in the transcript. The v1 "supported" verdict stands under its pre-registered rules, but the README now says the gain is wording-specific and does not transfer. The v2 campaign design follows: score the holdout on novel-style worlds, with wording never disclosed to the agent, so only general consolidation methods can win.
