@@ -26,12 +26,35 @@ def t_quantile(p: float, df: int) -> float:
     return z + (z**3 + z) / (4 * df) + (5 * z**5 + 16 * z**3 + 3 * z) / (96 * df**2)
 
 
+def holdout_guard_failures(guards, res: dict, ref: dict | None) -> list[str]:
+    """Guards on a holdout trial. Ratio guards compare with the ROOT on the same holdout seed (`ref`), not with the
+    validation-calibrated baseline: holdout metrics sit at another level (ttc: 0.66 vs 0.72), so the validation
+    baseline would fail every trial, the root included. Absolute bounds apply as usual."""
+    fails = []
+    for g in guards:
+        v = res["metrics"].get(g.name)
+        if v is None:
+            fails.append(f"{g.name} missing")
+            continue
+        if g.max is not None and v > g.max:
+            fails.append(f"{g.name}={v:.4g} > {g.max}")
+        if g.min is not None and v < g.min:
+            fails.append(f"{g.name}={v:.4g} < {g.min}")
+        b = ref["metrics"].get(g.name) if ref else None
+        if b:
+            if g.max_ratio_vs_baseline is not None and v / b > g.max_ratio_vs_baseline:
+                fails.append(f"{g.name}={v:.4g} is {v / b:.2f}x root > {g.max_ratio_vs_baseline}")
+            if g.min_ratio_vs_baseline is not None and v / b < g.min_ratio_vs_baseline:
+                fails.append(f"{g.name}={v:.4g} is {v / b:.2f}x root < {g.min_ratio_vs_baseline}")
+    return fails
+
+
 def block_eval(campaigns: dict, seeds: list[int], out: Path) -> dict:
     """campaigns: arm -> finalized TreeCampaign (setup() done). Scores each arm's choice (or the root) on `seeds`."""
-    from ..experiment import guard_failures
     first = next(iter(campaigns.values()))
     p, base = first.pack, first.state["baseline_commit"]
     sgn = 1 if p.metric.direction == "maximize" else -1
+    root_res = {}
 
     def score(c, commit, name):
         vals = {}
@@ -42,7 +65,9 @@ def block_eval(campaigns: dict, seeds: list[int], out: Path) -> dict:
                 res = c.settled(lambda: c.trial(c.export(commit, tdir / "surface"), seed, "holdout", tdir))
                 c.clean_trial(res, tdir)
                 write_json(tdir / "result.json", res)
-            ok = res["status"] == "ok" and not guard_failures(c, res)
+            if name == "root":
+                root_res[seed] = res
+            ok = res["status"] == "ok" and not holdout_guard_failures(p.guards, res, root_res.get(seed) if name != "root" else None)
             vals[seed] = res["primary"] if ok else None
         return vals
 

@@ -293,6 +293,20 @@ def test_root_from_allows_code_neutral_pack_changes(tmp_path):
     assert not _same_code(base, mk("g", "{screen: 1, holdout: [101]}", extra="run: {command: other}\n"))
 
 
+def test_holdout_guards_compare_with_root_on_same_seed():
+    """Regression (P3 b01-b03): ratio guards on holdout must use the root's holdout value, not the validation baseline."""
+    from types import SimpleNamespace as NS
+    from arlab.tree.blocks import holdout_guard_failures
+    gs = [NS(name="acc_half", max=None, min=None, max_ratio_vs_baseline=None, min_ratio_vs_baseline=0.97),
+          NS(name="train_s", max=600.0, min=None, max_ratio_vs_baseline=None, min_ratio_vs_baseline=None)]
+    root = {"metrics": {"acc_half": 0.61, "train_s": 20}}
+    assert holdout_guard_failures(gs, root, None) == []                       # the root is its own reference
+    assert holdout_guard_failures(gs, {"metrics": {"acc_half": 0.60, "train_s": 20}}, root) == []
+    assert holdout_guard_failures(gs, {"metrics": {"acc_half": 0.55, "train_s": 20}}, root)   # 0.90x root
+    assert holdout_guard_failures(gs, {"metrics": {"acc_half": 0.61, "train_s": 700}}, root)  # absolute bound
+    assert holdout_guard_failures(gs, {"metrics": {"train_s": 20}}, root) == ["acc_half missing"]
+
+
 def test_protocol_decision_rule():
     from arlab.tree.blocks import analyze
     import random
