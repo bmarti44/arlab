@@ -24,7 +24,9 @@ initial_context_tokens (the first call), retry_prompt_tokens (the retry call's f
 prefill_tokens = their sum (every prompt position processed, retries included: the guard), decode_tokens (generated),
 inference_tokens = prefill_tokens + decode_tokens.
 
-metrics.json: primary = success (own-world task success) for every arm; items = per task 0/1 for the primary.
+metrics.json: primary = success (own-world task success) for every arm; items = per task 0/1 for the primary. In v2
+"fam" worlds every op has exactly 6 tasks per world, so success = the mean over worlds of per-op macro averages;
+s_familiar / s_dev / s_reserved (and none_*) report op-type strata.
 Guards read battery_drop, prefill_tokens and world_specific_share. The forgetting battery (guard world, GSM8K items,
 text rows) is the split's own: validation and holdout batteries are disjoint. A run whose supervisor recorded a sandbox
 failure or a thread / process violation in any world is invalid.
@@ -299,6 +301,9 @@ if icl_s is not None:
         m["gap_closure"] = (success - none_s) / (icl_s - none_s)
 for tpl in sorted({t["template"] for t in tasks}):
     m[f"s_{tpl}"] = float(np.mean([own_items[t["id"]] for t in tasks if t["template"] == tpl]))
+for st in sorted({t.get("stratum") for t in tasks} - {None}):   # v2 fam worlds: familiar / dev / reserved op types
+    m[f"s_{st}"] = float(np.mean([own_items[t["id"]] for t in tasks if t.get("stratum") == st]))
+    m[f"none_{st}"] = float(np.mean([base["none"][t["id"]]["s"] for t in tasks if t.get("stratum") == st]))
 for k in (1, 2):
     sel = [own_items[t["id"]] for t in tasks if min(t["n_calls"], 2) == k]
     if sel:

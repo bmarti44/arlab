@@ -57,6 +57,7 @@ from sandbox import become_subreaper, descendants, kill_descendants, threads  # 
 from trainer import Trainer  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+AUDIT_MAX, AUDIT_STR, AUDIT_N = 2_000_000, 1500, 64   # per-world audit log: total chars, chars per string, items per call
 CHILD = os.path.join(HERE, "child.py")
 STARTUP_S, GRACE_S, MAX_MSG = 120.0, 15.0, 256 << 20
 CHILD_ENV = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/tmp", "CUDA_VISIBLE_DEVICES": "", "OMP_NUM_THREADS": "1",
@@ -156,8 +157,10 @@ def main():
         if lora.n_wrapped(model) or lora.fingerprint(model) != fp0:
             raise Fatal(f"base model changed {where}: adapters must not leak between worlds")
 
-    def serve(msg: dict, gen: Gen, trainer: Trainer, teachers: list, budget: Budget) -> dict:
-        """One RPC from the child: validated and metered here; the child only ever gets JSON data back."""
+    def serve(msg: dict, gen: Gen, trainer: Trainer, teachers: list, budget: Budget, audit: list | None = None) -> dict:
+        """One RPC from the child: validated and metered here; the child only ever gets JSON data back. v2: every
+        generate / train request is also appended (truncated) to `audit`, written to out/audit/<world>.json for the
+        orchestrator's rule review (no benchmark-specific recognizers or goal templates; V2-DESIGN-sol.md)."""
         fn, args = msg.get("fn"), msg.get("args")
         try:
             if not isinstance(args, dict):
@@ -194,6 +197,14 @@ def main():
             else:
                 raise ValueError(f"unknown call {fn!r}")
             r = {"ok": True, "result": out}
+            if audit is not None and fn in ("generate", "train") and sum(len(x) for x in audit) < AUDIT_MAX:
+                if fn == "generate":
+                    rec = {"fn": fn, "prompts": [str(x)[:AUDIT_STR] for x in args["prompts"][:AUDIT_N]],
+                           "outputs": [str(x)[:AUDIT_STR] for x in (out if isinstance(out, list) else [out])[:AUDIT_N]]}
+                else:
+                    rec = {"fn": fn, "n": len(exs), "examples": [{k: str(v)[:AUDIT_STR] for k, v in ex.items() if k != "teacher"}
+                                                                for ex in exs[:AUDIT_N] if isinstance(ex, dict)]}
+                audit.append(json.dumps(rec))
         except BudgetExceeded as e:
             r = {"ok": False, "kind": "budget", "msg": str(e)[:500]}
         except TypeError as e:
@@ -226,7 +237,7 @@ def main():
             budget = Budget(a.adapt_seconds, a.gen_tokens, a.train_tokens, start=t0)
             gen = Gen(engine, w["tools"], w["transcript"], budget, s)
             trainer = Trainer(model, engine, w["tools"], replay, budget, s, dev)
-            teachers, viol, res, hit, killed = [], [], None, None, False
+            teachers, viol, res, hit, killed, audit = [], [], None, None, False, []
             ch.send({"op": "go", "tools": w["tools"], "transcript": w["transcript"], "deadline": budget.deadline, "seed": s,
                      "gen_left": budget.gen_cap, "train_left": budget.train_cap})
             while True:
@@ -236,7 +247,7 @@ def main():
                     msg = {"op": "timeout"}                  # stop serving a surface that ignores its deadline
                 if msg.get("op") != "call":
                     break
-                ch.send(serve(msg, gen, trainer, teachers, budget))
+                ch.send(serve(msg, gen, trainer, teachers, budget, audit))
             t_end = time.monotonic()
             viol += [v for v in strays() if v not in viol]
             op = msg.get("op")
@@ -258,6 +269,9 @@ def main():
             shutil.rmtree(scratch, ignore_errors=True)
         lora.detach(model)
         model.eval()
+        os.makedirs(f"{a.out}/audit", exist_ok=True)
+        with open(f"{a.out}/audit/{wid}.json", "w") as f:
+            f.write("[" + ",".join(audit) + "]")
         if res is not None:
             cfg, tens = trainer.saved(res)
             lora.save(f"{a.out}/adapters/{wid}", cfg, tens)

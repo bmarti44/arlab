@@ -72,7 +72,7 @@ def test_prepared_data_matches_generator_and_splits_are_disjoint():
         for w in pub:
             p = priv[w["id"]]
             seed = info["worlds"][w["id"]]["seed"]
-            assert p["spec"] == json.loads(json.dumps(fauxos.gen_world(seed))), "data was prepared with another generator"
+            assert p["spec"] == json.loads(json.dumps(fauxos.regenerate(p["spec"]))), "data was prepared with another generator"
             seeds[w["id"]] = seed
             toolsets[w["id"]] = frozenset(w["tools"])
         assert open(f"{D}/{split}/private/fauxos.py").read() == open("/pack/frozen/prepare/fauxos.py").read()
@@ -93,6 +93,51 @@ def test_prepared_data_matches_generator_and_splits_are_disjoint():
     assert not rows["validation"] & rows["holdout"] and not (rows["validation"] | rows["holdout"]) & replay
 
 
+# ================================================================ v2 campaign worlds ("fam" style)
+def test_v2_splits_balanced_disjoint_wording_and_op_types():
+    """Validation = bank A + dev-only op types; holdout = bank B + reserved op types; every op exactly FAM_TASKS_PER_OP
+    tasks per world; reference programs score 1.0; banks A and B share no template string; twins share the family."""
+    import wording
+    assert not wording.all_strings("A") & wording.all_strings("B")
+    want = {"validation": ("A", set(fauxos.DEV_OPS)), "holdout": ("B", set(fauxos.RESERVED_OPS))}
+    for split, (bank, extra) in want.items():
+        priv, tw = js(f"{D}/{split}/private/worlds.json"), js(f"{D}/{split}/private/twins.json")
+        assert open(f"{D}/{split}/private/wording.py").read() == open("/pack/frozen/prepare/wording.py").read()
+        for wid, p in priv.items():
+            spec = p["spec"]
+            ops = {t["op"] for t in spec["tools"]} - {"inspect"}
+            assert spec["style"] == "fam" and spec["family"]["bank"] == bank and extra <= ops and len(ops) == 10
+            other = set(fauxos.DEV_OPS) | set(fauxos.RESERVED_OPS)
+            assert not (ops & other) - extra, (split, ops)
+            counts = {}
+            for t in p["tasks"]:
+                counts[t["template"]] = counts.get(t["template"], 0) + 1
+                assert fauxos.score(t, fauxos.run_program(spec, p["end"], "\n".join(t["reference"]))) == 1.0
+                assert t["stratum"] == ("familiar" if t["template"] in fauxos.TASK_OPS else
+                                        "dev" if split == "validation" else "reserved")
+            assert set(counts) == ops and set(counts.values()) == {fauxos.FAM_TASKS_PER_OP}
+            assert tw[wid]["spec"]["family"] == spec["family"]
+            assert all(not any(v in t["name"] for vs in fauxos.TRUE_VERBS.values() for v in vs if len(v) > 3)
+                       for t in spec["tools"])                     # names carry no English verb
+    hold = js(f"{D}/holdout/private/worlds.json")
+    val = js(f"{D}/validation/private/worlds.json")
+    goals = lambda ws: {t["goal"] for p in ws.values() for t in p["tasks"]}  # noqa: E731
+    assert not goals(hold) & goals(val)
+
+
+def test_v2_typed_values_do_not_depend_on_wording():
+    """A fam world's query answers come from the semantics, not from parsing text: re-rendering the same world with
+    another family leaves every reference value and final state unchanged."""
+    import wording, random as _r
+    spec = js(f"{D}/holdout/private/worlds.json")
+    wid, p = next(iter(spec.items()))
+    other = {**p["spec"], "family": wording.make_family(_r.Random(5), "A")}
+    for t in p["tasks"]:
+        a = fauxos.run_program(p["spec"], p["end"], "\n".join(t["reference"]))
+        b = fauxos.run_program(other, p["end"], "\n".join(t["reference"]))
+        assert a["values"] == b["values"] and a["state"] == b["state"] and a["outputs"] != b["outputs"] or not a["outputs"]
+
+
 # ================================================================ novel split (v2 robustness check)
 STD_OBS = ("archived #", "deleted #", "restored #", "locked #", "unlocked #", "moved #", "tagged #", "copied #",
            "swapped #", "count: ", "total: ", "checksum: ", "heaviest: ", "lightest: ", "newest: ", "oldest: ", "kind=")
@@ -103,9 +148,8 @@ def test_novel_split_new_ops_new_wording_and_holdout_battery():
     of its observations uses a standard-world output phrase, and its forgetting battery is the holdout's."""
     priv, pubs = js(f"{D}/novel/private/worlds.json"), pub_worlds(f"{D}/novel")
     assert [w["id"] for w in pubs] == list(priv) and len(priv) >= 2
-    for split in SPLITS:
-        for w in js(f"{D}/{split}/private/worlds.json").values():
-            assert not {t["op"] for t in w["spec"]["tools"]} & set(fauxos.NOVEL_OPS)
+    for w in js(f"{D}/validation/private/worlds.json").values():      # (v2 holdout reserves them by design)
+        assert not {t["op"] for t in w["spec"]["tools"]} & set(fauxos.NOVEL_OPS)
     for w in pubs:
         p = priv[w["id"]]
         assert p["spec"]["style"] == "novel" and set(fauxos.NOVEL_OPS) <= {t["op"] for t in p["spec"]["tools"]}
@@ -140,7 +184,7 @@ def test_twins_are_deterministic_and_disjoint_from_every_other_world():
         assert list(tw) == js(f"{D}/{split}/public/order.json")
         for wid, t in tw.items():
             assert t["id"] == f"{wid}x" and info["twins"][t["id"]] == {"seed": t["seed"], "twin_of": wid}
-            again = fauxos.gen_twin(fauxos.gen_world(info["worlds"][wid]["seed"]), t["seed"])
+            again = fauxos.gen_twin(fauxos.regenerate(priv[wid]["spec"]), t["seed"])
             assert t["spec"] == json.loads(json.dumps(again)) and again == fauxos.gen_twin(priv[wid]["spec"], t["seed"])
             ev, end = fauxos.explore(again, len(js(f"{D}/{split}/public/twins/{wid}.json")["transcript"]))
             assert ev == js(f"{D}/{split}/public/twins/{wid}.json")["transcript"] and json.loads(json.dumps(end)) == t["end"]
@@ -238,9 +282,7 @@ def test_twin_control_rejects_name_priors_and_credits_transcript_learning():
     control would have credited it (share 1). A policy that reads the TARGET's transcript scores ~1 on the target and
     ~0 with the twin's transcript -> share ~1. none = no adaptation (0 for these policies)."""
     from scoring import world_specific_share
-    for split in SPLITS:
-        priv, order = js(f"{D}/{split}/private/worlds.json"), js(f"{D}/{split}/public/order.json")
-        pubs, twins = pub_worlds(f"{D}/{split}"), pub_twins(f"{D}/{split}")
+    for split, (priv, order, pubs, twins) in _std_world_sets().items():
         res = {}
         for name, pol in (("names", names_only_policy), ("oracle", transcript_oracle_policy)):
             own, twin, donor = [], [], []
@@ -258,6 +300,33 @@ def test_twin_control_rejects_name_priors_and_credits_transcript_learning():
         s, m, _ = res["oracle"]
         assert s >= 0.95 and m <= 0.1 and world_specific_share(s, m, 0.0) >= 0.9, (split, res)
         assert len(order) == len(twins)
+    hits = n = 0                          # v2 fam worlds: names are drawn independently of semantics
+    for split in SPLITS:
+        for p in js(f"{D}/{split}/private/worlds.json").values():
+            for t in p["spec"]["tools"]:
+                n += 1
+                hits += VERB_OP.get(t["name"].split("_", 1)[1]) == t["op"]
+    assert hits <= max(2, n // 50), (hits, n)
+
+
+def _std_world_sets() -> dict:
+    """v1-style ("std") worlds built in memory (seeds of the v1 holdout): the twin-control mechanics test needs verb
+    names and std wording, which the v2 data splits no longer have."""
+    out = {}
+    pubs, twins, priv = [], [], {}
+    for i in range(4):
+        spec = fauxos.gen_world(26_092_800 + i)
+        ev, end = fauxos.explore(spec, 120)
+        wid = f"s{i}"
+        tasks = fauxos.make_tasks(spec, end, ev, 40, wid)
+        tw = fauxos.gen_twin(spec, 26_093_100 + i)
+        tev, _ = fauxos.explore(tw, 120)
+        names = sorted(t["name"] for t in spec["tools"])
+        pubs.append({"id": wid, "tools": names, "transcript": ev})
+        twins.append({"id": f"{wid}x", "tools": names, "transcript": tev})
+        priv[wid] = {"spec": spec, "end": end, "tasks": tasks}
+    out["std"] = (priv, [p["id"] for p in pubs], pubs, twins)
+    return out
 
 
 # ================================================================ transcripts reveal only observable facts
@@ -279,8 +348,9 @@ def test_transcript_is_a_faithful_replay():
                 assert obs == e["obs"], (w["id"], e)
             assert st == priv[w["id"]]["end"]
             assert w["tools"] == sorted(t["name"] for t in spec["tools"])
-            errs = {e["obs"].split()[1] for e in w["transcript"] if e["obs"].startswith("error ")}
-            assert set(spec["errors"].values()) <= errs, "every error code must be observed at least once"
+            obs_all = {e["obs"] for e in w["transcript"]}
+            assert all(fauxos.error_text(spec, c) in obs_all for c in spec["errors"].values()), \
+                "every error code must be observed at least once"
             called = {e["call"].split("(")[0] for e in w["transcript"]}
             assert called == set(w["tools"]), "every tool must appear in the transcript"
 
@@ -313,12 +383,15 @@ def test_public_and_train_data_reveal_no_hidden_state_or_labels():
 
 
 def test_known_limits_are_recorded():
-    """Worlds are disjoint across splits (above) but goal templates are shared: IDEA.md must limit the claim to unseen
-    worlds, and record that campaigns mount the whole HF cache (the surface sandbox is what keeps it unreadable)."""
+    """v2: validation and holdout share only the familiar op types; their extra op types are disjoint (dev vs
+    reserved). IDEA.md must state the v2 contract, and record that campaigns mount the whole HF cache (the surface
+    sandbox is what keeps it unreadable)."""
     tpl = {s: {t["template"] for p in js(f"{D}/{s}/private/worlds.json").values() for t in p["tasks"]} for s in SPLITS}
-    assert tpl["validation"] == tpl["holdout"] and tpl["holdout"] <= set(fauxos.TEMPLATES)
+    assert tpl["holdout"] <= set(fauxos.TEMPLATES) and tpl["validation"] <= set(fauxos.TEMPLATES)
+    assert not (tpl["validation"] - set(fauxos.TASK_OPS)) & (tpl["holdout"] - set(fauxos.TASK_OPS))
+    assert set(fauxos.RESERVED_OPS) <= tpl["holdout"] and set(fauxos.DEV_OPS) <= tpl["validation"]
     idea = " ".join(open("/pack/IDEA.md").read().split())
-    assert "unseen worlds, not unseen task types" in idea and "templates and their wording" in idea
+    assert "disjoint wording families" in idea and "reserved operation types" in idea
     assert "mounts the whole HF cache read-only at `/hf` in RUN" in idea and "no longer depends on them being unreadable" in idea
 
 
@@ -450,11 +523,12 @@ def test_simulator_errors_and_argument_order(world):
         canon = [int(i), pl]
         return [canon[ci] for ci in move["perm"]]
 
+    err = lambda k: (fauxos.error_text(spec, E[k]), False)  # noqa: E731
     if locked:
-        assert fauxos.call(spec, st, move["name"], args(locked, place)) == (f"error {E['locked']}", False)
-    assert fauxos.call(spec, st, move["name"], args(99, place)) == (f"error {E['missing']}", False)
-    assert fauxos.call(spec, st, move["name"], args(free, place)[::-1]) == (f"error {E['badarg']}", False)
-    assert fauxos.call(spec, st, move["name"], [int(free)]) == (f"error {E['badarg']}", False)
+        assert fauxos.call(spec, st, move["name"], args(locked, place)) == err("locked")
+    assert fauxos.call(spec, st, move["name"], args(99, place)) == err("missing")
+    assert fauxos.call(spec, st, move["name"], args(free, place)[::-1]) == err("badarg")
+    assert fauxos.call(spec, st, move["name"], [int(free)]) == err("badarg")
     obs, ok = fauxos.call(spec, st, move["name"], args(free, place))
     assert ok and st["objs"][free]["place"] == place
     assert fauxos.call(spec, st, "no_such_tool", [])[1] is False
@@ -655,6 +729,7 @@ def _mini_data(root, n_tasks=3, n_worlds=2):
     json.dump(js(f"{D}/validation/private/gsm8k.json")[:2], open(f"{root}/private/gsm8k.json", "w"))
     np.save(f"{root}/private/text.npy", np.load(f"{D}/validation/private/text.npy")[:2, :65])
     shutil.copy(f"{D}/validation/private/fauxos.py", f"{root}/private/fauxos.py")
+    shutil.copy(f"{D}/validation/private/wording.py", f"{root}/private/wording.py")
     shutil.copy(f"{D}/train/replay.npy", f"{root}/train/replay.npy")
     return root
 

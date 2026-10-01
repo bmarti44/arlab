@@ -14,6 +14,7 @@ Layout written under --out:
   {validation,holdout}/private/gsm8k.json    forgetting battery: GSM8K test items [{id, q, a}] (disjoint per split)
   {validation,holdout}/private/text.npy      OASST2 rows for the text-NLL report (disjoint per split)
   {validation,holdout}/private/fauxos.py     the simulator, for the evaluator (a copy of /prepare/fauxos.py)
+  {validation,holdout}/private/wording.py    its wording families (v2; a copy of /prepare/wording.py)
   train/replay.npy                           OASST2 rows for KL-to-base / replay (disjoint from text.npy)
   splits.json, info.json
 novel/ (v2 robustness split, 2026-10-01): the same layout; 8 worlds in fauxos style "novel" (4 operation types that
@@ -46,11 +47,15 @@ OASST_FILE = ("/hf/hub/datasets--OpenAssistant--oasst2/snapshots/179dd21fc551921
               "2023-11-05_oasst2_ready.trees.jsonl.gz")
 GSM8K_FILE = "/hf/hub/datasets--openai--gsm8k/snapshots/740312add88f781978c0658806c59bc2815b9866/main/test-00000-of-00001.parquet"
 
-SEED_BASE = {"validation": 26_092_700, "holdout": 26_092_800, "guard": 26_092_900,        # disjoint ranges of 100
-             "twin_validation": 26_093_000, "twin_holdout": 26_093_100, "novel": 26_093_200, "twin_novel": 26_093_300}
-N_WORLDS = {"validation": 4, "holdout": 8, "novel": 8}
-N_TASKS = {"validation": 60, "holdout": 80, "novel": 80}
-STYLE = {"validation": "std", "holdout": "std", "novel": "novel"}   # per world: 240 / 640 items; power arithmetic in pack.yaml / IDEA.md
+# v2 (2026-10-01, V2-DESIGN-sol.md): validation = 4 "fam" worlds (wording bank A, dev-only op types), holdout = 16
+# "fam" worlds (bank B, reserved op types), both with exactly 6 tasks per op (10 ops: 60 per world). "novel" = the v1
+# robustness split (8 hand-reworded worlds), kept as a reported-only regression test. v1 used std worlds at 26_092_7xx/8xx.
+SEED_BASE = {"validation": 26_094_000, "holdout": 26_094_100, "guard": 26_092_900,        # disjoint ranges of 100
+             "twin_validation": 26_094_200, "twin_holdout": 26_094_300, "novel": 26_093_200, "twin_novel": 26_093_300}
+N_WORLDS = {"validation": 4, "holdout": 16, "novel": 8}
+N_TASKS = {"validation": 6, "holdout": 6, "novel": 80}   # fam: tasks PER OP (60 per world); novel: per world
+STYLE = {"validation": ("fam", "A", tuple(fauxos.DEV_OPS)), "holdout": ("fam", "B", fauxos.RESERVED_OPS),
+         "novel": ("novel", None, ())}   # per world: 240 / 640 items; power arithmetic in pack.yaml / IDEA.md
 N_EXPLORE = 120           # tool calls per exploration transcript (~2.5k tokens; CALIBRATE with the gate)
 GUARD_EXPLORE, GUARD_TASKS = 120, 100
 N_GSM8K, N_TEXT, N_REPLAY, TEXT_LEN = 200, 64, 512, 256
@@ -60,7 +65,7 @@ ap.add_argument("--out", required=True)
 ap.add_argument("--small", action="store_true", help="tiny sizes for local smoke tests only")
 a = ap.parse_args()
 if a.small:
-    N_WORLDS, N_TASKS, N_EXPLORE = {"validation": 2, "holdout": 2, "novel": 2}, {"validation": 12, "holdout": 12, "novel": 12}, 60
+    N_WORLDS, N_TASKS, N_EXPLORE = {"validation": 2, "holdout": 2, "novel": 2}, {"validation": 2, "holdout": 2, "novel": 12}, 60
     GUARD_EXPLORE, GUARD_TASKS, N_GSM8K, N_TEXT, N_REPLAY = 60, 8, 8, 8, 16
 
 
@@ -69,8 +74,9 @@ def write_json(path, obj):
     json.dump(obj, open(path, "w"))
 
 
-def build_world(wid: str, seed: int, n_explore: int, n_tasks: int, style: str = "std") -> tuple[dict, dict]:
-    spec = fauxos.gen_world(seed, style)
+def build_world(wid: str, seed: int, n_explore: int, n_tasks: int, style=("std", None, ())) -> tuple[dict, dict]:
+    st, bank, extra = style
+    spec = fauxos.gen_world(seed, st, bank, extra) if st == "fam" else fauxos.gen_world(seed, st)
     events, end = fauxos.explore(spec, n_explore)
     tasks = fauxos.make_tasks(spec, end, events, n_tasks, wid)
     for k, t in enumerate(tasks):
@@ -117,6 +123,7 @@ for k, split in enumerate(("validation", "holdout", "novel")):
     write_json(f"{a.out}/{split}/private/worlds.json", privs)
     write_json(f"{a.out}/{split}/private/guard.json", guard)
     shutil.copyfile("/prepare/fauxos.py", f"{a.out}/{split}/private/fauxos.py")
+    shutil.copyfile("/prepare/wording.py", f"{a.out}/{split}/private/wording.py")
     splits[split] = sum(len(p["tasks"]) for p in privs.values())
 
 # ---- forgetting battery: GSM8K test subset (pinned snapshot, offline)

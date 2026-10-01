@@ -21,10 +21,15 @@ from __future__ import annotations
 
 import ast
 import copy
+import os
+import sys
 import json
 import keyword
 import random
 import re
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import wording  # noqa: E402  (the v2 wording families; copied next to this file wherever it is used)
 
 CONS, VOWS = "bdfgklmnprstvz", "aeiou"
 
@@ -57,6 +62,18 @@ NOVEL_OPS = {
     "oldest_at": ([("place", "place")], False),   # oldest / newest active item at a place (variant)
 }
 OPS.update(NOVEL_OPS)
+# v2 campaign worlds (style "fam", 2026-10-01, V2-DESIGN-sol.md): per-world wording families (wording.py; validation
+# bank A, holdout bank B), tool names independent of semantics, 6 standard ops + 4 split-specific ops, balanced tasks.
+DEV_OPS = {                                       # validation-only op types (feedback on handling unseen op types)
+    "shrink": ([("id", "id")], True),             # weight - 1 (badarg at weight 1)
+    "unpin": ([("id", "id")], True),
+    "count_place": ([("place", "place")], False), # number of active items at a place
+    "lightest_kind": ([("kind", "kind")], False), # lightest active item of a kind (ties: lowest id)
+}
+OPS.update(DEV_OPS)
+RESERVED_OPS = tuple(NOVEL_OPS)                   # holdout-only op types in fam worlds (never in validation)
+FAM_STD, FAM_TASKS_PER_OP = 6, 6
+FAM_VOCAB, FAM_OBJ, FAM_MIN = 7, (60, 90), 18     # kinds/places/tags; objects; min active-locked and archived objects
 N_NOVEL_STD = 6                   # novel worlds: all 4 NOVEL_OPS + 6 standard task ops (+ inspect)
 N_OPS = 10                        # task ops per world (+ inspect): 11 tools. CALIBRATE with the gate
 # English verbs: truthful ones a pretrained model would guess right, misleading ones it would guess wrong.
@@ -101,9 +118,11 @@ def _fresh(rng, used: set, make):
     raise RuntimeError("name space exhausted")
 
 
-def gen_world(seed: int, style: str = "std") -> dict:
+def gen_world(seed: int, style: str = "std", bank: str = "A", extra: tuple = ()) -> dict:
     """Spec (private) of one world. Deterministic in `seed` (and `style`: "std" = v1 worlds, byte-identical; "novel" =
     the v2 robustness split: every NOVEL_OPS op + N_NOVEL_STD standard ops, reworded outputs and goals, pin flags)."""
+    if style == "fam":
+        return _gen_fam(seed, bank, extra)
     rng = random.Random(f"fauxos-{seed}" if style == "std" else f"fauxos-{style}-{seed}")
     used: set[str] = set()
     kinds = [_fresh(rng, used, lambda: pseudo(rng, 1).upper()) for _ in range(4)]
@@ -159,6 +178,8 @@ def gen_twin(spec: dict, seed: int) -> dict:
     vocabulary). A surface that learns only name / vocabulary priors adapts the same way to both; only what it learns
     from the transcript differs."""
     style = spec.get("style", "std")
+    if style == "fam":
+        return _gen_fam_twin(spec, seed)
     base = gen_world(seed, style)
     rng = random.Random(f"fauxos-twin-{seed}")
     ren = {"-": "-"}
@@ -232,6 +253,8 @@ def apply(spec: dict, state: dict, tool: dict, a: dict) -> str:
     """Execute one op on `state` in place; returns the observation. Raises SimError."""
     if spec.get("style") == "novel":
         return _apply_novel(spec, state, tool, a)
+    if spec.get("style") == "fam":
+        return _apply_fam(spec, state, tool, a)[0]
     op, v, s = tool["op"], tool["var"], spec
     verb = tool["verbose"]
     if op == "inspect":
@@ -418,6 +441,8 @@ def call(spec: dict, state: dict, name: str, args: list) -> tuple[str, bool]:
             a[an] = val
         return apply(spec, state, tool, a), True
     except SimError as e:
+        if spec.get("style") == "fam":
+            return wording.render_error(spec["family"], spec["errors"][e.kind]), False
         return f"error {spec['errors'][e.kind]}", False
 
 
@@ -464,10 +489,12 @@ def run_program(spec: dict, state: dict, text: str) -> dict:
     except ProgramError as e:
         return {"state": st, "outputs": [], "values": [], "error": {"line": 0, "obs": str(e)}}
     outs, vals = [], []
+    fam = spec.get("style") == "fam"
     for n, (name, args) in enumerate(prog, 1):
+        before = copy.deepcopy(st) if fam else None
         obs, ok = call(spec, st, name, args)
         outs.append(obs)
-        vals.append(value_of(spec, name, args, obs) if ok else None)
+        vals.append((_fam_value(spec, before, name, args) if fam else value_of(spec, name, args, obs)) if ok else None)
         if not ok:
             return {"state": st, "outputs": outs, "values": vals, "error": {"line": n, "obs": obs}}
     return {"state": st, "outputs": outs, "values": vals, "error": None}
@@ -516,6 +543,8 @@ def value_of(spec: dict, name: str, args: list, obs: str):
             return None
         xs = [int(v) for v in re.split(r"\s*,\s*", m.group(1))]
         return xs[0] if len(xs) == 1 else xs
+    if spec.get("style") == "fam":
+        raise AssertionError("fam worlds: typed values come from run_program (_fam_value), never from text")
     if spec.get("style") == "novel":
         rx = _VALUE_RE_NOVEL.get(tool_map(spec)[name]["op"])
         m = re.fullmatch(rx, obs) if rx else None
@@ -609,7 +638,8 @@ def explore(spec: dict, n_calls: int, random_frac: float = 0.15, followup: float
     # 1) coverage: every tool once with sensible args
     coverage()
     # 2) errors: locked item, missing id, bad argument (each twice)
-    mut = [t for t in tools if t["op"] in ("move", "archive", "retag", "swap", "delete")] or [by_op["inspect"]]
+    lockable = ("move", "archive", "retag", "swap", "delete") + (("bump", "shrink") if spec.get("style") == "fam" else ())
+    mut = [t for t in tools if t["op"] in lockable] or [by_op["inspect"]]
     for _ in range(2):
         t = rng.choice(mut)
         a = sensible(t)
@@ -674,6 +704,7 @@ TEMPLATES = {  # name -> weight; each template is ONE call of the op of the same
     "archive": 2, "delete": 2, "move": 2, "lock": 2, "unlock": 2, "restore": 2, "retag": 2, "swap": 1, "clone": 1,
     "count": 1, "weigh": 1, "extreme": 1, "newest": 1, "checksum": 1, "find_tag": 1,
     "bump": 2, "pin": 2, "count_tag": 1, "oldest_at": 1,       # novel worlds only (absent from standard worlds)
+    "shrink": 2, "unpin": 2, "count_place": 1, "lightest_kind": 1,   # fam validation worlds only
 }
 
 
@@ -682,6 +713,8 @@ def make_tasks(spec: dict, end: dict, events: list[dict], n: int, salt: str) -> 
     simulator. Rejected: duplicate goals; mutation tasks whose reference lines ALL occur verbatim in the transcript
     (query tasks have a tiny argument space, so their calls usually do occur; their answers are computed at `end`);
     reference programs that error; state tasks whose gold state equals the start state."""
+    if spec.get("style") == "fam":
+        return _fam_tasks(spec, end, events, n, salt)
     rng = random.Random(f"tasks-{spec['seed']}-{salt}")
     S, U = spec, spec["unit"]
     seen_calls = {e["call"] for e in events}
@@ -886,3 +919,299 @@ def _checksum(S, objs, P) -> int:
     v = _tool(S, "checksum")["var"]
     return sum(int(i) for i, o in objs.items() if o["state"] == "active" and o["place"] == P
                and (v["with_locked"] or not o["locked"])) * v["mul"] % v["mod"]
+
+
+# ------------------------------------------------------------------ v2 "fam" worlds (V2-DESIGN-sol.md)
+def _gen_fam(seed: int, bank: str, extra: tuple) -> dict:
+    """A v2 campaign world: FAM_STD standard task ops + the `extra` op types, wording family from `bank`, tool names
+    drawn independently of semantics (two pseudo-words, no English verb), pin flags on every object."""
+    rng = random.Random(f"fauxos-fam-{bank}-{seed}")
+    used: set[str] = set()
+    kinds = [_fresh(rng, used, lambda: pseudo(rng, 1).upper()) for _ in range(FAM_VOCAB)]
+    places = [_fresh(rng, used, lambda: pseudo(rng, 2)) for _ in range(FAM_VOCAB)]
+    tags = [_fresh(rng, used, lambda: pseudo(rng, 1)) for _ in range(FAM_VOCAB)]
+    unit, base_unit = (_fresh(rng, used, lambda: pseudo(rng, 1)) for _ in range(2))
+    C = rng.randint(2, 9)
+    letter = rng.choice("ABDEFGHJKMNPQRTVWXYZ")
+    codes = rng.sample(range(10, 100), 3)
+    errors = {k: f"{letter}{c}" for k, c in zip(("locked", "missing", "badarg"), codes)}
+    ops = ["inspect"] + sorted(rng.sample(TASK_OPS, FAM_STD) + list(extra), key=list(OPS).index)
+    names: set[str] = set()
+    tools = []
+    for op in ops:
+        name = _fresh(rng, names, lambda: f"{pseudo(rng, 1)}_{pseudo(rng, rng.randint(1, 2))}")
+        perm = list(range(len(OPS[op][0])))
+        rng.shuffle(perm)
+        tools.append({"name": name, "op": op, "perm": perm, "var": _variant(rng, op), "verbose": True})
+    objs = _fam_objs(rng, kinds, places, tags)
+    return {"seed": seed, "style": "fam", "kinds": kinds, "places": places, "tags": tags, "unit": unit,
+            "base_unit": base_unit, "C": C, "errors": errors, "tools": tools, "family": wording.make_family(rng, bank),
+            "init": {"objs": objs, "clock": len(objs), "next_id": 1000}}
+
+
+def regenerate(spec: dict) -> dict:
+    """The world `spec` regenerated from its seed and style (tests: data matches this generator)."""
+    st = spec.get("style", "std")
+    if st == "fam":
+        ops = {t["op"] for t in spec["tools"]}
+        extra = tuple(op for op in list(DEV_OPS) + list(RESERVED_OPS) if op in ops)
+        return gen_world(spec["seed"], "fam", spec["family"]["bank"], extra)
+    return gen_world(spec["seed"], st)
+
+
+def error_text(spec: dict, code: str) -> str:
+    """The observation of an error with `code` in this world's wording."""
+    return wording.render_error(spec["family"], code) if spec.get("style") == "fam" else f"error {code}"
+
+
+def _fam_objs(rng, kinds, places, tags) -> dict:
+    n = rng.randint(*FAM_OBJ)
+    ids = rng.sample(range(100, 1000), n)
+    made = list(range(1, n + 1))
+    rng.shuffle(made)
+    objs = {}
+    for i, m in zip(ids, made):
+        objs[str(i)] = {"kind": rng.choice(kinds), "place": rng.choice(places), "w": rng.randint(1, 9),
+                        "locked": rng.random() < 0.2, "state": "archived" if rng.random() < 0.15 else "active",
+                        "made": m, "tag": rng.choice(tags) if rng.random() < 0.5 else "-", "pin": rng.random() < 0.3}
+    keys = sorted(objs, key=int)
+    for i in keys:                                # enough archived and active-locked objects for balanced tasks
+        if sum(o["state"] == "archived" for o in objs.values()) >= FAM_MIN:
+            break
+        if not objs[i]["locked"]:
+            objs[i]["state"] = "archived"
+    for i in reversed(keys):
+        if sum(o["state"] == "active" and o["locked"] for o in objs.values()) >= FAM_MIN:
+            break
+        if objs[i]["state"] == "active":
+            objs[i]["locked"] = True
+    return objs
+
+
+def _gen_fam_twin(spec: dict, seed: int) -> dict:
+    """Twin of a fam world: same tool names, op set, argument vocabulary and WORDING FAMILY; deranged name -> op
+    semantics, fresh argument orders, variants, objects, error codes and unit conversion."""
+    rng = random.Random(f"fauxos-fam-twin-{seed}")
+    ops, names = [t["op"] for t in spec["tools"]], [t["name"] for t in spec["tools"]]
+    while True:
+        sigma = rng.sample(range(len(ops)), len(ops))
+        if all(sigma[k] != k for k in range(len(ops))):
+            break
+    tools = []
+    for k, name in enumerate(names):
+        op = ops[sigma[k]]
+        perm = list(range(len(OPS[op][0])))
+        rng.shuffle(perm)
+        tools.append({"name": name, "op": op, "perm": perm, "var": _variant(rng, op), "verbose": True})
+    tools.sort(key=lambda t: list(OPS).index(t["op"]))
+    letter = rng.choice("ABDEFGHJKMNPQRTVWXYZ")
+    codes = rng.sample(range(10, 100), 3)
+    objs = _fam_objs(rng, spec["kinds"], spec["places"], spec["tags"])
+    return {"seed": seed, "twin_of": spec["seed"], "style": "fam",
+            **{k: copy.deepcopy(spec[k]) for k in ("kinds", "places", "tags", "unit", "base_unit", "family")},
+            "C": rng.randint(2, 9), "errors": {k: f"{letter}{c}" for k, c in zip(("locked", "missing", "badarg"), codes)},
+            "tools": tools, "init": {"objs": objs, "clock": len(objs), "next_id": 1000}}
+
+
+def _fam_query(spec: dict, state: dict, op: str, v: dict, a: dict):
+    """Typed answer of a query op (int, id or [] for none, sorted id list)."""
+    if op == "count":
+        return len(_active(state, lambda o: o["kind"] == a["kind"] and o["place"] == a["place"] and not (v["skip_locked"] and o["locked"])))
+    if op == "weigh":
+        tot = sum(o["w"] for _, o in _active(state, lambda o: o["kind"] == a["kind"]))
+        return tot if v["unit"] == "display" else tot * spec["C"]
+    if op == "extreme":
+        items = _active(state, lambda o: o["place"] == a["place"])
+        sign = -1 if v["which"] == "heaviest" else 1
+        return min(items, key=lambda x: (sign * x[1]["w"], x[0]))[0] if items else []
+    if op in ("newest", "oldest_at"):
+        pred = (lambda o: o["kind"] == a["kind"]) if op == "newest" else (lambda o: o["place"] == a["place"])
+        items = _active(state, pred)
+        sign = -1 if v["which"] == "newest" else 1
+        return min(items, key=lambda x: sign * x[1]["made"])[0] if items else []
+    if op == "lightest_kind":
+        items = _active(state, lambda o: o["kind"] == a["kind"])
+        return min(items, key=lambda x: (x[1]["w"], x[0]))[0] if items else []
+    if op == "find_tag":
+        return [i for i, _ in _active(state, lambda o: o["tag"] == a["tag"])]
+    if op == "count_tag":
+        return len(_active(state, lambda o: o["tag"] == a["tag"]))
+    if op == "count_place":
+        return len(_active(state, lambda o: o["place"] == a["place"]))
+    if op == "checksum":
+        items = _active(state, lambda o: o["place"] == a["place"] and (v["with_locked"] or not o["locked"]))
+        return sum(i for i, _ in items) * v["mul"] % v["mod"]
+    raise AssertionError(op)
+
+
+def _apply_fam(spec: dict, state: dict, tool: dict, a: dict) -> tuple[str, object]:
+    """(observation rendered with the world's wording family, typed value or None). Same semantics as apply()."""
+    op, v, f = tool["op"], tool["var"], spec["family"]
+    if op == "inspect":
+        return wording.render_inspect(f, a["id"], _obj(state, a["id"], active=False), spec["unit"]), None
+    if not OPS[op][1]:
+        val = _fam_query(spec, state, op, v, a)
+        if op == "find_tag":
+            txt = wording.flist(f, val)
+        elif op in ("extreme", "newest", "oldest_at", "lightest_kind"):
+            txt = f["empty"] if val == [] else str(val)
+        elif op == "weigh":
+            txt = f["weight"].format(w=val, u=spec["unit"] if v["unit"] == "display" else spec["base_unit"])
+        else:
+            txt = str(val)
+        return wording.render_query(f, op, txt, v.get("which")), val
+    i = a.get("id", a.get("a"))
+    kw = {}
+    if op == "move":
+        o = _unlocked(_obj(state, a["id"]))
+        o["place"] = kw["place"] = a["place"]
+    elif op == "archive":
+        _unlocked(_obj(state, a["id"]))["state"] = "archived"
+    elif op == "delete":
+        _unlocked(_obj(state, a["id"], active=False))
+        del state["objs"][str(a["id"])]
+    elif op == "restore":
+        o = _obj(state, a["id"], active=False)
+        if o["state"] != "archived":
+            raise SimError("badarg")
+        o["state"] = "active"
+    elif op == "lock":
+        _obj(state, a["id"])["locked"] = True
+    elif op == "unlock":
+        _obj(state, a["id"])["locked"] = False
+    elif op == "retag":
+        o = _unlocked(_obj(state, a["id"]))
+        o["tag"] = kw["tag"] = a["tag"]
+    elif op == "clone":
+        o = _obj(state, a["id"])
+        state["clock"] += 1
+        new = state["next_id"]
+        state["next_id"] += 1
+        state["objs"][str(new)] = {**o, "made": state["clock"], "locked": False}
+        kw["new"] = wording.fid(f, new)
+    elif op == "swap":
+        x, y = (_unlocked(_obj(state, a[k])) for k in ("a", "b"))
+        if a["a"] == a["b"]:
+            raise SimError("badarg")
+        x["place"], y["place"] = y["place"], x["place"]
+        kw["other"] = wording.fid(f, a["b"])
+    elif op in ("bump", "shrink"):
+        o = _unlocked(_obj(state, a["id"]))
+        if op == "shrink" and o["w"] <= 1:
+            raise SimError("badarg")
+        o["w"] += 1 if op == "bump" else -1
+        kw["w"] = f["weight"].format(w=o["w"], u=spec["unit"])
+    elif op in ("pin", "unpin"):
+        _obj(state, a["id"])["pin"] = op == "pin"
+    else:
+        raise AssertionError(op)
+    return (wording.render_mut(f, op, i, **kw) if tool["verbose"] else f["quiet"]), None
+
+
+def _fam_value(spec: dict, before: dict, name: str, args: list):
+    """Typed value of one successful call in a fam world, from the state BEFORE the call (queries do not mutate)."""
+    if name == "answer":
+        return value_of({}, name, args, "")
+    tool = tool_map(spec)[name]
+    if OPS[tool["op"]][1] or tool["op"] == "inspect":
+        return None
+    canon = OPS[tool["op"]][0]
+    a = {}
+    for pos, ci in enumerate(tool["perm"]):
+        (an, at), val = canon[ci], args[pos]
+        a[an] = int(val) if at == "id" and isinstance(val, str) else val
+    val = _fam_query(spec, before, tool["op"], tool["var"], a)
+    return val[0] if isinstance(val, list) and len(val) == 1 and tool["op"] == "find_tag" else val
+
+
+def _fam_tasks(spec: dict, end: dict, events: list[dict], n_per_op: int, salt: str) -> list[dict]:
+    """Balanced held-out goals: exactly n_per_op tasks for every task op of the world, goals in the world's family
+    wording. Same rejection rules as make_tasks. Raises if an op cannot reach n_per_op (prepare then skips the seed)."""
+    rng = random.Random(f"tasks-fam-{spec['seed']}-{salt}")
+    S, f = spec, spec["family"]
+    seen_calls = {e["call"] for e in events}
+    objs = end["objs"]
+    act = lambda o: o["state"] == "active"  # noqa: E731
+    free = lambda o: act(o) and not o["locked"]  # noqa: E731
+
+    def ids(pred):
+        return sorted(int(i) for i, o in objs.items() if pred(o))
+
+    out, goals = [], set()
+    for op in [t["op"] for t in S["tools"] if t["op"] != "inspect"]:
+        got = 0
+        for _ in range(400):
+            if got >= n_per_op:
+                break
+            try:
+                g = _fam_task(op, S, f, rng, ids, act, free, objs)
+            except IndexError:
+                continue
+            if g is None:
+                continue
+            goal, prog, answer = g
+            if goal in goals or answer is None and all(line in seen_calls for line in prog):
+                continue
+            res = run_program(spec, end, "\n".join(prog))
+            if res["error"] is not None:
+                continue
+            check_state = OPS[op][1]
+            if check_state and res["state"] == end:
+                continue
+            task = {"goal": goal, "template": op, "reference": prog, "n_calls": len(prog), "check_state": check_state,
+                    "gold_state": res["state"] if check_state else None, "answer": answer,
+                    "stratum": "reserved" if op in RESERVED_OPS else "dev" if op in DEV_OPS else "familiar"}
+            if score(task, res) != 1.0:
+                continue
+            goals.add(goal)
+            out.append(task)
+            got += 1
+        if got < n_per_op:
+            raise RuntimeError(f"world {spec['seed']}: op {op} reached only {got} tasks")
+    return out
+
+
+def _fam_task(op, S, f, rng, ids, act, free, objs):
+    c = lambda o, *a: _c(S, o, *a)  # noqa: E731
+    pick = lambda pred: rng.choice(ids(pred))  # noqa: E731
+    v = _tool(S, op)["var"]
+    P, K, T, U = rng.choice(S["places"]), rng.choice(S["kinds"]), rng.choice(S["tags"]), S["unit"]
+    G = f["goal"][op]
+    if op in ("archive", "lock", "pin", "bump", "shrink", "unpin", "delete", "unlock", "restore", "clone"):
+        pred = {"archive": free, "bump": free, "delete": lambda o: not o["locked"],
+                "lock": lambda o: act(o) and not o["locked"], "unlock": lambda o: act(o) and o["locked"],
+                "restore": lambda o: o["state"] == "archived", "clone": act,
+                "pin": lambda o: act(o) and not o["pin"], "unpin": lambda o: act(o) and o["pin"],
+                "shrink": lambda o: free(o) and o["w"] > 1}[op]
+        i = pick(pred)
+        return G.format(i=i, U=U), [c(op, i)], None
+    if op == "move":
+        i = pick(lambda o: free(o) and o["place"] != P)
+        return G.format(i=i, P=P), [c(op, i, P)], None
+    if op == "retag":
+        i = pick(free)
+        T = rng.choice([x for x in S["tags"] if x != objs[str(i)]["tag"]])
+        return G.format(i=i, T=T), [c(op, i, T)], None
+    if op == "swap":
+        i = pick(free)
+        j = pick(lambda o: free(o) and o["place"] != objs[str(i)]["place"])
+        return G.format(i=i, j=j), [c(op, i, j)], None
+    a = {"count": {"kind": K, "place": P}, "weigh": {"kind": K}, "extreme": {"place": P}, "newest": {"kind": K},
+         "find_tag": {"tag": T}, "checksum": {"place": P}, "count_tag": {"tag": T}, "oldest_at": {"place": P},
+         "count_place": {"place": P}, "lightest_kind": {"kind": K}}[op]
+    st = {"objs": objs}
+    val = _fam_query(S, st, op, v, a)
+    if val == [] and op != "find_tag" or op == "find_tag" and not val:
+        return None
+    canon = [a[an] for an, _ in OPS[op][0]]
+    kw = {"P": P, "K": K, "T": T, "U": U}
+    if op == "count":
+        kw["what"] = f["what"][str(v["skip_locked"])].format(K=K)
+    if op == "weigh":
+        kw["U"] = U if v["unit"] == "display" else S["base_unit"]
+    if op == "extreme":
+        kw["which"] = f["which"][v["which"]]
+    if op in ("newest", "oldest_at"):
+        kw["age"] = f["age"][v["which"]]
+    ans = {"kind": "set", "value": val} if op == "find_tag" else {"kind": "int", "value": val}
+    return G.format(**kw), [c(op, *canon)], ans

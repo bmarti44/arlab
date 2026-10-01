@@ -9,27 +9,26 @@ run:
   # + gen tokens + train tokens; the child's process group is killed at adapt-seconds + 15 s grace. CALIBRATE IN THE GPU
   # PILOT; keep budget.limit = adapt-seconds + 30. A CANDIDATE adapts twice per world: to the world and to its twin (the
   # world-specific control: same tool names / vocabulary, other semantics), each pass with the full per-world budget.
-  command: "python /frozen/harness.py --out /out --seed {seed} --split {split} --adapt-seconds 180 --gen-tokens 400000 --train-tokens 1500000"
-  # worst case (every pass uses its full 180 s + 15 s grace): holdout 16 passes x 195 s + 9 base-weight hashes x ~20 s
-  # + load ~45 s = ~3350 s; validation 8 x 195 + 5 x 20 + 45 = ~1700 s. 4000 s = holdout worst case + ~20 %. CALIBRATE.
-  timeout_s: 4000
+  command: "python /frozen/harness.py --out /out --seed {seed} --split {split} --adapt-seconds 160 --gen-tokens 400000 --train-tokens 1500000"
+  # v2 worst case (every pass uses its full 160 s + 15 s grace): holdout 32 passes (16 worlds + twins) x 175 s + 17
+  # base-weight hashes x ~20 s + load ~45 s = ~6000 s; validation 8 x 175 + 5 x 20 + 45 = ~1550 s. CALIBRATE.
+  timeout_s: 7200
   gpu: true
   mem_gb: auto
 # EVALUATE (GB10, gate 2: none 155 s incl. the base-cache fill, icl 70 s). A candidate: model load + own-world pass +
 # the twin control pass (one more merge + pass, ~15-40 s validation / ~35-100 s holdout) + its battery share:
 # est. ~3 min validation, ~5-6 min holdout (+~2 min for the first run's base-cache fill). 3000 s is ample. CALIBRATE.
-evaluate: {command: "python /eval/evaluate.py --run /run_out --out /result/metrics.json", timeout_s: 3000}
-budget: {unit: adapt_s_max, limit: 210}  # longest single-world adapt() wall time (s); a run over it is invalid
-# MES 0.06 (6 points of task success over the naive next-token LoRA; RESEARCH.md §7). Item pack, holdout = 8 worlds x
-# 80 tasks = 640 items, 3 holdout seeds: SE = sqrt(sd^2/640 + 2 sigma^2/3).
-#   sd = sqrt(0.2) (runner default): sigma 0 -> SE 0.0177 (2.5SE 0.044); sigma 0.015 -> SE 0.0215 (2.5SE 0.054)
-#   but with references the runner uses the largest measured reference-vs-baseline item sd; ICL-vs-baseline is plausibly
-#   ~0.55: sigma 0 -> SE 0.0217 (2SE 0.043); sigma 0.015 -> SE 0.0250 (2SE 0.050); powered (2SE <= 0.06) iff
-#   sigma <= 0.025 (sd 0.55) / 0.022 (sd 0.60).
-#   If CALIBRATE reports underpowered, add holdout worlds / tasks (new data, new tag), never change the MES.
+evaluate: {command: "python /eval/evaluate.py --run /run_out --out /result/metrics.json", timeout_s: 4500}
+budget: {unit: adapt_s_max, limit: 190}  # longest single-world adapt() wall time (s); a run over it is invalid
+# v2 (V2-DESIGN-sol.md): MES 0.06 unchanged. Holdout = 16 fam worlds x 60 tasks = 960 items, 3 holdout seeds.
+#   paired item sd 0.60, seed sigma 0.015: SE = sqrt(0.36/960 + 2*0.015^2/3) = 0.0229 -> 2SE 0.046, 2.5SE 0.057 < MES.
+#   Also required before the campaign: paired world-bootstrap SE <= 0.024 (else add worlds; never change the MES).
 metric: {name: success, direction: maximize, mes: 0.06}
 guards:
-  - {name: battery_drop, max: 0.0398}     # = max(0.02, 2*SD of 5 baseline-seed drops [0,.027,.007,.05,.03]) per IDEA.md rule (v1); forgetting battery (the split's own 200 GSM8K + 100 guard-world ICL tasks) vs base
+  # v2: the two forgetting batteries are guarded SEPARATELY (v1's pooled battery_drop hid a 3-6.5 pt GSM8K loss).
+  # Thresholds = max(0.03, 2*SD of the 5 calibration-seed baseline drops), fixed from the v2 pilot BEFORE the campaign.
+  - {name: gsm8k_drop, max: 0.04}         # PROVISIONAL until the v2 pilot (rule above)
+  - {name: guardworld_drop, max: 0.06}    # PROVISIONAL until the v2 pilot (rule above)
   - {name: prefill_tokens, max: 1000}     # no transcript in the prompt: prompt positions per task incl. the retry call
                                           # (surface arms ~140 first call, <= ~400 with a retry; the ICL arm ~3.2k)
   # world-specific learning control: (success - twin_success) / (success - none_success), where twin_success = each
@@ -43,7 +42,7 @@ references:                               # frozen arms, run once on the screen 
   - {name: icl, path: frozen/run/ref_icl}           # (b) the transcript in context
   - {name: placebo, path: frozen/run/ref_placebo}   # (e) the baseline LoRA of world i+1 scored on world i
 verdict: {compare_to: baseline}
-agent: {model: gpt-6.1-sol, effort: high, visible: [program.md, IDEA.md, frozen/run/surface_api.py, frozen/run/child.py, frozen/run/engine.py, frozen/run/trainer.py, frozen/run/common.py], timeout_s: 900}
+agent: {model: gpt-6.1-sol, effort: high, visible: [program.md, frozen/run/surface_api.py, frozen/run/child.py, frozen/run/engine.py, frozen/run/trainer.py, frozen/run/common.py], timeout_s: 900}
 # Validation run: RUN ~9 min for a baseline-like surface (8 adapt passes of ~30-60 s + hashes + load; uncalibrated) up to
 # ~28 min for a surface that uses every pass's full budget, + ~3 min EVALUATE; a screen is 1 run, a confirm 2 more.
 campaign: {max_experiments: 40, max_hours: 16, max_agent_calls: 80, stop_after_no_keep: 15, rescue_after: 6}

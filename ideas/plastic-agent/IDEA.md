@@ -20,6 +20,29 @@ experience into a per-world LoRA that solves held-out tasks in that world **with
 naive next-token LoRA on the transcript by at least the MES; and how much of the gap to the transcript-in-context arm
 does it close, at ~5% of its prompt tokens?
 
+## v2 (2026-10-01): only general consolidation may win (V2-DESIGN-sol.md)
+
+v1's winner reached 0.80 on the v1 holdout, but on a hand-reworded "novel" split it scored 0.066, below no adaptation
+(0.080). It had learned the wording of v1's observations and goals. The v2 campaign changes the data, not the API:
+- **"fam" worlds** (`fauxos.gen_world(seed, "fam", bank, extra)`): each world draws its own wording from
+  `frozen/prepare/wording.py`, covering observation structure, id/list/empty formats, field labels, verbs, error format
+  and goal phrasing. Validation uses bank A and holdout bank B: **disjoint wording families** with no template string in
+  common.
+- **Op types:** every world has 6 familiar op types plus 4 split-specific ones. Validation worlds carry dev-only types
+  (shrink, unpin, count_place, lightest_kind); holdout worlds carry the **reserved operation types** (bump, pin,
+  count_tag, oldest_at), which never occur in validation and were never shown to any agent.
+- **Tool names** are pseudo-words independent of semantics. **Tasks are balanced:** 6 per op per world, 60 per world.
+- **Sizes:** validation 4 worlds (240 items); holdout 16 worlds (960 items).
+- **Metrics:** success equals the mean of per-op macro averages; s_familiar / s_dev / s_reserved are reported, and a
+  positive reserved-op gain over the baseline is required at finalize.
+- **Guards:** gsm8k_drop and guardworld_drop are guarded separately. Thresholds are max(0.03, 2·SD of the 5
+  calibration-seed baseline drops), fixed from the v2 pilot before the campaign.
+- **Agent:** sees program.md (wording and op catalog no longer disclosed) and the frozen RUN API files, not this
+  file. It is forbidden to hand-write recognizers or goal templates.
+- **Audit:** the supervisor logs every gen/train request to `out/audit/<world>.json` for review of kept changes.
+- **Budget:** adapt is capped at 160 s per pass.
+- **Regression:** the v1 "novel" split stays in the data as a reported-only check.
+
 ## Design
 
 **Model.** Qwen3-1.7B (cached snapshot `70d244cc`, bf16, 28 layers), post-trained checkpoint with thinking disabled.
@@ -227,7 +250,7 @@ placebo arm, `world_specific_gain` and the `world_specific_share` guard are ther
    needs worlds whose names do not depend on their semantics (v2, new worlds).
 6. **Wall-clock budget on a shared GPU.** Slow but uncontended periods shrink what fits in 180 s; token caps are the
    machine-independent part of the budget.
-7. **Claim scope: unseen worlds, not unseen task types.** Worlds (seeds, tool names, verbs, argument orders, units,
+7. **Claim scope (v1 only; v2 above partitions wording families and op types by split): unseen worlds, not unseen task types.** Worlds (seeds, tool names, verbs, argument orders, units,
    objects) are disjoint between validation and holdout, but the 15 goal templates and their wording
    (`fauxos.TEMPLATES` / `make_tasks`), the 15 operation types and the output grammar are shared across splits. A kept
    result therefore says the surface consolidates never-seen WORLDS of known task families; it says nothing about
