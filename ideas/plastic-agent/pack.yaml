@@ -10,9 +10,10 @@ run:
   # PILOT; keep budget.limit = adapt-seconds + 30. A CANDIDATE adapts twice per world: to the world and to its twin (the
   # world-specific control: same tool names / vocabulary, other semantics), each pass with the full per-world budget.
   command: "python /frozen/harness.py --out /out --seed {seed} --split {split} --adapt-seconds 160 --gen-tokens 400000 --train-tokens 1500000"
-  # v2 worst case (every pass uses its full 160 s + 15 s grace): holdout 32 passes (16 worlds + twins) x 175 s + 17
-  # base-weight hashes x ~20 s + load ~45 s = ~6000 s; validation 8 x 175 + 5 x 20 + 45 = ~1550 s. CALIBRATE.
-  timeout_s: 7200
+  # v2 worst case (every pass uses its full 160 s + 15 s grace): holdout 64 passes (32 worlds + twins) x 175 s + 33
+  # base-weight hashes x ~20 s + load ~45 s = ~11900 s; validation 8 x 175 + 5 x 20 + 45 = ~1550 s.
+  # v2 pilot (baseline, 5 seeds): validation RUN 130-185 s (adapt ~8.5 s per pass), EVALUATE ~190 s.
+  timeout_s: 14400
   gpu: true
   mem_gb: auto
 # EVALUATE (GB10, gate 2: none 155 s incl. the base-cache fill, icl 70 s). A candidate: model load + own-world pass +
@@ -20,15 +21,19 @@ run:
 # est. ~3 min validation, ~5-6 min holdout (+~2 min for the first run's base-cache fill). 3000 s is ample. CALIBRATE.
 evaluate: {command: "python /eval/evaluate.py --run /run_out --out /result/metrics.json", timeout_s: 4500}
 budget: {unit: adapt_s_max, limit: 190}  # longest single-world adapt() wall time (s); a run over it is invalid
-# v2 (V2-DESIGN-sol.md): MES 0.06 unchanged. Holdout = 16 fam worlds x 60 tasks = 960 items, 3 holdout seeds.
-#   paired item sd 0.60, seed sigma 0.015: SE = sqrt(0.36/960 + 2*0.015^2/3) = 0.0229 -> 2SE 0.046, 2.5SE 0.057 < MES.
-#   Also required before the campaign: paired world-bootstrap SE <= 0.024 (else add worlds; never change the MES).
+# v2 (V2-DESIGN-sol.md): MES 0.06 unchanged. Holdout = 32 fam worlds x 60 tasks = 1920 items, 3 holdout seeds.
+#   v2 pilot: baseline seed sigma 0.0019; icl-vs-baseline item sd 0.53 -> iid SE 0.012. World-bootstrap SE of the
+#   icl-vs-baseline difference (worst-case proxy, 4 validation worlds: 0.065) scaled to 16 worlds = 0.033 > 0.024, so the
+#   holdout was raised from 16 to 32 worlds: 0.065 * sqrt(4/32) = 0.023 <= 0.024 (sol's rule: add worlds, never change MES).
 metric: {name: success, direction: maximize, mes: 0.06}
 guards:
   # v2: the two forgetting batteries are guarded SEPARATELY (v1's pooled battery_drop hid a 3-6.5 pt GSM8K loss).
-  # Thresholds = max(0.03, 2*SD of the 5 calibration-seed baseline drops), fixed from the v2 pilot BEFORE the campaign.
-  - {name: gsm8k_drop, max: 0.04}         # PROVISIONAL until the v2 pilot (rule above)
-  - {name: guardworld_drop, max: 0.06}    # PROVISIONAL until the v2 pilot (rule above)
+  # Thresholds = baseline mean drop + max(0.03, 2*SD of the 5 calibration-seed baseline drops), fixed from the v2 pilot
+  # BEFORE the campaign (the bare max(0.03, 2SD) = 0.03 would fail the baseline itself: its mean drops are 0.030 / 0.038).
+  # v2 pilot baseline seeds 1-5: gsm8k_drop .015 .035 .035 .030 .035 (mean .030, sd .009);
+  #                              guardworld_drop .030 .030 .030 .060 .040 (mean .038, sd .013)
+  - {name: gsm8k_drop, max: 0.06}         # 0.030 + 0.03
+  - {name: guardworld_drop, max: 0.07}    # 0.038 + 0.03, rounded up
   - {name: prefill_tokens, max: 1000}     # no transcript in the prompt: prompt positions per task incl. the retry call
                                           # (surface arms ~140 first call, <= ~400 with a retry; the ICL arm ~3.2k)
   # world-specific learning control: (success - twin_success) / (success - none_success), where twin_success = each

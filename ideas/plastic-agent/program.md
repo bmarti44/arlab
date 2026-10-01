@@ -50,7 +50,7 @@ something else) and its own transcript. adapt() runs on it too (same sandbox and
 and that adapter is scored on the REAL world: twin_success. world_specific_gain = success − twin_success: gains from
 name / verb priors or format show up in both. Also gap_closure vs icl and success by op-type stratum.
 ## Guards (runs that fail one are discarded)
-- gsm8k_drop and guardworld_drop (separately; thresholds in history.md, set from the baseline's seed-to-seed spread):
+- gsm8k_drop and guardworld_drop (separately; thresholds in history.md: the baseline's mean drop + a margin from its seed-to-seed spread):
   200 GSM8K problems, and 100 tasks of another FauxOS world with ITS transcript in context, each vs the base model.
 - prefill_tokens <= 1000: no transcript in the prompt at evaluation (prompt positions per task, retry call included).
 - world_specific_share >= 0.5: (success − twin_success) / (success − none_success) (1.0 if that gain < 0.025):

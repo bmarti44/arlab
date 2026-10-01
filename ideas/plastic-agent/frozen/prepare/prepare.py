@@ -47,12 +47,12 @@ OASST_FILE = ("/hf/hub/datasets--OpenAssistant--oasst2/snapshots/179dd21fc551921
               "2023-11-05_oasst2_ready.trees.jsonl.gz")
 GSM8K_FILE = "/hf/hub/datasets--openai--gsm8k/snapshots/740312add88f781978c0658806c59bc2815b9866/main/test-00000-of-00001.parquet"
 
-# v2 (2026-10-01, V2-DESIGN-sol.md): validation = 4 "fam" worlds (wording bank A, dev-only op types), holdout = 16
+# v2 (2026-10-01, V2-DESIGN-sol.md): validation = 4 "fam" worlds (wording bank A, dev-only op types), holdout = 32
 # "fam" worlds (bank B, reserved op types), both with exactly 6 tasks per op (10 ops: 60 per world). "novel" = the v1
 # robustness split (8 hand-reworded worlds), kept as a reported-only regression test. v1 used std worlds at 26_092_7xx/8xx.
 SEED_BASE = {"validation": 26_094_000, "holdout": 26_094_100, "guard": 26_092_900,        # disjoint ranges of 100
              "twin_validation": 26_094_200, "twin_holdout": 26_094_300, "novel": 26_093_200, "twin_novel": 26_093_300}
-N_WORLDS = {"validation": 4, "holdout": 16, "novel": 8}
+N_WORLDS = {"validation": 4, "holdout": 32, "novel": 8}   # holdout 32: v2 pilot world-bootstrap power check
 N_TASKS = {"validation": 6, "holdout": 6, "novel": 80}   # fam: tasks PER OP (60 per world); novel: per world
 STYLE = {"validation": ("fam", "A", tuple(fauxos.DEV_OPS)), "holdout": ("fam", "B", fauxos.RESERVED_OPS),
          "novel": ("novel", None, ())}   # per world: 240 / 640 items; power arithmetic in pack.yaml / IDEA.md

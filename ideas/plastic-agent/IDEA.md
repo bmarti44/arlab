@@ -32,7 +32,8 @@ v1's winner reached 0.80 on the v1 holdout, but on a hand-reworded "novel" split
   (shrink, unpin, count_place, lightest_kind); holdout worlds carry the **reserved operation types** (bump, pin,
   count_tag, oldest_at), which never occur in validation and were never shown to any agent.
 - **Tool names** are pseudo-words independent of semantics. **Tasks are balanced:** 6 per op per world, 60 per world.
-- **Sizes:** validation 4 worlds (240 items); holdout 16 worlds (960 items).
+- **Sizes:** validation 4 worlds (240 items); holdout 32 worlds (1920 items; raised from 16 by the pilot's
+  world-bootstrap power check).
 - **Metrics:** success equals the mean of per-op macro averages; s_familiar / s_dev / s_reserved are reported.
   **Pre-registered claim condition** (the greedy runner applies no guard at the holdout, and validation has no reserved
   ops, so the orchestrator checks this from the holdout result files): the unqualified "supported" claim also needs the
@@ -40,8 +41,11 @@ v1's winner reached 0.80 on the v1 holdout, but on a hand-reworded "novel" split
   "supported on familiar op types only".
 - **No answer lookup:** a held-out question is never answered by a logged call whose logged value is still right
   (astra v2 review: 215/960 holdout tasks were), as mutation goals never repeat a logged change. To keep 6 such questions per op, fam worlds use 16 kinds/places/tags and 120–160 objects, and 90% of goals whose answer is 0 are redrawn.
-- **Guards:** gsm8k_drop and guardworld_drop are guarded separately. Thresholds are max(0.03, 2·SD of the 5
-  calibration-seed baseline drops), fixed from the v2 pilot before the campaign.
+- **Guards:** gsm8k_drop and guardworld_drop are guarded separately. Thresholds are the baseline's mean drop plus
+  max(0.03, 2·SD of the 5 calibration-seed baseline drops), fixed from the v2 pilot before the campaign: gsm8k_drop ≤ 0.06,
+  guardworld_drop ≤ 0.07.
+- **v2 pilot (validation, data 647d7ca7):** none 0.004, icl 0.279 (gate GO), baseline 0.049 ± 0.002 over 5 seeds
+  (twin 0.028).
 - **Agent:** sees program.md (wording and op catalog no longer disclosed) and the frozen RUN API files, not this
   file. It is forbidden to hand-write recognizers or goal templates.
 - **Audit:** the supervisor logs every gen/teacher/train request IN FULL before it runs (plus its outcome and the
