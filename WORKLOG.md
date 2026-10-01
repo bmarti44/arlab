@@ -60,3 +60,4 @@
 2026-10-01T12:11:48-04:00 latent-arch closed: v2.1 pilot (baseline x5 at depth chance; depth12 0.207, loop_naive 0.208) + DeltaProduct control x3 at chance (930 steps vs 2420) -> pre-registered stop. BLOCKED B2 closed; README/STATUS/DECISIONS updated.
 2026-10-01T13:38:03-04:00 plastic novel split: none .080, icl .559, baseline .150 (3 seeds), v1 winner .066 (3 seeds, below none). v1 gain is wording-specific. README/DECISIONS updated.
 2026-10-01T14:02:59-04:00 plastic v2 built and static PASS after 3 fixes (validation-only check for no-reserved-ops; twin names-vs-semantics test made statistical; fam explorer error probes include bump/shrink so 'locked' is observed). Committed dac86d5. Astra review + GPU pilot launched.
+2026-10-01T14:15:43-04:00 plastic v2 astra review fixed (fa97d65), static PASS (data 8ba9bcef); pilot relaunched (gate + baseline x5, validation).
