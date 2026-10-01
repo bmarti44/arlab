@@ -9,8 +9,10 @@
               receives token ids only and returns logits. After load + eval() and again after scoring its tensors must
               hash to the checkpoint and no unregistered tensor state may be reachable (else invalid).
   val_bpb     cross-entropy computed HERE from the worker's logits on the 2048 relabelled text rows (permuted bytes)
-  accuracy    full-vocab argmax at the answer position of BOS + program + `q?` (no generated tokens), computed here:
-              0.5 * acc_id (k 1..6) + 0.5 * acc_depth (k 7..10); items = one 0/1 per program (4000)
+  acc_depth   PRIMARY (v2.1): full-vocab argmax at the answer position (`?`) of BOS + record (no generated tokens),
+              computed here; equal-k mean over k 7..10 (2000 records per k); items = one 0/1 per depth record (8000).
+              acc_id (k 1..6, equal-k mean) is a guard; accuracy = their mean and logp_* (mean log-prob of the right
+              answer) are reported only
   FLOPs/ops   counted on EVERY scored forward (text and programs, actual shapes): matmul/attention by formula, every
               other non-view op by max(elements read, written); infer_flops_tok = mean of the per-token counts on text
               and on programs; any op outside aten/prims -> invalid (also in the warm-up and causality forwards)
@@ -41,7 +43,7 @@ ap.add_argument("--out", required=True)
 ap.add_argument("--data", default="/data/private")
 ap.add_argument("--work", default="/work")
 ap.add_argument("--device", default="cuda")
-ap.add_argument("--max-train-seconds", type=float, default=360)
+ap.add_argument("--max-train-seconds", type=float, default=690)
 ap.add_argument("--limit", type=int, default=0, help="tests only (never in pack.yaml): first N items per group")
 a = ap.parse_args()
 dev = a.device
@@ -147,7 +149,7 @@ try:
             nats, nbytes, finite = nats + n, nbytes + b, finite and ok
         if not finite:
             invalid("non-finite log-probs on text")
-        preds, t0 = [], time.monotonic()
+        preds, logps, t0 = [], [], time.monotonic()
         for i in range(0, len(prompts), PROG_BATCH):
             lg, f, bad = w.forward(prompts[i:i + PROG_BATCH], last=True)
             flops["program"] += f
@@ -155,6 +157,8 @@ try:
             if not torch.isfinite(lg).all():
                 invalid("non-finite logits at the answer position")
             preds.append(lg[:, -1].argmax(-1).numpy())
+            ans = torch.as_tensor(d["answer"][idx[i:i + PROG_BATCH]].astype(np.int64))
+            logps.append(torch.log_softmax(lg[:, -1].float(), -1).gather(1, ans[:, None])[:, 0].numpy())
         infer_s = time.monotonic() - t0
         w.check(ck_hash, "after scoring (state changed during evaluation)")
     finally:
@@ -181,7 +185,7 @@ try:
         invalid(f"rejected ops in the forward pass (outside aten/prims, or compute without a FLOP price): {sorted(bad_ops)[:5]}")
 except WorkerFailure as e:
     invalid(e)
-rep = accuracy_report(np.concatenate(preds), d, idx)
+rep = accuracy_report(np.concatenate(preds), d, idx, np.concatenate(logps))
 m = rep["metrics"]
 tok_text, tok_prog = len(rows) * T, len(prompts) * L
 m.update(val_bpb=nats / (math.log(2) * nbytes), params_m=params_m, params_bytes=params_bytes, infer_s=infer_s,
@@ -195,5 +199,5 @@ for k in ("train_steps", "tokens_seen", "program_tokens_seen", "build_s", "first
         m["run_" + k] = float(v)
 if not all(math.isfinite(v) for v in m.values() if isinstance(v, float)):
     invalid(f"non-finite metric: {m}")
-write({"valid": True, "primary": m["accuracy"], "metrics": m, "items": rep["items"], "message": "ok"})
+write({"valid": True, "primary": m["acc_depth"], "metrics": m, "items": rep["items"], "message": "ok"})
 print(json.dumps(m))

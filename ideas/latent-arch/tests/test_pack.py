@@ -119,7 +119,7 @@ def test_splits_sized_and_depth_ranges(info):
     n = info["n_eval"]
     for split in ("validation", "holdout"):
         d = _npz(split)
-        assert sp[split] == n["id"] + n["depth"] == 4000
+        assert sp[split] == n["id"] + n["depth"] == 10000
         assert d["tokens"].shape == (len(d["group"]), L) and L == info["program_tokens"] == 18
         for g, (lo, hi), cnt in ((0, progen.ID_K, n["id"]), (1, progen.DEPTH_K, n["depth"]), (2, progen.EXT_K, n["ext"])):
             k = d["k"][d["group"] == g]
@@ -272,8 +272,9 @@ def test_baseline_surface_smoke_run_and_evaluate(tmp_path):
     m = _evaluate(tmp_path, out, WORK)
     assert m["valid"], m["message"]
     mm = m["metrics"]
-    assert len(m["items"]) == 48 and set(m["items"].values()) <= {0.0, 1.0}
-    assert abs(m["primary"] - 0.5 * (mm["acc_id"] + mm["acc_depth"])) < 1e-12
+    assert len(m["items"]) == 24 and set(m["items"].values()) <= {0.0, 1.0}      # the depth records only
+    assert m["primary"] == mm["acc_depth"] and abs(mm["accuracy"] - 0.5 * (mm["acc_id"] + mm["acc_depth"])) < 1e-12
+    assert mm["logp_depth"] <= 0 and mm["logp_id"] <= 0
     assert mm["params_m"] == count_elements(ck) / 1e6 and 26 < mm["params_m"] < 27
     assert mm["params_bytes"] == count_bytes(ck) / 1e6 and mm["causal_cuts"] == 32 and mm["causal_max_diff"] < 1e-3
     assert mm["flops_tok_text"] > 2e7 and mm["flops_tok_prog"] > 2e7 and mm["val_bpb"] > 0

@@ -53,7 +53,7 @@ RAW = "/tmp/raw"
 N_TRAIN_PER_K = 300_000   # train records per depth k (repeats allowed)
 IGNORE = 65535            # target id meaning "no loss here" (the trainer maps it to -1)
 REC = 1 + 2 + 14 + 1      # BOS INIT s0 14 slots ?
-N_ID, N_DEPTH, N_EXT, N_CF = 2000, 2000, 500, 500      # per eval split (N_CF: 50 per k in 1..10)
+N_ID, N_DEPTH, N_EXT, N_CF = 2000, 8000, 500, 500      # per eval split (DEPTH: 2000 per k, v2.1; N_CF: 50 per k in 1..10)
 SEEDS = {"validation": 2001, "holdout": 3001, "train": 1001}
 GROUPS = {"id": 0, "depth": 1, "ext": 2, "cf": 3}
 

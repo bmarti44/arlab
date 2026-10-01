@@ -135,15 +135,19 @@ def nll_sum(lg: torch.Tensor, y: torch.Tensor, tb: torch.Tensor) -> tuple[float,
     return float((nll * (b > 0)).sum()), int(b.sum()), bool(torch.isfinite(nll[b > 0]).all())
 
 
-def accuracy_report(pred: np.ndarray, d: dict, idx: np.ndarray) -> dict:
-    """Scores for the selected items idx of programs.npz d. pred aligned with idx."""
+def accuracy_report(pred: np.ndarray, d: dict, idx: np.ndarray, logp: np.ndarray | None = None) -> dict:
+    """Scores for the selected items idx of programs.npz d. pred (argmax) and logp (log-prob of the right answer)
+    aligned with idx. v2.1 primary = acc_depth as the EQUAL-k mean over k 7..10; items = the depth records."""
     correct = (pred == d["answer"][idx]).astype(np.float64)
     group, k = d["group"][idx], d["k"][idx]
     pos = {int(j): n for n, j in enumerate(idx)}
     m = {}
     for name, g in (("acc_id", 0), ("acc_depth", 1), ("acc_ext", 2)):
         sel = group == g
-        m[name] = float(correct[sel].mean()) if sel.any() else None
+        ks = sorted(set(k[sel].tolist()))
+        m[name] = float(np.mean([correct[sel & (k == kk)].mean() for kk in ks])) if ks else None   # equal-k mean
+        if logp is not None and ks:
+            m["logp_" + name[4:]] = float(np.mean([logp[sel & (k == kk)].mean() for kk in ks]))
     for kk in sorted(set(k[group < 3].tolist())):
         m[f"acc_k{kk}"] = float(correct[(k == kk) & (group < 3)].mean())
     pairs = [(n, pos[int(d["cf_of"][j])]) for n, j in enumerate(idx) if group[n] == 3 and int(d["cf_of"][j]) in pos]
@@ -153,7 +157,6 @@ def accuracy_report(pred: np.ndarray, d: dict, idx: np.ndarray) -> dict:
     for h in ("h_last_const", "h_own_const", "h_root"):
         m["floor_" + h[2:]] = float((d[h][idx][main] == val).mean())
     m["floor_modal"] = float(np.bincount(val, minlength=100).max() / max(len(val), 1))
-    m["accuracy"] = 0.5 * m["acc_id"] + 0.5 * m["acc_depth"]
-    ids = {0: "id", 1: "depth"}
-    items = {f"{ids[int(g)]}{int(j):05d}": float(c) for j, g, c in zip(idx, group, correct) if g < 2}
+    m["accuracy"] = 0.5 * m["acc_id"] + 0.5 * m["acc_depth"]       # the v2 composite, reported only
+    items = {f"depth{int(j):05d}": float(c) for j, g, c in zip(idx, group, correct) if g == 1}
     return {"metrics": m, "items": items}

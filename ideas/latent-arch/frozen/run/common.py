@@ -12,13 +12,13 @@ import torch
 
 VOCAB = 8192
 SEQ_LEN = 1024
-TEXT_ROWS, PROG_ROWS = 48, 16         # rows per 64 x 1024 training batch (program rows: 25 %)
+TEXT_ROWS, PROG_ROWS = 48, 16         # per batch: 48 x 1024 text + the tokens of 16 rows as standalone records
 REC = 18                              # program record tokens: BOS INIT s0 14 slots ?
 IGNORE = 65535                        # stored target id for "no loss" (passed to the surface as -1)
 TRAIN_K = (1, 6)
-# curriculum over training progress (fraction of the wall-clock budget): (until, (k_lo, k_hi)); k uniform in range
-CURRICULUM = ((0.2, (1, 1)), (0.4, (1, 2)), (1.01, (1, 6)))
-GRACE_S = 30                          # the supervisor kills the trainer at budget + GRACE_S (budget.limit = 330 + 30)
+# k over training progress: (until, (k_lo, k_hi)); v2.1 (FIX-sol): uniform 1..6 throughout, no curriculum
+CURRICULUM = ((1.01, (1, 6)),)
+GRACE_S = 30                          # the supervisor kills the trainer at budget + GRACE_S (budget.limit = 660 + 30)
 MAX_CKPT_TENSORS = 100_000
 
 

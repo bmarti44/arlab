@@ -6,17 +6,17 @@ prepare: {command: "python /prepare/prepare.py --out /data", timeout_s: 3600}
 run:
   # --train-seconds = the wall-clock training budget, owned by the frozen harness (timer starts before the surface
   # import; import, build, compile, every train_step and save count). RE-MEASURE IN THE GPU PILOT.
-  command: "python /frozen/harness.py --out /out --seed {seed} --split {split} --train-seconds 330"
-  timeout_s: 600
+  command: "python /frozen/harness.py --out /out --seed {seed} --split {split} --train-seconds 660"
+  timeout_s: 1000
   gpu: true
   mem_gb: auto
 evaluate: {command: "python /eval/evaluate.py --run /run_out --out /result/metrics.json", timeout_s: 300}
-budget: {unit: train_seconds, limit: 360}          # 330 s + at most 30 s overrun by the last step / save
-# MES 0.04 (4 points of the ID/DEPTH mean), fixed before calibration (IDEA.md "MES, guards, power").
-# Item pack, 4000 holdout items, 3 holdout seeds: SE = sqrt(0.2/4000 + 2*sigma^2/3).
-#   sigma 0.010 -> 2SE 0.022;  0.015 -> 0.028;  0.020 -> 0.036.  Powered (2SE <= 0.04) iff sigma <= 0.023.
+budget: {unit: train_seconds, limit: 690}          # 660 s (v2.1, FIX-sol) + at most 30 s overrun by the last step / save
+# v2.1 (FIX-sol 2026-10-01): primary = acc_depth (equal-k mean over k 7..10, 8000 records), MES 0.04 = 4 depth
+# points, fixed before calibration. The v2 pilot measured sigma(acc_depth) = 0.009 (vs 0.095 for the ID/DEPTH mean:
+# ID mastery timing is seed-dependent). 3 holdout seeds: SE = sqrt(0.16/8000 + 2*sigma^2/3); sigma 0.02 -> 2SE 0.035.
 #   If CALIBRATE measures sigma > 0.023: more holdout seeds (new tag), never a larger MES.
-metric: {name: accuracy, direction: maximize, mes: 0.04}
+metric: {name: acc_depth, direction: maximize, mes: 0.04}
 guards:
   - {name: val_bpb, max_ratio_vs_baseline: 1.03}         # stays a language model (policy threshold; pilot re-checks)
   - {name: acc_id, min_ratio_vs_baseline: 0.90}          # no buying depth accuracy with in-distribution accuracy
@@ -28,8 +28,8 @@ guards:
   - {name: peak_mem_gb, max: 40}                         # the GPU is shared with the owner's jobs
 seeds: {calibration: [1, 2, 3, 4, 5], screen: 1, confirm: [2, 3], holdout: [101, 102, 103]}
 references:
-  - {name: depth12, path: frozen/run/ref_depth12}        # the same GPT at 12 x 384, same 330 s (reported only)
+  - {name: depth12, path: frozen/run/ref_depth12}        # the same GPT at 12 x 384, same 660 s (reported only)
 agent: {model: gpt-6.1-sol, effort: high, visible: [program.md, IDEA.md], timeout_s: 900}
-# ~7.5 min RUN + EVALUATE per trial (estimate; re-measure in the pilot): one tree round of 32 nodes ~ 4-4.5 GPU-h.
-campaign: {max_experiments: 32, max_hours: 6, max_agent_calls: 96, stop_after_no_keep: 32, rescue_after: 8}
+# ~13 min RUN + EVALUATE per trial (v2.1 estimate): one tree round of 32 nodes ~ 7-8 GPU-h.
+campaign: {max_experiments: 32, max_hours: 10, max_agent_calls: 96, stop_after_no_keep: 32, rescue_after: 8}
 acceptance: {allow_underpowered: false}

@@ -65,17 +65,25 @@ The length is fixed and active positions are uniform at every k. The no-op count
 - **Secret vocabulary relabelling** is unchanged: all token data and `token_bytes` are permuted with a salt that
   exists only in `private/`.
 
-**Training stream (frozen in the harness).** Each 64×1024 batch = **48 rows** of climbmix text windows (next-token
-targets) + **16 rows** of packed records, rows shuffled. Records are concatenated (each starts with BOS). Their targets
-are the state after each active operator, at that operator's position, and the final state at `?`; all other record
-targets are -1 (ignored). Intermediate states never appear in inputs. **Curriculum over progress:** k = 1 for the
-first 20 %, k uniform in 1..2 until 40 %, then uniform in 1..6.
+**v2.1 (2026-10-01, second sol consult, `FIX-sol-v2.1.md`).** The v2 pilot learned the task: k 1–3 at 100 %,
+then chance. But ID mastery timing varied by seed (acc_id 0.70 / 0.33 / 0.47), so σ of the old ID/DEPTH mean was
+≈ 0.09, far above MES 0.04. acc_depth sat at chance with σ 0.009. sol's fix, adopted as is:
+- **primary = acc_depth**: the equal-k mean over k 7..10, with 2,000 records per k (8,000 per split). acc_id becomes
+  a guard;
+- **660 s** training;
+- **uniform k 1..6** throughout, with no curriculum;
+- **standalone records** (896 × 18 tokens per batch; no packing, so no cross-record attention);
+- baseline loss text CE + 0.125·final CE + 0.125·per-record prefix CE (surface-editable);
+- LR constant to 80 %, then linear to 0.
 
-**Deviations from sol's spec, accepted for simplicity** (DECISIONS.md):
-- the loss is the surface's plain mean CE over all non-ignored targets, not sol's separately weighted terms
-  (record targets end up ≈ 8 % of supervised tokens, against sol's 0.25 relative weight);
-- records are concatenated without segment masks, so attention can cross record boundaries; each record starts
-  with BOS.
+**Training stream (frozen in the harness).** Each step gets `(x, y, xp, yp)`:
+- **48×1024** climbmix text windows with next-token targets;
+- **896 standalone records** (the token count of 16 rows), each `BOS = s0 t1 … t14 ?`;
+- their targets: the state after each active operator, at that operator's position, and the final state at `?`.
+  All other targets are -1. Intermediate states never appear in inputs.
+
+**Expected outcome (sol's estimates, unvalidated):** baseline ID 0.75–0.95, depth 0.20–0.25, σ_depth 0.01–0.02.
+**Fallback** if every arm stays at depth chance: train k 1..3 and evaluate depth on k 4..7.
 
 ## Metric
 

@@ -3,7 +3,10 @@
 API (frozen trainer / evaluator worker):
   build(config) -> state            config: vocab_size, seq_len, batch, device, seed, train_seconds;
                                     state["model"] is the nn.Module whose parameters + buffers are checkpointed
-  train_step(state, (x, y), step, progress) -> loss     progress = elapsed wall clock / training budget (0..1)
+  train_step(state, (x, y, xp, yp), step, progress) -> loss     progress = elapsed wall clock / training budget (0..1)
+                                    x, y: (48, 1024) text windows + next-token targets; xp, yp: (896, 18) standalone
+                                    program records + aligned dense state targets (-1 = no target; the final state
+                                    is the target at the last position, `?`)
   make_model(config) -> nn.Module   config: vocab_size, seq_len, device; same architecture, forward(idx) returns
                                     causal logits (B, T, vocab_size); weights come from the checkpoint
 The supervisor owns the clock: import, build, torch.compile, every train_step and the checkpoint write count.
@@ -23,8 +26,9 @@ SCALAR_LR = 0.5
 WEIGHT_DECAY = 0.2
 ADAM_BETAS = (0.8, 0.95)
 WARMUP_RATIO = 0.0
-WARMDOWN_RATIO = 0.5
+WARMDOWN_RATIO = 0.2      # constant LR to 80 %, then linear to 0 (FIX-sol v2.1)
 FINAL_LR_FRAC = 0.0
+PROG_W_FINAL, PROG_W_PREFIX = 0.125, 0.125  # program loss weights relative to the text CE (FIX-sol v2.1)
 COMPILE = True            # torch.compile on CUDA only (CPU smoke tests run eagerly)
 
 
@@ -170,9 +174,14 @@ def build(config):
 
 
 def train_step(state, batch, step, progress):
-    x, y = batch
+    x, y, xp, yp = batch
     with torch.autocast(x.device.type, dtype=torch.bfloat16):
-        loss = state["fwd"](x, y)
+        text = state["fwd"](x, y)
+        tok = state["fwd"](xp, yp, reduction="none").view(yp.shape)      # 0 where the target is -1
+        final = tok[:, -1].mean()                                         # the answer at `?`
+        m = (yp[:, :-1] >= 0).float()
+        prefix = ((tok[:, :-1] * m).sum(1) / m.sum(1).clamp_min(1)).mean()   # per-record mean, then over records
+        loss = text + PROG_W_FINAL * final + PROG_W_PREFIX * prefix
     (loss / state["accum"]).backward()
     if (step + 1) % state["accum"] == 0:
         lrm = lr_multiplier(min(progress, 1.0))

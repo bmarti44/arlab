@@ -10,7 +10,7 @@ train_seconds is measured here, from go to the trainer's done message. Then ever
 
 Outputs in --out:
   model.pt       data-only checkpoint {name: tensor} of every parameter and buffer of the surface's model
-  budget.json    {"train_seconds": t}   (runner: invalid if > budget.limit = 360)
+  budget.json    {"train_seconds": t}   (runner: invalid if > budget.limit = 690)
   stats.json     supervisor facts (trusted: train_seconds, killed, checkpoint sha256 / tensor hash / element count,
                  stray processes) + the trainer's own report under "trainer" (informational only)
 """

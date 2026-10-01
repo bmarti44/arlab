@@ -5,10 +5,10 @@ kills this process group at deadline + GRACE_S regardless). Finally it writes th
 {name: tensor} of state["model"] to --ckpt and reports done. JSON lines on the original stdout; anything the
 surface prints goes to stderr (the run log).
 
-Batches: 64 rows x 1024 tokens = TEXT_ROWS random windows of the relabelled text stream (next-token targets) + PROG_ROWS
-rows of packed program records (depth k from the frozen CURRICULUM over training progress) whose targets are DENSE STATE
-SUPERVISION: the state after each active operator at its position, the final state at `?`, -1 (ignore) elsewhere.
-Seeded random row order. The surface's loss must ignore target -1 (the baseline uses ignore_index=-1).
+Batches (x, y, xp, yp): x, y = TEXT_ROWS random windows of the relabelled text stream with next-token targets;
+xp, yp = PROG_ROWS * (SEQ_LEN // REC) STANDALONE program records of REC tokens (k from the frozen CURRICULUM, uniform
+1..6), with DENSE STATE SUPERVISION aligned to the inputs: the state after each active operator at its position, the
+final state at `?` (the last position), -1 (ignore) elsewhere. The surface's loss must ignore target -1.
 """
 import argparse
 import json
@@ -44,43 +44,38 @@ def main():
     dev = "cpu" if a.smoke else "cuda"
     text_rows, prog_rows, seq_len = (3, 1, 128) if a.smoke else (TEXT_ROWS, PROG_ROWS, SEQ_LEN)
     batch = text_rows + prog_rows
+    n_rec = prog_rows * (seq_len // REC)
     text = np.memmap(f"{a.data}/tokens.bin", dtype=np.uint16, mode="r")
     ks = range(TRAIN_K[0], TRAIN_K[1] + 1)
     inp = {k: np.memmap(f"{a.data}/programs_k{k}.bin", dtype=np.uint16, mode="r").reshape(-1, REC) for k in ks}
     tgt = {k: np.memmap(f"{a.data}/targets_k{k}.bin", dtype=np.uint16, mode="r").reshape(-1, REC) for k in ks}
-    per_row = seq_len // REC + 1
     rng = np.random.default_rng(a.seed)
     torch.manual_seed(a.seed)
-    xb = torch.empty((batch, seq_len), dtype=torch.long)
-    yb = torch.empty((batch, seq_len), dtype=torch.long)
+    bufs = [torch.empty(s, dtype=torch.long) for s in ((text_rows, seq_len),) * 2 + ((n_rec, REC),) * 2]
     if dev == "cuda":
         torch.cuda.manual_seed(a.seed)
         torch.zeros(1, device=dev)
-        xb, yb = xb.pin_memory(), yb.pin_memory()
+        bufs = [b.pin_memory() for b in bufs]
 
     def sync():
         if dev == "cuda":
             torch.cuda.synchronize()
 
     def next_batch(progress):
-        """Text rows: next-token targets. Program rows: packed records (k from the frozen curriculum) with their
-        dense targets (state after each active operator, final state at `?`; -1 elsewhere). Inputs never contain
+        """Text rows: next-token targets. Program records: standalone (k from the frozen schedule) with their dense
+        targets (state after each active operator, final state at `?`; -1 elsewhere). Inputs never contain
         intermediate states."""
         lo, hi = next(r for until, r in CURRICULUM if progress < until)
         t0s = rng.integers(0, len(text) - seq_len - 1, text_rows)
-        rows_x = [text[s:s + seq_len] for s in t0s]
-        rows_y = [text[s + 1:s + seq_len + 1] for s in t0s]
-        kk = rng.integers(lo, hi + 1, (prog_rows, per_row))
-        for r in range(prog_rows):
-            idx = [int(rng.integers(0, len(inp[k]))) for k in kk[r]]
-            rows_x.append(np.concatenate([inp[k][i] for k, i in zip(kk[r], idx)])[:seq_len])
-            rows_y.append(np.concatenate([tgt[k][i] for k, i in zip(kk[r], idx)])[:seq_len])
-        order = rng.permutation(batch)
-        xb.copy_(torch.from_numpy(np.stack([rows_x[i] for i in order]).astype(np.int64)))
-        y = np.stack([rows_y[i] for i in order]).astype(np.int64)
-        y[y == IGNORE] = -1
-        yb.copy_(torch.from_numpy(y))
-        return xb.to(dev, non_blocking=True), yb.to(dev, non_blocking=True)
+        kk = rng.integers(lo, hi + 1, n_rec)
+        idx = [int(rng.integers(0, len(inp[k]))) for k in kk]
+        yp = np.stack([tgt[k][i] for k, i in zip(kk, idx)]).astype(np.int64)
+        yp[yp == IGNORE] = -1
+        arrs = (np.stack([text[s:s + seq_len] for s in t0s]), np.stack([text[s + 1:s + seq_len + 1] for s in t0s]),
+                np.stack([inp[k][i] for k, i in zip(kk, idx)]), yp)
+        for b, arr in zip(bufs, arrs):
+            b.copy_(torch.from_numpy(arr.astype(np.int64)))
+        return tuple(b.to(dev, non_blocking=True) for b in bufs)
 
     send({"op": "ready"})
     go = json.loads(sys.stdin.readline())
@@ -101,8 +96,8 @@ def main():
             now = time.monotonic()
             if now >= deadline:
                 break
-            x, y = next_batch((now - t0) / a.train_seconds)
-            loss = surface.train_step(state, (x, y), step, (now - t0) / a.train_seconds)
+            batch_t = next_batch((now - t0) / a.train_seconds)
+            loss = surface.train_step(state, batch_t, step, (now - t0) / a.train_seconds)
             step += 1
             lv = float(loss)
             if first_step_s is None:
@@ -117,10 +112,10 @@ def main():
         sync()
         loop_end_s = time.monotonic() - t0
         torch.save(model_tensors(state["model"]), a.ckpt)
-        send({"op": "done", "train_steps": step, "tokens_seen": step * batch * seq_len,
-              "program_tokens_seen": step * prog_rows * seq_len, "curriculum": CURRICULUM, "build_s": build_s, "first_step_s": first_step_s,
+        send({"op": "done", "train_steps": step, "tokens_seen": step * (text_rows * seq_len + n_rec * REC),
+              "program_tokens_seen": step * n_rec * REC, "curriculum": CURRICULUM, "build_s": build_s, "first_step_s": first_step_s,
               "loop_end_s": loop_end_s, "nan_at": nan_at, "train_loss_last50": sum(recent) / max(1, len(recent)),
-              "batch": [text_rows, prog_rows, seq_len]})
+              "batch": [text_rows, seq_len, n_rec, REC]})
     except Exception:
         send({"op": "error", "msg": traceback.format_exc()[-3000:]})
         sys.exit(1)
