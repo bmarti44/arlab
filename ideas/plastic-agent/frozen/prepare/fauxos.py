@@ -73,7 +73,8 @@ DEV_OPS = {                                       # validation-only op types (fe
 OPS.update(DEV_OPS)
 RESERVED_OPS = tuple(NOVEL_OPS)                   # holdout-only op types in fam worlds (never in validation)
 FAM_STD, FAM_TASKS_PER_OP = 6, 6
-FAM_VOCAB, FAM_OBJ, FAM_MIN = 7, (60, 90), 18     # kinds/places/tags; objects; min active-locked and archived objects
+FAM_VOCAB, FAM_OBJ, FAM_MIN = 16, (120, 160), 18    # kinds/places/tags; objects; min active-locked and archived objects
+FAM_ZERO_REJECT = 0.9                             # share of query goals with answer 0 that are redrawn
 N_NOVEL_STD = 6                   # novel worlds: all 4 NOVEL_OPS + 6 standard task ops (+ inspect)
 N_OPS = 10                        # task ops per world (+ inspect): 11 tools. CALIBRATE with the gate
 # English verbs: truthful ones a pretrained model would guess right, misleading ones it would guess wrong.
@@ -1153,7 +1154,8 @@ def _fam_tasks(spec: dict, end: dict, events: list[dict], n_per_op: int, salt: s
             goal, prog, answer = g
             if goal in goals or answer is None and all(line in seen_calls for line in prog):
                 continue
-            if answer is not None and len(prog) == 1 and prog[0] in logged and logged[prog[0]] == answer:
+            if answer is not None and len(prog) == 1 and prog[0] in logged and \
+                    score({"check_state": False, "answer": answer}, {"error": None, "values": [logged[prog[0]]]}) == 1.0:
                 continue                             # the transcript already shows this call with this answer
             res = run_program(spec, end, "\n".join(prog))
             if res["error"] is not None:
@@ -1218,6 +1220,8 @@ def _fam_task(op, S, f, rng, ids, act, free, objs):
     st = {"objs": objs}
     val = _fam_query(S, st, op, v, a)
     if val == [] and op != "find_tag" or op == "find_tag" and not val:
+        return None
+    if val == 0 and rng.random() < FAM_ZERO_REJECT:     # keep "0" a rare answer (large vocab: many empty combos)
         return None
     canon = [a[an] for an, _ in OPS[op][0]]
     kw = {"P": P, "K": K, "T": T, "U": U}

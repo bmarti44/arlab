@@ -119,7 +119,8 @@ def test_v2_splits_balanced_disjoint_wording_and_op_types():
             pub = js(f"{D}/{split}/public/worlds/{wid}.json")
             logged = fauxos._fam_logged_values(spec, pub["transcript"], p["end"])   # (also: the replay reaches `end`)
             for t in p["tasks"]:    # no question is answered by a logged call whose logged value is still right
-                assert t["answer"] is None or logged.get(t["reference"][0], object()) != t["answer"], (wid, t["goal"])
+                assert t["answer"] is None or t["reference"][0] not in logged or fauxos.score(
+                    t, {"error": None, "state": t["gold_state"], "values": [logged[t["reference"][0]]]}) == 0.0, (wid, t["goal"])
             assert tw[wid]["spec"]["family"] == spec["family"]
             assert all(not any(v in t["name"] for vs in fauxos.TRUE_VERBS.values() for v in vs if len(v) > 3)
                        for t in spec["tools"])                     # names carry no English verb

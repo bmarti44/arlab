@@ -39,7 +39,7 @@ v1's winner reached 0.80 on the v1 holdout, but on a hand-reworded "novel" split
   incumbent's s_reserved minus the baseline's s_reserved, averaged over the 3 holdout seeds, to be > 0. Otherwise the claim is
   "supported on familiar op types only".
 - **No answer lookup:** a held-out question is never answered by a logged call whose logged value is still right
-  (astra v2 review: 215/960 holdout tasks were), as mutation goals never repeat a logged change.
+  (astra v2 review: 215/960 holdout tasks were), as mutation goals never repeat a logged change. To keep 6 such questions per op, fam worlds use 16 kinds/places/tags and 120–160 objects, and 90% of goals whose answer is 0 are redrawn.
 - **Guards:** gsm8k_drop and guardworld_drop are guarded separately. Thresholds are max(0.03, 2·SD of the 5
   calibration-seed baseline drops), fixed from the v2 pilot before the campaign.
 - **Agent:** sees program.md (wording and op catalog no longer disclosed) and the frozen RUN API files, not this
