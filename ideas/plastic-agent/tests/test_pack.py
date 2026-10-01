@@ -93,6 +93,33 @@ def test_prepared_data_matches_generator_and_splits_are_disjoint():
     assert not rows["validation"] & rows["holdout"] and not (rows["validation"] | rows["holdout"]) & replay
 
 
+# ================================================================ novel split (v2 robustness check)
+STD_OBS = ("archived #", "deleted #", "restored #", "locked #", "unlocked #", "moved #", "tagged #", "copied #",
+           "swapped #", "count: ", "total: ", "checksum: ", "heaviest: ", "lightest: ", "newest: ", "oldest: ", "kind=")
+
+
+def test_novel_split_new_ops_new_wording_and_holdout_battery():
+    """Every novel world has all NOVEL_OPS (absent from every standard world), its reference programs score 1.0, none
+    of its observations uses a standard-world output phrase, and its forgetting battery is the holdout's."""
+    priv, pubs = js(f"{D}/novel/private/worlds.json"), pub_worlds(f"{D}/novel")
+    assert [w["id"] for w in pubs] == list(priv) and len(priv) >= 2
+    for split in SPLITS:
+        for w in js(f"{D}/{split}/private/worlds.json").values():
+            assert not {t["op"] for t in w["spec"]["tools"]} & set(fauxos.NOVEL_OPS)
+    for w in pubs:
+        p = priv[w["id"]]
+        assert p["spec"]["style"] == "novel" and set(fauxos.NOVEL_OPS) <= {t["op"] for t in p["spec"]["tools"]}
+        for e in w["transcript"]:
+            assert not any(x in e["obs"] for x in STD_OBS), e
+        for t in p["tasks"]:
+            assert fauxos.score(t, fauxos.run_program(p["spec"], p["end"], "\n".join(t["reference"]))) == 1.0
+    assert any(t["template"] in fauxos.NOVEL_OPS for p in priv.values() for t in p["tasks"])
+    for f in ("guard.json", "gsm8k.json"):
+        assert js(f"{D}/novel/private/{f}") == js(f"{D}/holdout/private/{f}")
+    assert (np.load(f"{D}/novel/private/text.npy") == np.load(f"{D}/holdout/private/text.npy")).all()
+    assert js(f"{D}/novel/private/twins.json").keys() == priv.keys()
+
+
 # ================================================================ twin (control) worlds
 def test_twin_pass_is_indistinguishable_by_seed_or_scratch_name():
     here = os.path.dirname(os.path.abspath(__file__))

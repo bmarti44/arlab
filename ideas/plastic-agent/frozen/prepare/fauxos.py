@@ -48,14 +48,26 @@ OPS = {
     "swap": ([("a", "id"), ("b", "id")], True),
 }
 TASK_OPS = tuple(op for op in OPS if op != "inspect")      # every held-out task is ONE call of one of these
+# v2 robustness split ("novel" style, 2026-10-01): operation types that never occur in the standard worlds, plus
+# reworded observations and task goals for EVERY op. Standard worlds (style "std") are byte-identical to v1.
+NOVEL_OPS = {
+    "bump": ([("id", "id")], True),               # weight + 1
+    "pin": ([("id", "id")], True),                # sets the object's pin flag (a field only novel worlds have)
+    "count_tag": ([("tag", "tag")], False),       # number of active items carrying a tag
+    "oldest_at": ([("place", "place")], False),   # oldest / newest active item at a place (variant)
+}
+OPS.update(NOVEL_OPS)
+N_NOVEL_STD = 6                   # novel worlds: all 4 NOVEL_OPS + 6 standard task ops (+ inspect)
 N_OPS = 10                        # task ops per world (+ inspect): 11 tools. CALIBRATE with the gate
 # English verbs: truthful ones a pretrained model would guess right, misleading ones it would guess wrong.
-TRUE_VERBS = {"inspect": ["inspect", "info"], "count": ["count", "tally"], "weigh": ["weigh", "mass"],
+TRUE_VERBS = {"bump": ["bump", "grow"], "pin": ["pin", "star"], "count_tag": ["tagcount", "census"],
+              "oldest_at": ["eldest", "vintage"], "inspect": ["inspect", "info"], "count": ["count", "tally"], "weigh": ["weigh", "mass"],
               "extreme": ["top", "pick"], "newest": ["latest", "recent"], "find_tag": ["find", "search"],
               "checksum": ["checksum", "digest"], "move": ["move", "send"], "archive": ["archive", "shelve"],
               "delete": ["delete", "remove"], "restore": ["restore", "revive"], "lock": ["lock", "seal"],
               "unlock": ["unlock", "open"], "retag": ["tag", "label"], "clone": ["clone", "copy"], "swap": ["swap", "switch"]}
-FALSE_VERBS = {"inspect": ["erase", "move"], "count": ["list", "weigh"], "weigh": ["count", "lock"],
+FALSE_VERBS = {"bump": ["shrink", "hide"], "pin": ["drop", "unpin"], "count_tag": ["purge", "rename"],
+               "oldest_at": ["heaviest", "newest"], "inspect": ["erase", "move"], "count": ["list", "weigh"], "weigh": ["count", "lock"],
                "extreme": ["oldest", "random"], "newest": ["heaviest", "first"], "find_tag": ["delete", "clone"],
                "checksum": ["count", "undo"], "move": ["copy", "melt"], "archive": ["purge", "burn"],
                "delete": ["stash", "keep"], "restore": ["drop", "bury"], "lock": ["open", "free"],
@@ -89,9 +101,10 @@ def _fresh(rng, used: set, make):
     raise RuntimeError("name space exhausted")
 
 
-def gen_world(seed: int) -> dict:
-    """Spec (private) of one world. Deterministic in `seed`."""
-    rng = random.Random(f"fauxos-{seed}")
+def gen_world(seed: int, style: str = "std") -> dict:
+    """Spec (private) of one world. Deterministic in `seed` (and `style`: "std" = v1 worlds, byte-identical; "novel" =
+    the v2 robustness split: every NOVEL_OPS op + N_NOVEL_STD standard ops, reworded outputs and goals, pin flags)."""
+    rng = random.Random(f"fauxos-{seed}" if style == "std" else f"fauxos-{style}-{seed}")
     used: set[str] = set()
     kinds = [_fresh(rng, used, lambda: pseudo(rng, 1).upper()) for _ in range(4)]
     places = [_fresh(rng, used, lambda: pseudo(rng, 2)) for _ in range(4)]
@@ -102,7 +115,10 @@ def gen_world(seed: int) -> dict:
     codes = rng.sample(range(10, 100), 3)
     errors = {k: f"{letter}{c}" for k, c in zip(("locked", "missing", "badarg"), codes)}
 
-    ops = ["inspect"] + sorted(rng.sample(TASK_OPS, N_OPS), key=list(OPS).index)
+    if style == "std":
+        ops = ["inspect"] + sorted(rng.sample(TASK_OPS, N_OPS), key=list(OPS).index)
+    else:
+        ops = ["inspect"] + sorted(rng.sample(TASK_OPS, N_NOVEL_STD) + list(NOVEL_OPS), key=list(OPS).index)
     tools, names = [], set()
     for op in ops:
         u = rng.random()
@@ -127,8 +143,11 @@ def gen_world(seed: int) -> dict:
             break
         if objs[i]["state"] == "active":
             objs[i]["locked"] = True
+    if style != "std":
+        for o in objs.values():
+            o["pin"] = rng.random() < 0.2
     init = {"objs": objs, "clock": n, "next_id": 1000}
-    return {"seed": seed, "kinds": kinds, "places": places, "tags": tags, "unit": unit, "base_unit": base_unit, "C": C,
+    return {"seed": seed, **({"style": style} if style != "std" else {}), "kinds": kinds, "places": places, "tags": tags, "unit": unit, "base_unit": base_unit, "C": C,
             "errors": errors, "tools": tools, "init": init}
 
 
@@ -139,7 +158,8 @@ def gen_twin(spec: dict, seed: int) -> dict:
     and per-op variants, fresh objects, error codes and unit conversion (from gen_world(seed), renamed into the target's
     vocabulary). A surface that learns only name / vocabulary priors adapts the same way to both; only what it learns
     from the transcript differs."""
-    base = gen_world(seed)
+    style = spec.get("style", "std")
+    base = gen_world(seed, style)
     rng = random.Random(f"fauxos-twin-{seed}")
     ren = {"-": "-"}
     for k in ("kinds", "places", "tags"):
@@ -157,7 +177,7 @@ def gen_twin(spec: dict, seed: int) -> dict:
         rng.shuffle(perm)
         tools.append({"name": name, "op": op, "perm": perm, "var": _variant(rng, op), "verbose": rng.random() < VERBOSE_P})
     tools.sort(key=lambda t: list(OPS).index(t["op"]))
-    return {"seed": seed, "twin_of": spec["seed"], **{k: copy.deepcopy(spec[k]) for k in ("kinds", "places", "tags", "unit", "base_unit")},
+    return {"seed": seed, "twin_of": spec["seed"], **({"style": style} if style != "std" else {}), **{k: copy.deepcopy(spec[k]) for k in ("kinds", "places", "tags", "unit", "base_unit")},
             "C": base["C"], "errors": base["errors"], "tools": tools, "init": {**base["init"], "objs": objs}}
 
 
@@ -173,6 +193,8 @@ def _variant(rng, op) -> dict:
         v = {"which": rng.choice(["newest", "oldest"])}
     elif op == "checksum":
         v = {"mul": rng.choice([3, 7, 11]), "mod": rng.choice([89, 97]), "with_locked": rng.random() < 0.5}
+    elif op == "oldest_at":
+        v = {"which": rng.choice(["newest", "oldest"])}
     return v
 
 
@@ -208,6 +230,8 @@ def _unlocked(o):
 
 def apply(spec: dict, state: dict, tool: dict, a: dict) -> str:
     """Execute one op on `state` in place; returns the observation. Raises SimError."""
+    if spec.get("style") == "novel":
+        return _apply_novel(spec, state, tool, a)
     op, v, s = tool["op"], tool["var"], spec
     verb = tool["verbose"]
     if op == "inspect":
@@ -279,6 +303,88 @@ def apply(spec: dict, state: dict, tool: dict, a: dict) -> str:
             raise SimError("badarg")
         x["place"], y["place"] = y["place"], x["place"]
         return f"swapped #{a['a']} and #{a['b']}" if verb else "ok"
+    raise AssertionError(op)
+
+
+def _apply_novel(spec: dict, state: dict, tool: dict, a: dict) -> str:
+    """The same semantics as apply() for standard ops (plus NOVEL_OPS), with different observation wording."""
+    op, v, s = tool["op"], tool["var"], spec
+    verb = tool["verbose"]
+    if op == "inspect":
+        o = _obj(state, a["id"], active=False)
+        return (f"item {a['id']} | {o['kind']} @ {o['place']} | {o['w']}{s['unit']} | born {o['made']} | "
+                f"{'sealed' if o['locked'] else 'open'} | {o['state']} | label {o['tag']} | pinned {'Y' if o['pin'] else 'N'}")
+    if op == "count":
+        return f"n = {len(_active(state, lambda o: o['kind'] == a['kind'] and o['place'] == a['place'] and not (v['skip_locked'] and o['locked'])))}"
+    if op == "weigh":
+        tot = sum(o["w"] for _, o in _active(state, lambda o: o["kind"] == a["kind"]))
+        return f"sum = {tot}{s['unit']}" if v["unit"] == "display" else f"sum = {tot * s['C']}{s['base_unit']}"
+    if op in ("extreme", "newest", "oldest_at"):
+        if op == "extreme":
+            items, key = _active(state, lambda o: o["place"] == a["place"]), lambda x: (-x[1]["w"] if v["which"] == "heaviest" else x[1]["w"], x[0])
+        else:
+            pred = (lambda o: o["kind"] == a["kind"]) if op == "newest" else (lambda o: o["place"] == a["place"])
+            items, key = _active(state, pred), lambda x: -x[1]["made"] if v["which"] == "newest" else x[1]["made"]
+        return f"=> {min(items, key=key)[0] if items else 'nothing'} ({v['which']})"
+    if op == "find_tag":
+        got = [i for i, _ in _active(state, lambda o: o["tag"] == a["tag"])]
+        return f"[{' '.join(str(i) for i in got)}]"
+    if op == "count_tag":
+        return f"n = {len(_active(state, lambda o: o['tag'] == a['tag']))}"
+    if op == "checksum":
+        items = _active(state, lambda o: o["place"] == a["place"] and (v["with_locked"] or not o["locked"]))
+        return f"digest = {sum(i for i, _ in items) * v['mul'] % v['mod']}"
+    if op == "move":
+        o = _unlocked(_obj(state, a["id"]))
+        o["place"] = a["place"]
+        return f"item {a['id']} now sits at {a['place']}" if verb else "done"
+    if op == "archive":
+        o = _unlocked(_obj(state, a["id"]))
+        o["state"] = "archived"
+        return f"item {a['id']} put away" if verb else "done"
+    if op == "delete":
+        _unlocked(_obj(state, a["id"], active=False))
+        del state["objs"][str(a["id"])]
+        return f"item {a['id']} is gone for good" if verb else "done"
+    if op == "restore":
+        o = _obj(state, a["id"], active=False)
+        if o["state"] != "archived":
+            raise SimError("badarg")
+        o["state"] = "active"
+        return f"item {a['id']} is back in service" if verb else "done"
+    if op == "lock":
+        o = _obj(state, a["id"])
+        o["locked"] = True
+        return f"item {a['id']} sealed" if verb else "done"
+    if op == "unlock":
+        o = _obj(state, a["id"])
+        o["locked"] = False
+        return f"item {a['id']} opened up" if verb else "done"
+    if op == "retag":
+        o = _unlocked(_obj(state, a["id"]))
+        o["tag"] = a["tag"]
+        return f"item {a['id']} labelled {a['tag']}" if verb else "done"
+    if op == "clone":
+        o = _obj(state, a["id"])
+        state["clock"] += 1
+        new = state["next_id"]
+        state["next_id"] += 1
+        state["objs"][str(new)] = {**o, "made": state["clock"], "locked": False}
+        return f"item {new} created from item {a['id']}" if verb else "done"
+    if op == "swap":
+        x, y = (_unlocked(_obj(state, a[k])) for k in ("a", "b"))
+        if a["a"] == a["b"]:
+            raise SimError("badarg")
+        x["place"], y["place"] = y["place"], x["place"]
+        return f"items {a['a']} and {a['b']} traded places" if verb else "done"
+    if op == "bump":
+        o = _unlocked(_obj(state, a["id"]))
+        o["w"] += 1
+        return f"item {a['id']} weighs {o['w']}{s['unit']} now" if verb else "done"
+    if op == "pin":
+        o = _obj(state, a["id"])
+        o["pin"] = True
+        return f"item {a['id']} pinned" if verb else "done"
     raise AssertionError(op)
 
 
@@ -382,6 +488,20 @@ def _typed(s: str):
     return xs[0] if len(xs) == 1 else xs
 
 
+_VALUE_RE_NOVEL = {  # novel-style output grammars; group 1 is the answer value
+    "find_tag": r"\[(\d+(?: \d+)*)?\]", "count": r"n = (\d+)", "count_tag": r"n = (\d+)", "weigh": r"sum = (\d+)[a-z]+",
+    "extreme": r"=> (nothing|\d+) \((?:heaviest|lightest)\)", "newest": r"=> (nothing|\d+) \((?:newest|oldest)\)",
+    "oldest_at": r"=> (nothing|\d+) \((?:newest|oldest)\)", "checksum": r"digest = (\d+)",
+}
+
+
+def _typed_novel(s):
+    if s is None or s == "nothing":
+        return []
+    xs = [int(x) for x in s.split()]
+    return xs[0] if len(xs) == 1 else xs
+
+
 def value_of(spec: dict, name: str, args: list, obs: str):
     """Typed answer value of one successful call: an int, a list of ints, or None (no answer).
     answer(x) has an exact grammar: an int literal, or a string that is exactly an integer ("42", "-3") or a
@@ -396,6 +516,10 @@ def value_of(spec: dict, name: str, args: list, obs: str):
             return None
         xs = [int(v) for v in re.split(r"\s*,\s*", m.group(1))]
         return xs[0] if len(xs) == 1 else xs
+    if spec.get("style") == "novel":
+        rx = _VALUE_RE_NOVEL.get(tool_map(spec)[name]["op"])
+        m = re.fullmatch(rx, obs) if rx else None
+        return _typed_novel(m.group(1)) if m else None
     rx = _VALUE_RE.get(tool_map(spec)[name]["op"])
     m = re.fullmatch(rx, obs) if rx else None
     return _typed(m.group(1)) if m else None
@@ -450,7 +574,8 @@ def explore(spec: dict, n_calls: int, random_frac: float = 0.15, followup: float
     act = lambda o: o["state"] == "active"  # noqa: E731
     free = lambda o: act(o) and not o["locked"]  # noqa: E731
     TARGET = {"restore": lambda o: o["state"] == "archived", "unlock": lambda o: act(o) and o["locked"],
-              "lock": lambda o: act(o) and not o["locked"], "inspect": lambda o: True, "clone": act}
+              "lock": lambda o: act(o) and not o["locked"], "inspect": lambda o: True, "clone": act,
+              "pin": lambda o: act(o) and not o.get("pin")}
 
     def sensible(t):
         op, S = t["op"], spec
@@ -548,6 +673,7 @@ def _c(spec, op, *canon) -> str:
 TEMPLATES = {  # name -> weight; each template is ONE call of the op of the same name (only ops present in the world)
     "archive": 2, "delete": 2, "move": 2, "lock": 2, "unlock": 2, "restore": 2, "retag": 2, "swap": 1, "clone": 1,
     "count": 1, "weigh": 1, "extreme": 1, "newest": 1, "checksum": 1, "find_tag": 1,
+    "bump": 2, "pin": 2, "count_tag": 1, "oldest_at": 1,       # novel worlds only (absent from standard worlds)
 }
 
 
@@ -575,7 +701,7 @@ def make_tasks(spec: dict, end: dict, events: list[dict], n: int, salt: str) -> 
         tpl = rng.choices(names, weights)[0]
         P, K = rng.choice(S["places"]), rng.choice(S["kinds"])
         try:
-            g = _task(tpl, S, U, rng, ids, act, free, P, K, objs)
+            g = (_task_novel if S.get("style") == "novel" else _task)(tpl, S, U, rng, ids, act, free, P, K, objs)
         except IndexError:        # no suitable object for this template in this state
             continue
         if g is None:
@@ -674,6 +800,85 @@ def _task(tpl, S, U, rng, ids, act, free, P, K, objs):
         if not got:
             return None
         return f'Which items carry the tag "{t}"?', [c("find_tag", t)], {"kind": "set", "value": got}
+    raise AssertionError(tpl)
+
+
+def _task_novel(tpl, S, U, rng, ids, act, free, P, K, objs):
+    """Reworded goals for the novel split (same reference programs and gold as _task for standard ops)."""
+    c = lambda op, *a: _c(S, op, *a)  # noqa: E731
+    pick = lambda pred: rng.choice(ids(pred))  # noqa: E731
+    var = lambda op: _tool(S, op)["var"]  # noqa: E731
+    if tpl == "archive":
+        i = pick(free)
+        return f"Put item {i} away into storage.", [c("archive", i)], None
+    if tpl == "delete":
+        i = pick(lambda o: not o["locked"])
+        return f"Get rid of item {i} for good.", [c("delete", i)], None
+    if tpl == "move":
+        i = pick(lambda o: free(o) and o["place"] != P)
+        return f"Item {i} should now sit at {P}.", [c("move", i, P)], None
+    if tpl == "lock":
+        i = pick(lambda o: act(o) and not o["locked"])
+        return f"Seal item {i} so it cannot be changed.", [c("lock", i)], None
+    if tpl == "unlock":
+        i = pick(lambda o: act(o) and o["locked"])
+        return f"Open up the sealed item {i}.", [c("unlock", i)], None
+    if tpl == "restore":
+        i = pick(lambda o: o["state"] == "archived")
+        return f"Bring item {i} back into service.", [c("restore", i)], None
+    if tpl == "retag":
+        i = pick(lambda o: free(o))
+        t = rng.choice([x for x in S["tags"] if x != objs[str(i)]["tag"]])
+        return f"Item {i} needs the label {t}.", [c("retag", i, t)], None
+    if tpl == "swap":
+        a = pick(free)
+        b = pick(lambda o: free(o) and o["place"] != objs[str(a)]["place"])
+        return f"Items {a} and {b} should trade places.", [c("swap", a, b)], None
+    if tpl == "clone":
+        i = pick(act)
+        return f"Create a new item from item {i}.", [c("clone", i)], None
+    if tpl == "bump":
+        i = pick(free)
+        return f"Item {i} should weigh one {U} more.", [c("bump", i)], None
+    if tpl == "pin":
+        i = pick(lambda o: act(o) and not o["pin"])
+        return f"Mark item {i} as pinned.", [c("pin", i)], None
+    if tpl == "count":
+        v = var("count")
+        what = f"open {K} items" if v["skip_locked"] else f"{K} items, sealed ones included,"
+        n = len(ids(lambda o: act(o) and o["kind"] == K and o["place"] == P and not (v["skip_locked"] and o["locked"])))
+        return f"Tell me the number of {what} at {P}.", [c("count", K, P)], {"kind": "int", "value": n}
+    if tpl == "count_tag":
+        t = rng.choice(S["tags"])
+        n = len(ids(lambda o: act(o) and o["tag"] == t))
+        return f"Tell me the number of items in service labelled {t}.", [c("count_tag", t)], {"kind": "int", "value": n}
+    if tpl == "weigh":
+        v = var("weigh")
+        tot = sum(objs[str(i)]["w"] for i in ids(lambda o: act(o) and o["kind"] == K))
+        unit, val = (U, tot) if v["unit"] == "display" else (S["base_unit"], tot * S["C"])
+        return f"Report the combined weight of every {K} item, in {unit}.", [c("weigh", K)], {"kind": "int", "value": val}
+    if tpl in ("extreme", "newest", "oldest_at"):
+        v = var(tpl)
+        if tpl == "extreme":
+            items = [(int(i), o) for i, o in objs.items() if act(o) and o["place"] == P]
+            key = lambda x: (-x[1]["w"] if v["which"] == "heaviest" else x[1]["w"], x[0])  # noqa: E731
+            goal = f"Report the {v['which']} item at {P} (ties: lowest id)."
+        else:
+            items = [(int(i), o) for i, o in objs.items() if act(o) and (o["kind"] == K if tpl == "newest" else o["place"] == P)]
+            key = lambda x: -x[1]["made"] if v["which"] == "newest" else x[1]["made"]  # noqa: E731
+            age = "youngest" if v["which"] == "newest" else "eldest"
+            goal = f"Report the {age} {K} item." if tpl == "newest" else f"Report the {age} item at {P}."
+        if not items:
+            return None
+        return goal, [c(tpl, K if tpl == "newest" else P)], {"kind": "int", "value": min(items, key=key)[0]}
+    if tpl == "checksum":
+        return f"Report the digest of {P}.", [c("checksum", P)], {"kind": "int", "value": _checksum(S, objs, P)}
+    if tpl == "find_tag":
+        t = rng.choice(S["tags"])
+        got = ids(lambda o: act(o) and o["tag"] == t)
+        if not got:
+            return None
+        return f"List the items in service labelled {t}.", [c("find_tag", t)], {"kind": "set", "value": got}
     raise AssertionError(tpl)
 
 

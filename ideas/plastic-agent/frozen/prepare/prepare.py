@@ -16,6 +16,9 @@ Layout written under --out:
   {validation,holdout}/private/fauxos.py     the simulator, for the evaluator (a copy of /prepare/fauxos.py)
   train/replay.npy                           OASST2 rows for KL-to-base / replay (disjoint from text.npy)
   splits.json, info.json
+novel/ (v2 robustness split, 2026-10-01): the same layout; 8 worlds in fauxos style "novel" (4 operation types that
+  never occur in validation/holdout, reworded observations and goals for every op), their twins, and the HOLDOUT's
+  forgetting battery (guard world, GSM8K, text) so battery numbers stay comparable. Validation/holdout are unchanged.
 World seeds: validation, holdout, the two guard worlds and the twins come from disjoint seed ranges. A twin
 (fauxos.gen_twin) has the target's tool names, operation set and argument vocabulary but deranged name -> operation
 semantics, fresh argument orders, variants and objects; the surface adapts to it like to any world and the evaluator
@@ -44,9 +47,10 @@ OASST_FILE = ("/hf/hub/datasets--OpenAssistant--oasst2/snapshots/179dd21fc551921
 GSM8K_FILE = "/hf/hub/datasets--openai--gsm8k/snapshots/740312add88f781978c0658806c59bc2815b9866/main/test-00000-of-00001.parquet"
 
 SEED_BASE = {"validation": 26_092_700, "holdout": 26_092_800, "guard": 26_092_900,        # disjoint ranges of 100
-             "twin_validation": 26_093_000, "twin_holdout": 26_093_100}
-N_WORLDS = {"validation": 4, "holdout": 8}
-N_TASKS = {"validation": 60, "holdout": 80}   # per world: 240 / 640 items; power arithmetic in pack.yaml / IDEA.md
+             "twin_validation": 26_093_000, "twin_holdout": 26_093_100, "novel": 26_093_200, "twin_novel": 26_093_300}
+N_WORLDS = {"validation": 4, "holdout": 8, "novel": 8}
+N_TASKS = {"validation": 60, "holdout": 80, "novel": 80}
+STYLE = {"validation": "std", "holdout": "std", "novel": "novel"}   # per world: 240 / 640 items; power arithmetic in pack.yaml / IDEA.md
 N_EXPLORE = 120           # tool calls per exploration transcript (~2.5k tokens; CALIBRATE with the gate)
 GUARD_EXPLORE, GUARD_TASKS = 120, 100
 N_GSM8K, N_TEXT, N_REPLAY, TEXT_LEN = 200, 64, 512, 256
@@ -56,7 +60,7 @@ ap.add_argument("--out", required=True)
 ap.add_argument("--small", action="store_true", help="tiny sizes for local smoke tests only")
 a = ap.parse_args()
 if a.small:
-    N_WORLDS, N_TASKS, N_EXPLORE = {"validation": 2, "holdout": 2}, {"validation": 12, "holdout": 12}, 60
+    N_WORLDS, N_TASKS, N_EXPLORE = {"validation": 2, "holdout": 2, "novel": 2}, {"validation": 12, "holdout": 12, "novel": 12}, 60
     GUARD_EXPLORE, GUARD_TASKS, N_GSM8K, N_TEXT, N_REPLAY = 60, 8, 8, 8, 16
 
 
@@ -65,8 +69,8 @@ def write_json(path, obj):
     json.dump(obj, open(path, "w"))
 
 
-def build_world(wid: str, seed: int, n_explore: int, n_tasks: int) -> tuple[dict, dict]:
-    spec = fauxos.gen_world(seed)
+def build_world(wid: str, seed: int, n_explore: int, n_tasks: int, style: str = "std") -> tuple[dict, dict]:
+    spec = fauxos.gen_world(seed, style)
     events, end = fauxos.explore(spec, n_explore)
     tasks = fauxos.make_tasks(spec, end, events, n_tasks, wid)
     for k, t in enumerate(tasks):
@@ -81,13 +85,16 @@ tok = AutoTokenizer.from_pretrained(MODEL_DIR)
 info = {"seed_base": SEED_BASE, "n_explore": N_EXPLORE, "n_tasks": N_TASKS, "worlds": {}, "twins": {}}
 
 splits, guards = {}, {}
-for k, split in enumerate(("validation", "holdout")):
-    g_pub, g_priv = build_world(f"g{k}", SEED_BASE["guard"] + k, GUARD_EXPLORE, GUARD_TASKS)
-    guards[split] = guard = {**g_pub, **g_priv}
+for k, split in enumerate(("validation", "holdout", "novel")):
+    if split == "novel":
+        guard = guards["holdout"]                     # the holdout's guard world (comparable battery)
+    else:
+        g_pub, g_priv = build_world(f"g{k}", SEED_BASE["guard"] + k, GUARD_EXPLORE, GUARD_TASKS)
+        guards[split] = guard = {**g_pub, **g_priv}
     pubs, privs, twins = [], {}, {}
     for i in range(N_WORLDS[split]):
         wid = f"{split[0]}{i}"
-        pub, priv = build_world(wid, SEED_BASE[split] + i, N_EXPLORE, N_TASKS[split])
+        pub, priv = build_world(wid, SEED_BASE[split] + i, N_EXPLORE, N_TASKS[split], STYLE[split])
         pubs.append(pub)
         privs[wid] = priv
         tseed = SEED_BASE[f"twin_{split}"] + i
@@ -119,7 +126,8 @@ rows = pq.read_table(GSM8K_FILE).to_pylist()
 idx = random.Random(11).sample(range(len(rows)), 2 * N_GSM8K)
 gsm = [{"id": f"gsm{i:04d}", "q": rows[i]["question"], "a": int(rows[i]["answer"].split("####")[-1].strip().replace(",", ""))}
        for i in idx]
-for k, split in enumerate(("validation", "holdout")):
+for k, split in enumerate(("validation", "holdout", "novel")):
+    k = min(k, 1)                                     # novel reuses the holdout's GSM8K items
     write_json(f"{a.out}/{split}/private/gsm8k.json", gsm[k * N_GSM8K:(k + 1) * N_GSM8K])
 
 # ---- OASST2 English rows: text-NLL report (private) and replay rows for KL-to-base (train); disjoint
@@ -147,7 +155,8 @@ for i in range(0, len(msgs), 512):
         break
 text_rows = np.array(text_rows, dtype=np.int64)
 assert text_rows.shape == (need, TEXT_LEN + 1), text_rows.shape
-for k, split in enumerate(("validation", "holdout")):
+for k, split in enumerate(("validation", "holdout", "novel")):
+    k = min(k, 1)                                     # novel reuses the holdout's text rows
     np.save(f"{a.out}/{split}/private/text.npy", text_rows[k * N_TEXT:(k + 1) * N_TEXT])
 os.makedirs(f"{a.out}/train", exist_ok=True)
 np.save(f"{a.out}/train/replay.npy", text_rows[2 * N_TEXT:])
