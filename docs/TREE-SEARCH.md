@@ -181,6 +181,28 @@ matches Dream-RSI's actual claim (fewer calls for similar quality), but n = 1 pe
 - a compute-matched guard;
 - dreaming on all four trees.
 
+### T2b: nanochat-lite, compute-matched replication (2026-10-01)
+The same root (m3b:0005), but the training-time guard is **train_s ≤ 1.05×** (compute-matched), with 5 holdout seeds and
+proposer gpt-6.1-sol. Rounds: a0 → a1 (parallel_refine) → dream n2-d1 (train a0, held-out a1; accepted) → b1, b2
+(dreamed) → g1 (greedy). σ = 0.0025, 2·SE = 0.0031.
+
+| round | policy | nodes | holdout d (± 2·SE) | verdict |
+|---|---|---|---|---|
+| c-a0 | parallel_refine (W4) | 32 | 0.0013 ± 0.0031 | not found at this scale |
+| c-a1 | parallel_refine (W4) | 32 | 0.0008 ± 0.0031 | not found at this scale |
+| c-b1 | dreamed n2-d1 | 5 (policy stop) | 0.0012 ± 0.0031 | inconclusive (stopped early) |
+| c-b2 | dreamed n2-d1 | 5 (policy stop) | 0.0010 ± 0.0031 | inconclusive (stopped early) |
+| c-g1 | greedy_best_leaf | 32 | 0.0005 ± 0.0031 | not found at this scale |
+
+**With the time slack removed, nothing reaches MES 0.01.** No round got near it: all five estimates lie in
+0.0005–0.0013 bpb. This confirms that T2's wins came from bigger models inside the 1.3× allowance, not from better
+training recipes at equal compute. The m3b incumbent is near a local optimum for this budget and this proposer.
+
+The dreamed policy again stopped after its first batch plus one node. With nothing to find, early stopping costs
+nothing in quality (its d is within noise of the 32-node rounds) and saves about 85% of the nodes. That is the
+"cheaper at similar quality" claim, but in a regime where every policy finds nothing, so it says little about
+search quality. The powered test of that question is P3 ([DREAM-PROTOCOL.md](DREAM-PROTOCOL.md)).
+
 ## Known limits
 
 - **Recorded trees are biased by the recording policy.** A replayed policy can only find what that policy happened
