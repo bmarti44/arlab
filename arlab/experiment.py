@@ -17,6 +17,11 @@ NOTES_MAX = 8192
 
 
 # ------------------------------------------------------------------ the agent's view
+def guard_spec(g) -> str:
+    return " ".join([g.name] + [f"{k} {v}" for k, v in (("max", g.max), ("min", g.min), ("max_ratio_vs_baseline",
+                     g.max_ratio_vs_baseline), ("min_ratio_vs_baseline", g.min_ratio_vs_baseline)) if v is not None])
+
+
 def history_md(c: Campaign, records: list[dict], full: bool = False) -> str:
     st, p = c.state, c.pack
     _, inc_vals, inc_id = c.incumbent(records)
@@ -26,12 +31,14 @@ def history_md(c: Campaign, records: list[dict], full: bool = False) -> str:
              f"Metric: {p.metric.name} ({p.metric.direction}). MES (judged only at the end): {p.metric.mes}.",
              f"Calibration (baseline, validation): {st.get('calibration')}; sigma={st.get('sigma', 0):.4g}.",
              f"Baseline on screen seed {s}: {base:.6g}. Incumbent ({inc_id}) on seed {s}: {inc_vals[s]['primary']:.6g}.",
-             f"References (screen seed): {st.get('references') or 'none'}.", "",
+             f"References (screen seed): {st.get('references') or 'none'}.",
+             "Guards (a run that fails one is guard_fail): " + ("; ".join(guard_spec(g) for g in p.guards) or "none") + ".", "",
              "| id | status | primary | delta | se | tag | description |", "|---|---|---|---|---|---|---|"]
     shown = records if full else records[-30:]
     for r in shown:
         f = lambda v: "" if v is None else f"{v:.4g}"
-        lines.append(f"| {r['id']} | {r['status']} | {f(r.get('primary'))} | {f(r.get('delta'))} | {f(r.get('se'))} | "
+        status = r["status"] + (f" ({r['reason'][:160]})" if r["status"] == "guard_fail" and r.get("reason") else "")
+        lines.append(f"| {r['id']} | {status} | {f(r.get('primary'))} | {f(r.get('delta'))} | {f(r.get('se'))} | "
                      f"{r.get('hypothesis_tag', '')} | {r.get('description', '')} |")
     tags: dict[str, dict] = {}
     for r in counted(records):

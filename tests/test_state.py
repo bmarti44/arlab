@@ -123,3 +123,18 @@ def test_constraints_dedup_and_cap(tmp_path):
     for i in range(60):
         add_constraints(tmp_path, f"{i:04d}", "", f"fact {i}")
     assert len((tmp_path / "constraints.md").read_text().splitlines()) == 50
+
+
+def test_history_shows_guard_failure_reasons_and_bounds():
+    """The agent must see WHICH guard failed and by how much (plastic-agent v2: 12/15 guard_fail, reasons hidden)."""
+    from types import SimpleNamespace as NS
+    from arlab.experiment import history_md
+    g = NS(name="gsm8k_drop", max=0.06, min=None, max_ratio_vs_baseline=None, min_ratio_vs_baseline=None)
+    c = NS(state={"calibration": {}, "sigma": 0.01, "references": None},
+           pack=NS(metric=NS(name="success", direction="maximize", mes=0.06), seeds=NS(screen=1), guards=[g]),
+           incumbent=lambda recs: ("x", {1: {"primary": 0.05}}, "baseline"), baseline_vals=lambda: {1: {"primary": 0.05}})
+    recs = [{"id": "0001", "status": "guard_fail", "reason": "gsm8k_drop=0.085 > 0.06", "primary": 0.3, "hypothesis_tag": "t"},
+            {"id": "0002", "status": "crash", "reason": "private evaluator text", "primary": None, "hypothesis_tag": "t"}]
+    h = history_md(c, recs)
+    assert "guard_fail (gsm8k_drop=0.085 > 0.06)" in h and "Guards (a run that fails one is guard_fail): gsm8k_drop max 0.06." in h
+    assert "private evaluator text" not in h
