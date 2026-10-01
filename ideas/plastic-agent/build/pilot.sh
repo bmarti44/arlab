@@ -5,7 +5,7 @@
 #   pilot.sh <arm> <out-dir> [seed] [split]     arm = baseline (surface/) | none | icl | placebo (frozen/run/ref_<arm>)
 #                                               | custom (SRC_DIR=<dir with adapt.py>, e.g. a campaign's winner)
 #   pilot.sh gate <root>                        data-prep gate: runs none + icl on validation seed 1, prints GO / NO-GO
-#   ADAPT=180 GEN_TOKENS=400000 TRAIN_TOKENS=1500000 pilot.sh ...   override the per-world adapt budget (calibration)
+#   ADAPT=180 GEN_TOKENS=400000 TRAIN_TOKENS=1500000 pilot.sh ...   override the per-world adapt budget (v2 default 160 s)
 # Suggested order: gate -> baseline -> placebo (then timing: adapt_s per world in run.log, RUN/EVAL seconds below).
 set -eu
 P=/home/bmarti44/arlab/ideas/plastic-agent
@@ -38,7 +38,7 @@ case $ARM in
   custom) SRC=${SRC_DIR:?custom arm needs SRC_DIR=<dir with adapt.py>} ;;
   *) echo "unknown arm $ARM"; exit 2 ;;
 esac
-ADAPT=${ADAPT:-180}; GEN_TOKENS=${GEN_TOKENS:-400000}; TRAIN_TOKENS=${TRAIN_TOKENS:-1500000}
+ADAPT=${ADAPT:-160}; GEN_TOKENS=${GEN_TOKENS:-400000}; TRAIN_TOKENS=${TRAIN_TOKENS:-1500000}
 DATA=${DATA:-$(ls -td /home/bmarti44/arlab-data/plastic-agent/*/ | grep -v tmp | head -1)}
 IMG=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep '^arlab-plastic-agent:' | head -1)
 CACHE=/home/bmarti44/.cache/arlab/plastic-agent/pilot-eval-cache

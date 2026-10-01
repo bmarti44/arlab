@@ -120,3 +120,4 @@
   - program.md forbids benchmark-specific recognizers and goal templates, checked by diff review plus supervisor logs of gen/train data;
   - adapt cap 160 s per pass; power check also needs world-bootstrap SE ≤ 0.024.
   The existing "novel" split stays as a regression test. Build order: wording.py + fauxos rendering split, then prepare, evaluate, harness logging, tests, docs, then astra review → pilot (none/icl/baseline gate, timing) → calibrate → campaign v2.
+2026-10-01T14:02:59-04:00 plastic v2 pilot on validation only (gate none/icl seed 1 + baseline seeds 1-5): the holdout stays untouched before the campaign; holdout world-bootstrap SE is estimated from validation worlds scaled by sqrt(4/16) and checked again on the campaign's holdout.
