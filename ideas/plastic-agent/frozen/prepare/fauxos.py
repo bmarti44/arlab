@@ -1137,6 +1137,7 @@ def _fam_tasks(spec: dict, end: dict, events: list[dict], n_per_op: int, salt: s
     def ids(pred):
         return sorted(int(i) for i, o in objs.items() if pred(o))
 
+    logged = _fam_logged_values(spec, events, end)
     out, goals = [], set()
     for op in [t["op"] for t in S["tools"] if t["op"] != "inspect"]:
         got = 0
@@ -1152,6 +1153,8 @@ def _fam_tasks(spec: dict, end: dict, events: list[dict], n_per_op: int, salt: s
             goal, prog, answer = g
             if goal in goals or answer is None and all(line in seen_calls for line in prog):
                 continue
+            if answer is not None and len(prog) == 1 and prog[0] in logged and logged[prog[0]] == answer:
+                continue                             # the transcript already shows this call with this answer
             res = run_program(spec, end, "\n".join(prog))
             if res["error"] is not None:
                 continue
@@ -1169,6 +1172,19 @@ def _fam_tasks(spec: dict, end: dict, events: list[dict], n_per_op: int, salt: s
         if got < n_per_op:
             raise RuntimeError(f"world {spec['seed']}: op {op} reached only {got} tasks")
     return out
+
+
+def _fam_logged_values(spec: dict, events: list[dict], end: dict) -> dict:
+    """call string -> typed value of its LAST successful logged occurrence (replays the transcript from init)."""
+    st, logged = copy.deepcopy(spec["init"]), {}
+    for e in events:
+        res = run_program(spec, st, e["call"])
+        if res["error"] is None:
+            if res["values"] and res["values"][0] is not None:
+                logged[e["call"]] = res["values"][0]
+            st = res["state"]
+    assert st == end, "transcript replay diverged from the explorer's end state"
+    return logged
 
 
 def _fam_task(op, S, f, rng, ids, act, free, objs):

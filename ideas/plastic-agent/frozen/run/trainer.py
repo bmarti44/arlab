@@ -110,6 +110,10 @@ class Trainer:
         cfg, tens, _ = self._kept[self._id(ad)]
         return cfg, tens
 
+    def discard_last(self):
+        """The supervisor drops an adapter whose train() returned too late (harness.LATE_S)."""
+        self._kept.pop()
+
     def saved_stats(self, ad: int) -> dict:
         return dict(self._kept[self._id(ad)][2])
 

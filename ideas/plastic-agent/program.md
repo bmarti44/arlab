@@ -37,12 +37,14 @@ the wording or the operation catalog is disclosed: a method that wins must learn
 A frozen scripted explorer produced the transcript (every tool several times, error probes, 15% random probes). The
 harness gives adapt() one world at a time on a fresh base model (per-world budget: 160 s wall clock from before the
 import of adapt.py, 400k gen tokens, 1.5M train tokens; when the budget runs out, or at 160 + 15 s when the process is
-killed, the last adapter trained in that world is kept).
+killed, the last adapter trained in that world is kept; an adapter whose train() returns more than 10 s after the
+deadline is discarded). adapt() gets ONE CPU thread: CPU time > 1.1 x wall time + 5 s (native threads count) = invalid.
 The evaluator merges each world's adapter and asks for ONE call per goal (a natural-language request in the world's
 own phrasing): the first line of the answer that looks like name(arg, ...) is executed (positional int / "string"
 literals; a bare word counts as a string; other lines are ignored). The simulator runs it from the state where the
 exploration ended; after an error the model gets one retry that shows the error. Success = no error, exact final
 state (for changes) and the right value (for questions). Every operation has the same number of tasks per world.
+No goal repeats a logged change, and no question is answered by a logged call whose logged answer is still right.
 Control: every world has a TWIN with the SAME tool names and argument vocabulary but other semantics (every name does
 something else) and its own transcript. adapt() runs on it too (same sandbox and budget; it cannot tell which is which)
 and that adapter is scored on the REAL world: twin_success. world_specific_gain = success − twin_success: gains from
@@ -78,8 +80,8 @@ Also: learning rate / epochs / rank / targets, error-recovery demos in the retry
   observation or goal TEXT to operation types, and no hand-written goal templates or operation catalogs (not in code
   and not inside prompts you give to gen). Allowed: parsing the call syntax name(arg, ...), generic text processing
   (splitting, extracting numbers and quoted strings), and anything the base model infers through gen from the
-  current transcript. The supervisor logs every gen / train request; kept changes are reviewed against this rule and
-  a violating keep is reverted.
+  current transcript. The supervisor logs every gen / teacher / train request in full (a request that would overflow
+  the 24M-char per-world log is refused); kept changes are reviewed against this rule and a violating keep is reverted.
 - One change, one hypothesis_tag (reuse an existing tag for the same idea).
 - Read history.md: don't repeat a failed idea unless you change it materially. After 3 discards in a row, try something structurally different.
 - Respect constraints.md (facts about this machine: GB10 GPU, sm_121, unified memory shared with the owner).

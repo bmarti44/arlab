@@ -36,6 +36,7 @@ Outputs in --out (written only by this process; scored only by the frozen evalua
 import os
 os.environ.setdefault("PYTORCH_ALLOC_CONF", "expandable_segments:True")
 import argparse  # noqa: E402
+import gzip  # noqa: E402
 import json  # noqa: E402
 import random  # noqa: E402
 import select  # noqa: E402
@@ -53,11 +54,13 @@ from transformers import AutoModelForCausalLM, AutoTokenizer  # noqa: E402
 import lora  # noqa: E402
 from common import MODEL_DIR, arm_of  # noqa: E402
 from engine import Budget, BudgetExceeded, Engine, Gen  # noqa: E402
-from sandbox import become_subreaper, descendants, kill_descendants, threads  # noqa: E402
+from sandbox import become_subreaper, cpu_s, descendants, kill_descendants, threads  # noqa: E402
 from trainer import Trainer  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-AUDIT_MAX, AUDIT_STR, AUDIT_N = 2_000_000, 1500, 64   # per-world audit log: total chars, chars per string, items per call
+AUDIT_MAX = 24_000_000   # per pass: JSON chars of logged requests; a request that would overflow it is refused
+LATE_S = 10.0            # an adapter whose train() returns later than deadline + LATE_S is discarded
+CPU_SLACK = (1.1, 5.0)   # the child may use at most 1.1 x its wall time + 5 s of CPU (one thread; native threads count)
 CHILD = os.path.join(HERE, "child.py")
 STARTUP_S, GRACE_S, MAX_MSG = 120.0, 15.0, 256 << 20
 CHILD_ENV = {"PATH": "/usr/local/bin:/usr/bin:/bin", "HOME": "/tmp", "CUDA_VISIBLE_DEVICES": "", "OMP_NUM_THREADS": "1",
@@ -157,14 +160,25 @@ def main():
         if lora.n_wrapped(model) or lora.fingerprint(model) != fp0:
             raise Fatal(f"base model changed {where}: adapters must not leak between worlds")
 
-    def serve(msg: dict, gen: Gen, trainer: Trainer, teachers: list, budget: Budget, audit: list | None = None) -> dict:
+    def serve(msg: dict, gen: Gen, trainer: Trainer, teachers: list, budget: Budget, audit: list | None = None,
+              audit_size: list | None = None) -> dict:
         """One RPC from the child: validated and metered here; the child only ever gets JSON data back. v2: every
-        generate / train request is also appended (truncated) to `audit`, written to out/audit/<world>.json for the
-        orchestrator's rule review (no benchmark-specific recognizers or goal templates; V2-DESIGN-sol.md)."""
+        generate / teacher / train request is logged IN FULL before it runs (with its outcome and, for generate, its
+        outputs) to `audit`, written to out/audit/<world>.json.gz for the orchestrator's rule review (no
+        benchmark-specific recognizers or goal templates; V2-DESIGN-sol.md). A request that does not fit the log is refused."""
         fn, args = msg.get("fn"), msg.get("args")
+        rec = None
         try:
             if not isinstance(args, dict):
                 raise TypeError("malformed request")
+            if audit is not None and fn in ("generate", "teacher", "train"):
+                rec = {"fn": fn, "args": args, "t": round(time.monotonic() - budget.deadline, 2)}
+                size = len(json.dumps(rec, default=str))
+                if audit_size[0] + size > AUDIT_MAX:
+                    rec = None
+                    raise ValueError(f"audit log full ({AUDIT_MAX} chars per world): request refused")
+                audit_size[0] += size
+                audit.append(rec)
             if fn == "generate":
                 if not isinstance(args["prompts"], list):
                     raise TypeError("prompts must be a list of strings")
@@ -189,6 +203,10 @@ def main():
                         ex = {**ex, "teacher": teachers[t]}
                     conv.append(ex)
                 ad = trainer.train(conv, args.get("config"), args.get("init"))
+                if time.monotonic() > budget.deadline + LATE_S:
+                    trainer.discard_last()
+                    raise BudgetExceeded(f"train() returned {time.monotonic() - budget.deadline:.1f} s after the deadline:"
+                                         " adapter discarded")
                 out = {"id": ad, "stats": trainer.saved_stats(ad)}
             elif fn == "n_tokens":
                 if not isinstance(args["text"], str):
@@ -197,20 +215,14 @@ def main():
             else:
                 raise ValueError(f"unknown call {fn!r}")
             r = {"ok": True, "result": out}
-            if audit is not None and fn in ("generate", "train") and sum(len(x) for x in audit) < AUDIT_MAX:
-                if fn == "generate":
-                    rec = {"fn": fn, "prompts": [str(x)[:AUDIT_STR] for x in args["prompts"][:AUDIT_N]],
-                           "outputs": [str(x)[:AUDIT_STR] for x in (out if isinstance(out, list) else [out])[:AUDIT_N]]}
-                else:
-                    rec = {"fn": fn, "n": len(exs), "examples": [{k: str(v)[:AUDIT_STR] for k, v in ex.items() if k != "teacher"}
-                                                                for ex in exs[:AUDIT_N] if isinstance(ex, dict)]}
-                audit.append(json.dumps(rec))
         except BudgetExceeded as e:
             r = {"ok": False, "kind": "budget", "msg": str(e)[:500]}
         except TypeError as e:
             r = {"ok": False, "kind": "type", "msg": str(e)[:1000]}
         except (ValueError, KeyError, IndexError, OverflowError) as e:
             r = {"ok": False, "kind": "value", "msg": repr(e)[:1000]}
+        if rec is not None:
+            rec["outcome"] = r["result"] if r["ok"] and fn != "teacher" else {k: r[k] for k in r if k != "result"}
         return {**r, "gen_left": budget.gen_cap - budget.gen_used, "train_left": budget.train_cap - budget.train_used}
 
     def adapt_world(wid: str, src: str, s: int) -> dict:
@@ -225,6 +237,7 @@ def main():
             if not isinstance(sandbox, dict) or sandbox.get("ok") is not True:
                 raise Fatal(f"SANDBOX FAILURE in world {wid}: {hello}")
             base_tids = threads(ch.p.pid)
+            cpu0 = cpu_s(ch.p.pid)
 
             def strays() -> list:
                 return [f"thread {t}" for t in sorted(threads(ch.p.pid) - base_tids)] + \
@@ -237,7 +250,7 @@ def main():
             budget = Budget(a.adapt_seconds, a.gen_tokens, a.train_tokens, start=t0)
             gen = Gen(engine, w["tools"], w["transcript"], budget, s)
             trainer = Trainer(model, engine, w["tools"], replay, budget, s, dev)
-            teachers, viol, res, hit, killed, audit = [], [], None, None, False, []
+            teachers, viol, res, hit, killed, audit, audit_size = [], [], None, None, False, [], [0]
             ch.send({"op": "go", "tools": w["tools"], "transcript": w["transcript"], "deadline": budget.deadline, "seed": s,
                      "gen_left": budget.gen_cap, "train_left": budget.train_cap})
             while True:
@@ -247,9 +260,12 @@ def main():
                     msg = {"op": "timeout"}                  # stop serving a surface that ignores its deadline
                 if msg.get("op") != "call":
                     break
-                ch.send(serve(msg, gen, trainer, teachers, budget, audit))
+                ch.send(serve(msg, gen, trainer, teachers, budget, audit, audit_size))
             t_end = time.monotonic()
             viol += [v for v in strays() if v not in viol]
+            cpu1 = cpu_s(ch.p.pid)
+            if cpu0 is not None and cpu1 is not None and cpu1 - cpu0 > CPU_SLACK[0] * (t_end - t0) + CPU_SLACK[1]:
+                viol.append(f"cpu {cpu1 - cpu0:.1f} s in {t_end - t0:.1f} s wall: more than one thread did work")
             op = msg.get("op")
             if op == "done":
                 if msg.get("adapter") == "last":             # BudgetExceeded escaped adapt(): keep the last adapter
@@ -270,8 +286,8 @@ def main():
         lora.detach(model)
         model.eval()
         os.makedirs(f"{a.out}/audit", exist_ok=True)
-        with open(f"{a.out}/audit/{wid}.json", "w") as f:
-            f.write("[" + ",".join(audit) + "]")
+        with gzip.open(f"{a.out}/audit/{wid}.json.gz", "wt") as f:
+            json.dump(audit, f, default=str)
         if res is not None:
             cfg, tens = trainer.saved(res)
             lora.save(f"{a.out}/adapters/{wid}", cfg, tens)

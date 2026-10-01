@@ -33,14 +33,24 @@ v1's winner reached 0.80 on the v1 holdout, but on a hand-reworded "novel" split
   count_tag, oldest_at), which never occur in validation and were never shown to any agent.
 - **Tool names** are pseudo-words independent of semantics. **Tasks are balanced:** 6 per op per world, 60 per world.
 - **Sizes:** validation 4 worlds (240 items); holdout 16 worlds (960 items).
-- **Metrics:** success equals the mean of per-op macro averages; s_familiar / s_dev / s_reserved are reported, and a
-  positive reserved-op gain over the baseline is required at finalize.
+- **Metrics:** success equals the mean of per-op macro averages; s_familiar / s_dev / s_reserved are reported.
+  **Pre-registered claim condition** (the greedy runner applies no guard at the holdout, and validation has no reserved
+  ops, so the orchestrator checks this from the holdout result files): the unqualified "supported" claim also needs the
+  incumbent's s_reserved minus the baseline's s_reserved, averaged over the 3 holdout seeds, to be > 0. Otherwise the claim is
+  "supported on familiar op types only".
+- **No answer lookup:** a held-out question is never answered by a logged call whose logged value is still right
+  (astra v2 review: 215/960 holdout tasks were), as mutation goals never repeat a logged change.
 - **Guards:** gsm8k_drop and guardworld_drop are guarded separately. Thresholds are max(0.03, 2·SD of the 5
   calibration-seed baseline drops), fixed from the v2 pilot before the campaign.
 - **Agent:** sees program.md (wording and op catalog no longer disclosed) and the frozen RUN API files, not this
   file. It is forbidden to hand-write recognizers or goal templates.
-- **Audit:** the supervisor logs every gen/train request to `out/audit/<world>.json` for review of kept changes.
-- **Budget:** adapt is capped at 160 s per pass.
+- **Audit:** the supervisor logs every gen/teacher/train request IN FULL before it runs (plus its outcome and the
+  generate outputs) to `out/audit/<world>.json.gz` for review of kept changes; a request that would push a pass over
+  24M chars is refused.
+- **Budget:** adapt is capped at 160 s per pass. An adapter whose train() returns > 10 s after the deadline is
+  discarded. The child may use at most 1.1× its wall time + 5 s of CPU (native threads count), else the run is invalid.
+- **Known limit (accepted, as in v1 REVIEW finding 5):** campaign RUN mounts the whole HF cache read-only (generic
+  runner mount); the surface's Landlock sandbox cannot read it, and RUN-side frozen code reads only the model snapshot.
 - **Regression:** the v1 "novel" split stays in the data as a reported-only check.
 
 ## Design

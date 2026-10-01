@@ -118,6 +118,16 @@ def threads(pid: int) -> set:
         return set()
 
 
+def cpu_s(pid: int) -> float | None:
+    """CPU seconds (user + system, every thread including exited ones, plus reaped children) of process `pid`."""
+    try:
+        with open(f"/proc/{pid}/stat") as f:
+            fields = f.read().rsplit(")", 1)[1].split()
+    except OSError:
+        return None
+    return sum(int(x) for x in fields[11:15]) / os.sysconf("SC_CLK_TCK")
+
+
 def kill_descendants() -> int:
     """SIGKILL and reap every descendant of this (subreaper) process; returns how many were still there."""
     me, seen = os.getpid(), set()
