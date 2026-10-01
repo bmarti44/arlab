@@ -7,7 +7,7 @@
 - **Owner decision needed:** allow Claude Code to launch the containerized Codex agent (and the arlab runner that launches it). For example, approve it interactively, or add a permission rule you're comfortable with. Everything that doesn't need Codex (M0 GPU/vLLM parts, M1, M2) continues meanwhile.
 - **Resolved 2026-09-26 23:35Z:** the owner approved running Codex without the sandbox. A test `codex exec` call (gpt-6-sol) returned a schema-valid proposal and made the edit.
 
-## B2: latent-arch (T4.2) program task not learnable at pack scale (2026-10-01)
+## B2: latent-arch (T4.2) program task not learnable at pack scale (2026-10-01) — IN PROGRESS: v2 task per FIX-sol.md, pilot running (arlab-latent-v2)
 - **Check:** the IDEA.md GPU pilot gate requires the baseline to score 30–70 % in-distribution (ID) on the synthetic programs before calibration.
 - **Evidence:** text is learned normally in every arm (val_bpb 1.15–1.25). Program accuracy is at chance in every arm, at every depth including k = 1.
   - Pilot (mod 100, programs 9 % of rows, 330 s): baseline 1.8 % ID, depth12 1.2 %, loop_naive 0.5 %, depth12_2x 1.8 %. Floor (answer = last constant) 1.7 %.

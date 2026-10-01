@@ -2,10 +2,11 @@
 You make ONE change per call. The runner (not you) runs training/evaluation, git and the ledger.
 You cannot run the experiment yourself and cannot see the evaluator or the data; do not try.
 ## Goal
-maximize accuracy on held-out multi-step programs with NO written reasoning. Programs are 14 single-assignment
-statements, arithmetic mod 100 (`a=37;k=12;b=a+4;c=k-3;d=b+c;...;e?` → `41`); the model must put the answer token
-as the argmax of the logits right after `?`, in one forward pass. accuracy = mean of acc_id (queried depth k 1..6,
-as in training) and acc_depth (k 7..10: deeper than ANY training program; only a model that composes steps can
+maximize accuracy on held-out multi-step state tracking with NO written reasoning. A record is
+`= s0 t1 … t14 ?`: a start state (one of 5) and 14 slots, k of which hold an operator (one of 44 fixed-point-free
+permutations of the 5 states), the rest a no-op `-`. The answer is s0 pushed through the active operators in order;
+the model must put it as the argmax of the logits at `?`, in one forward pass. accuracy = mean of acc_id (k 1..6,
+as in training) and acc_depth (k 7..10: deeper than ANY training record; only a model that composes steps can
 answer). Current noise: see sigma in history.md. A change is kept only if it beats the incumbent on one seed and then
 clearly (by more than 2·SE) on two fresh seeds. The question: does computing in latent depth (loops, recursion,
 adaptive depth, extra latent positions, recurrent/linear-attention state) beat the plain GPT at equal parameters
@@ -20,7 +21,9 @@ logits (B, T, 8192) for the same T. The baseline is nanochat-lite's tuned 6×384
 A frozen supervisor starts the clock BEFORE train.py is imported (in a separate trainer process); import, build,
 torch.compile, every train_step and the checkpoint write count against 330 s of wall clock. The trainer stops at
 the deadline; the supervisor kills it 30 s later no matter what, and then the run is invalid. Each batch is 64×1024
-tokens: 58 rows of web text + 6 rows of packed programs (~9 % of tokens), rows shuffled, plain next-token loss.
+tokens: 48 rows of web text (next-token targets) + 16 rows of packed records (k follows a fixed curriculum: 1, then
+1..2, then 1..6), rows shuffled. Record targets are the state after each active operator (at its position) and the
+final state at `?`; every other record target is -1: your loss must ignore -1 (the baseline uses ignore_index=-1).
 `progress` = elapsed / budget. Anything that costs more per token (K passes, extra positions, slow scans) sees
 proportionally fewer tokens: nothing inside the budget is free. The checkpoint is written by frozen code: every
 parameter and buffer of state["model"] (nothing else survives). The evaluator rebuilds the model with make_model(),
@@ -41,11 +44,11 @@ file except the Python install and your two files; it scores the returned logits
   torch's aten/prims (no custom Triton/CUDA kernels, no torch.library ops, no fla), a trainer killed at the
   deadline, a checkpoint that changed after the deadline.
 ## Forbidden (bounded by rules and diff review)
-- No special-casing the format: never branch on specific token ids or hand-code the program syntax (digits,
-  `=`, `;`, `?`). The vocabulary is secretly permuted, so hard-coded ids point at random tokens anyway.
+- No special-casing the format: never branch on specific token ids or hand-code the record syntax (states,
+  operators, `-`, `=`, `?`). The vocabulary is secretly permuted, so hard-coded ids point at random tokens anyway.
   Adaptive compute must be learned from content.
 - No symbolic computation: never parse, interpret or execute the programs outside learned network computation
-  (no hand-written interpreter, arithmetic unit, lookup tables keyed on inputs, or decoding hidden states back to
+  (no hand-written interpreter, permutation tables, lookup tables keyed on inputs, or decoding hidden states back to
   tokens to reason over them), in training or in forward.
 - forward must be a pure function of its input: no caches or state carried across calls, no timing- or
   shape-dependent special paths, no kernels launched outside torch ops (FLOPs must be countable).

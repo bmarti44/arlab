@@ -2,16 +2,20 @@
 
 Text: nanochat-lite's recipe unchanged (climbmix shards, same pins, vocab-8192 rustbpe tokenizer, uint16 stream;
 validation/holdout text rows = the two halves of the pinned upstream validation shard).
-Programs: progen.py, one generator seed family per split, hash-deduplicated across splits (eval first, then train).
+Programs (v2): progen.py permutation-composition records, one generator seed family per eval split, hash-deduplicated
+across eval splits. Train records are drawn per depth k with repeats allowed (k=1 has only 5*14*44 distinct prompts),
+excluding every eval prompt. Train inputs never contain intermediate states: the dense targets (state after each active
+operator, final state at `?`) are a separate aligned stream, IGNORE elsewhere.
 Secret vocabulary relabelling: a random permutation of the 8192 token ids (os.urandom) is applied to ALL token data;
 token_bytes are permuted to match. The permutation and the tokenizer are kept in audit/ (read by the pack tests only;
 never mounted into RUN or EVALUATE).
 
 Layout under --out:
-  train/tokens.bin, train/programs.bin (uint16), train/program_starts.npy (int64)   the only data RUN sees
+  train/tokens.bin, train/programs_k{1..6}.bin, train/targets_k{1..6}.bin (uint16, records of REC tokens)
+                                                                            the only data RUN sees
   {validation,holdout}/private/text_rows.npy (2048, 1025) uint16, token_bytes.npy (8192,) int32,
                               programs.npz (items: tokens, answer, k, group, floors, counterfactual links)
-  audit/vocab_perm.npy, audit/tokenizer.pkl, audit/train_k.npy          tests only
+  audit/vocab_perm.npy, audit/tokenizer.pkl          tests only
   splits.json, info.json
 """
 import argparse
@@ -46,7 +50,9 @@ BOS = "<|reserved_0|>"
 RAW = "/tmp/raw"
 
 # ---- programs
-N_TRAIN = 2_000_000
+N_TRAIN_PER_K = 300_000   # train records per depth k (repeats allowed)
+IGNORE = 65535            # target id meaning "no loss here" (the trainer maps it to -1)
+REC = 1 + 2 + 14 + 1      # BOS INIT s0 14 slots ?
 N_ID, N_DEPTH, N_EXT, N_CF = 2000, 2000, 500, 500      # per eval split (N_CF: 50 per k in 1..10)
 SEEDS = {"validation": 2001, "holdout": 3001, "train": 1001}
 GROUPS = {"id": 0, "depth": 1, "ext": 2, "cf": 3}
@@ -207,30 +213,40 @@ def main():
                 taken += 1
             assert taken == N_CF // len(ks), f"not enough counterfactual twins at k={k}"
         evals[split] = (g, cf_of)
-    eval_hashes = set(seen)
-    rng = random.Random(SEEDS["train"])
-    train, train_k, dup_eval, dup_train = [], [], 0, 0  # train programs as bytes of piece ids (prompt + answer)
-    while len(train) < N_TRAIN:
-        p = progen.make_program(rng, rng.randint(*progen.TRAIN_K))
-        h = progen.norm_hash(p)
-        if h in seen:
-            dup_eval += h in eval_hashes
-            dup_train += h not in eval_hashes
-            continue
-        seen.add(h)
-        a = progen.annotate(p)
-        train.append(bytes([progen.PIECE_ID[x] for x in progen.pieces(p)] + [progen.PIECE_ID[str(a["answer"])]]))
-        train_k.append(p["k"])
-    print(f"programs generated ({time.time() - t0:.0f}s); train redraws: {dup_eval} eval collisions, "
-          f"{dup_train} train duplicates", flush=True)
-
-    # ---- train program stream: BOS + prompt + answer per program, relabelled
-    idx = np.frombuffer(b"".join(train), dtype=np.uint8).reshape(len(train), -1)
-    full = perm[np.concatenate([np.full((len(train), 1), bos), piece_tok[idx]], axis=1)].astype(np.uint16)
-    full.reshape(-1).tofile(f"{out}/train/programs.bin")
-    np.save(f"{out}/train/program_starts.npy", np.arange(len(train), dtype=np.int64) * full.shape[1])
-    np.save(f"{out}/audit/train_k.npy", np.array(train_k, dtype=np.uint8))
-    del idx, full
+    # ---- train records per k (numpy; repeats allowed), excluding every eval prompt exactly
+    assert REC == 1 + progen.n_pieces()
+    eval_rows = {bytes([progen.PIECE_ID[x] for x in progen.pieces(p)]) for g, _ in evals.values() for v in g.values() for p in v}
+    Dm = np.array(progen.DERANGEMENTS)
+    S, nop, ini, qry = progen.DIFFICULTY["n_slots"], progen.PIECE_ID[progen.NOP], progen.PIECE_ID[progen.INIT], progen.PIECE_ID[progen.QUERY]
+    op0 = progen.PIECE_ID[progen.OPS[0]]
+    assert [progen.PIECE_ID[x] for x in progen.STATES] == list(range(progen.N_STATES))
+    dup_eval = 0
+    for k in range(progen.TRAIN_K[0], progen.TRAIN_K[1] + 1):
+        r = np.random.default_rng(SEEDS["train"] * 100 + k)
+        parts, have = [], 0
+        while have < N_TRAIN_PER_K:          # chunks until enough non-eval records (k=1: ~1/4 of prompts are eval)
+            m = 200_000
+            s0 = r.integers(0, progen.N_STATES, m)
+            pos = np.argsort(r.random((m, S)), axis=1)[:, :k]
+            slots = np.full((m, S), -1)
+            np.put_along_axis(slots, pos, r.integers(0, len(Dm), (m, k)), axis=1)
+            st, cur = np.full((m, S), -1), s0.copy()
+            for j in range(S):
+                a = slots[:, j] >= 0
+                cur = np.where(a, Dm[np.maximum(slots[:, j], 0), cur], cur)
+                st[:, j] = np.where(a, cur, -1)
+            ids = np.concatenate([np.full((m, 1), ini), s0[:, None], np.where(slots >= 0, op0 + slots, nop), np.full((m, 1), qry)], axis=1)
+            keep = np.array([row.astype(np.uint8).tobytes() not in eval_rows for row in ids])
+            dup_eval += int((~keep).sum())
+            parts.append((ids[keep], st[keep], cur[keep]))
+            have += int(keep.sum())
+        ids, st, cur = (np.concatenate([x[i] for x in parts])[:N_TRAIN_PER_K] for i in range(3))
+        tgt = np.concatenate([np.full((len(ids), 3), -1), st, cur[:, None]], axis=1)       # BOS INIT s0 | slots | ?
+        inp = np.concatenate([np.full((len(ids), 1), perm[bos]), perm[piece_tok[ids]]], axis=1).astype(np.uint16)
+        tg = np.where(tgt >= 0, perm[piece_tok[np.maximum(tgt, 0)]], IGNORE).astype(np.uint16)
+        inp.tofile(f"{out}/train/programs_k{k}.bin")
+        tg.tofile(f"{out}/train/targets_k{k}.bin")
+    print(f"programs generated ({time.time() - t0:.0f}s); train eval-prompt collisions dropped: {dup_eval}", flush=True)
 
     # ---- eval splits: text rows + permuted token_bytes + programs, all private
     vdocs = list(docs(val_path))
@@ -266,9 +282,9 @@ def main():
     info = {"vocab_size": enc.n_vocab, "seq_len": SEQ_LEN, "train_text_tokens": n, "eval_rows": EVAL_ROWS,
             "train_shards": TRAIN_SHARDS, "val_shard": VAL_SHARD, "difficulty": progen.DIFFICULTY,
             "train_k": progen.TRAIN_K, "id_k": progen.ID_K, "depth_k": progen.DEPTH_K, "ext_k": progen.EXT_K,
-            "n_train_programs": len(train), "piece_fallback": fallback, "program_tokens": int(1 + progen.n_pieces() + 1),
+            "n_train_per_k": N_TRAIN_PER_K, "piece_fallback": fallback, "program_tokens": REC, "ignore": IGNORE,
             "n_eval": {"id": N_ID, "depth": N_DEPTH, "ext": N_EXT, "cf": N_CF}, "seeds": SEEDS,
-            "train_redraws": {"eval_collisions": dup_eval, "train_duplicates": dup_train}, "floors": floors,
+            "train_eval_collisions_dropped": dup_eval, "floors": floors,
             "example": progen.to_text(evals["validation"][0]["id"][0])}
     json.dump(info, open(f"{out}/info.json", "w"), indent=1)
     print(json.dumps(info, indent=1))

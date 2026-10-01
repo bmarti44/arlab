@@ -44,34 +44,38 @@ written reasoning**, including programs with **more steps than any training prog
   when used in pretraining (2310.02226) — which this pack does.
 - Predecessor brief with the full methods table: `ideas/looped-latent/RESEARCH.md`.
 
-## Task: frozen synthetic programs (generator in `frozen/prepare/`, PREPARE-only)
+## Task: frozen synthetic state tracking (generator in `frozen/prepare/`, PREPARE-only)
 
-**Programs.** Straight-line single-assignment programs over lowercase single-letter variables, arithmetic mod 100,
-e.g. `a=37;k=12;b=a+4;c=k-3;d=b+c;…;e?` → answer `41`. Every statement is `v=CONST`, `v=u±c` or `v=u±w`
-(c ∈ 1..9). **Depth k** = the length of the longest dependency chain from the queried variable to constants (the
-number of serial arithmetic steps needed). **Every program has the same number of statements (N_STMT = 14)**; the
-queried chain is interleaved with distractor chains, so depth never correlates with program length or position
-(no length-generalization confound). The answer is the executed value, always **one token** (PREPARE asserts that
-each of 0..99 and each variable letter tokenizes to exactly one token in context, and that the query line ends right
-before the answer token).
-- **Splits** (each from its own generator seed family, hash-deduplicated across splits on the normalized program):
-  train ~2 M programs, queried depth k ∈ 1..6; validation and holdout each **2,000 ID items (k 1..6, uniform)
-  + 2,000 DEPTH items (k 7..10, uniform)**. No training program is ever *queried* at k > 6.
-- **Where the data lives.** `train/programs.bin` (token ids) is the only program data RUN sees. **Validation and
-  holdout programs and answers are in `private/` only** (the evaluator runs the model on them itself), so RUN never
-  sees an eval program, not even unlabelled. `public/` is empty.
-- **Secret vocabulary relabelling.** PREPARE draws a random permutation of the 8192-token vocabulary (salt from
-  `os.urandom`, stored only in `private/`) and writes *all* token data (text stream, programs, eval rows) relabelled;
-  the evaluator's `token_bytes` are permuted to match. A general architecture is invariant to this (embeddings are
-  learned); a surface that hard-codes token ids (the delimiter, digits, the query mark) to special-case the program
-  format silently breaks.
-- **Knobs** (`DIFFICULTY`, N_STMT, the train/ID/DEPTH ranges, the program share of the stream) are tuned **once in the
-  GPU pilot** so the baseline lands at 30–70 % ID accuracy, then frozen; changing them changes `data_hash` (new tag).
+**v2 (2026-10-01).** The v1 arithmetic programs (below, in git history) were not learnable at pack scale: the
+baseline stayed at chance after three attempts (BLOCKED.md B2). gpt-6.1-sol's researched fix (`FIX-sol.md`) replaced
+them with ordered permutation composition plus dense supervision through targets only.
 
-**Training stream (frozen in the harness).** Each 64×1024 batch = 58 rows of random windows of the nanochat-lite
-climbmix text (same pinned shards and tokenizer recipe) + **6 rows of packed programs** (BOS-separated, ~9 programs
-per row; ≈ 9 % of tokens, ≈ 80 k programs per baseline run). Plain next-token loss on every token; the surface sees
-only `(x, y)` and cannot tell rows apart except by learning to.
+**Records.** `BOS = s0 t1 … t14 ?` (18 tokens). s0 is a start state in {0..4}. Exactly k of the 14 slots hold an
+active operator, one of the **44 fixed-point-free permutations** of the 5 states (one token each, `10`…`53`), at
+uniformly random positions. The other slots hold the no-op `-`. The answer is s0 pushed through the active operators
+in order, one state token predicted at `?`. **Depth k** = the number of active operators = serial composition steps.
+The length is fixed and active positions are uniform at every k. The no-op count does reveal k; this is accepted.
+- **Splits.** ID k 1..6, DEPTH k 7..10, EXT k 11..12 (reported only). Validation and holdout each have 2,000 ID +
+  2,000 DEPTH + 500 EXT items, plus 500 counterfactual twins (same operators, other s0; the answer always changes,
+  since the composition is a bijection). Eval records are hash-disjoint across splits. Training records may repeat
+  (k = 1 has only 3,080 distinct prompts), but no training row equals any eval prompt.
+- **Where the data lives.** `train/programs_k{1..6}.bin` and `train/targets_k{1..6}.bin` (300 k records per k,
+  uint16, 18 per record; target 65535 = ignore) are the only record data RUN sees. Eval records and answers are in
+  `private/` only. `public/` is empty.
+- **Secret vocabulary relabelling** is unchanged: all token data and `token_bytes` are permuted with a salt that
+  exists only in `private/`.
+
+**Training stream (frozen in the harness).** Each 64×1024 batch = **48 rows** of climbmix text windows (next-token
+targets) + **16 rows** of packed records, rows shuffled. Records are concatenated (each starts with BOS). Their targets
+are the state after each active operator, at that operator's position, and the final state at `?`; all other record
+targets are -1 (ignored). Intermediate states never appear in inputs. **Curriculum over progress:** k = 1 for the
+first 20 %, k uniform in 1..2 until 40 %, then uniform in 1..6.
+
+**Deviations from sol's spec, accepted for simplicity** (DECISIONS.md):
+- the loss is the surface's plain mean CE over all non-ignored targets, not sol's separately weighted terms
+  (record targets end up ≈ 8 % of supervised tokens, against sol's 0.25 relative weight);
+- records are concatenated without segment masks, so attention can cross record boundaries; each record starts
+  with BOS.
 
 ## Metric
 
@@ -85,11 +89,11 @@ Also reported, not gating: accuracy per k (1..10), acc on k = 11–12 (500 extra
    fixed, so only a model that composes steps can answer. A lookup/heuristic model shows a cliff at k = 7; a computing
    model degrades smoothly. The accuracy-vs-k curve is in every report.
 2. **Novel instances**: random constants make the program space ≈ 10²⁰; eval programs are hash-disjoint from train.
-3. **Heuristic floors** computed by the evaluator on the same items: last constant in the program, the queried
-   variable's own constant term, the chain root, the modal answer. The generator is tuned so each is ≤ 10 %.
+3. **Heuristic floors** computed by the evaluator on the same items (v2): only the last operator applied to s0, s0
+   itself, only the first operator, the modal answer. Chance is 20 %; the first/last-operator floors are ≈ 27 %
+   because they are exact at k = 1.
 4. **Counterfactual consistency — changed-answer root interventions** (50 pairs per k 1..10 per split): the same
-   program with the chain root's constant replaced by a random other value, kept only if the answer changes (roots
-   whose contribution cancels are skipped). Reported as the fraction of pairs where both answers are right.
+   operators with a different start state s0 (v2; the answer always changes). Reported as the fraction of pairs where both answers are right.
 
 ## Budget — how loops, recursion and extra positions are paid for
 

@@ -5,8 +5,10 @@ kills this process group at deadline + GRACE_S regardless). Finally it writes th
 {name: tensor} of state["model"] to --ckpt and reports done. JSON lines on the original stdout; anything the
 surface prints goes to stderr (the run log).
 
-Batches: 64 rows x 1024 tokens = TEXT_ROWS random windows of the relabelled text stream + PROG_ROWS rows of packed
-programs (random BOS-aligned program start), in a seeded random row order. Plain (x, y) next-token pairs.
+Batches: 64 rows x 1024 tokens = TEXT_ROWS random windows of the relabelled text stream (next-token targets) + PROG_ROWS
+rows of packed program records (depth k from the frozen CURRICULUM over training progress) whose targets are DENSE STATE
+SUPERVISION: the state after each active operator at its position, the final state at `?`, -1 (ignore) elsewhere.
+Seeded random row order. The surface's loss must ignore target -1 (the baseline uses ignore_index=-1).
 """
 import argparse
 import json
@@ -20,7 +22,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import numpy as np  # noqa: E402
 import torch  # noqa: E402
 
-from common import PROG_ROWS, SEQ_LEN, TEXT_ROWS, VOCAB, model_tensors  # noqa: E402
+from common import CURRICULUM, IGNORE, PROG_ROWS, REC, SEQ_LEN, TEXT_ROWS, TRAIN_K, VOCAB, model_tensors  # noqa: E402
 
 
 def main():
@@ -43,29 +45,42 @@ def main():
     text_rows, prog_rows, seq_len = (3, 1, 128) if a.smoke else (TEXT_ROWS, PROG_ROWS, SEQ_LEN)
     batch = text_rows + prog_rows
     text = np.memmap(f"{a.data}/tokens.bin", dtype=np.uint16, mode="r")
-    progs = np.memmap(f"{a.data}/programs.bin", dtype=np.uint16, mode="r")
-    starts = np.load(f"{a.data}/program_starts.npy")
-    starts = starts[starts <= len(progs) - seq_len - 1]
+    ks = range(TRAIN_K[0], TRAIN_K[1] + 1)
+    inp = {k: np.memmap(f"{a.data}/programs_k{k}.bin", dtype=np.uint16, mode="r").reshape(-1, REC) for k in ks}
+    tgt = {k: np.memmap(f"{a.data}/targets_k{k}.bin", dtype=np.uint16, mode="r").reshape(-1, REC) for k in ks}
+    per_row = seq_len // REC + 1
     rng = np.random.default_rng(a.seed)
     torch.manual_seed(a.seed)
-    buf = torch.empty((batch, seq_len + 1), dtype=torch.long)
+    xb = torch.empty((batch, seq_len), dtype=torch.long)
+    yb = torch.empty((batch, seq_len), dtype=torch.long)
     if dev == "cuda":
         torch.cuda.manual_seed(a.seed)
         torch.zeros(1, device=dev)
-        buf = buf.pin_memory()
+        xb, yb = xb.pin_memory(), yb.pin_memory()
 
     def sync():
         if dev == "cuda":
             torch.cuda.synchronize()
 
-    def next_batch():
+    def next_batch(progress):
+        """Text rows: next-token targets. Program rows: packed records (k from the frozen curriculum) with their
+        dense targets (state after each active operator, final state at `?`; -1 elsewhere). Inputs never contain
+        intermediate states."""
+        lo, hi = next(r for until, r in CURRICULUM if progress < until)
         t0s = rng.integers(0, len(text) - seq_len - 1, text_rows)
-        p0s = starts[rng.integers(0, len(starts), prog_rows)]
-        rows = [text[s:s + seq_len + 1] for s in t0s] + [progs[s:s + seq_len + 1] for s in p0s]
+        rows_x = [text[s:s + seq_len] for s in t0s]
+        rows_y = [text[s + 1:s + seq_len + 1] for s in t0s]
+        kk = rng.integers(lo, hi + 1, (prog_rows, per_row))
+        for r in range(prog_rows):
+            idx = [int(rng.integers(0, len(inp[k]))) for k in kk[r]]
+            rows_x.append(np.concatenate([inp[k][i] for k, i in zip(kk[r], idx)])[:seq_len])
+            rows_y.append(np.concatenate([tgt[k][i] for k, i in zip(kk[r], idx)])[:seq_len])
         order = rng.permutation(batch)
-        buf.copy_(torch.from_numpy(np.stack([rows[i] for i in order]).astype(np.int64)))
-        xy = buf.to(dev, non_blocking=True)
-        return xy[:, :-1], xy[:, 1:]
+        xb.copy_(torch.from_numpy(np.stack([rows_x[i] for i in order]).astype(np.int64)))
+        y = np.stack([rows_y[i] for i in order]).astype(np.int64)
+        y[y == IGNORE] = -1
+        yb.copy_(torch.from_numpy(y))
+        return xb.to(dev, non_blocking=True), yb.to(dev, non_blocking=True)
 
     send({"op": "ready"})
     go = json.loads(sys.stdin.readline())
@@ -86,7 +101,7 @@ def main():
             now = time.monotonic()
             if now >= deadline:
                 break
-            x, y = next_batch()
+            x, y = next_batch((now - t0) / a.train_seconds)
             loss = surface.train_step(state, (x, y), step, (now - t0) / a.train_seconds)
             step += 1
             lv = float(loss)
@@ -103,7 +118,7 @@ def main():
         loop_end_s = time.monotonic() - t0
         torch.save(model_tensors(state["model"]), a.ckpt)
         send({"op": "done", "train_steps": step, "tokens_seen": step * batch * seq_len,
-              "program_tokens_seen": step * prog_rows * seq_len, "build_s": build_s, "first_step_s": first_step_s,
+              "program_tokens_seen": step * prog_rows * seq_len, "curriculum": CURRICULUM, "build_s": build_s, "first_step_s": first_step_s,
               "loop_end_s": loop_end_s, "nan_at": nan_at, "train_loss_last50": sum(recent) / max(1, len(recent)),
               "batch": [text_rows, prog_rows, seq_len]})
     except Exception:

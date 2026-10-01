@@ -23,7 +23,7 @@ import progen  # noqa: E402
 import meter  # noqa: E402
 from common import VOCAB, count_bytes, count_elements, file_sha256, load_checkpoint, tensors_hash  # noqa: E402
 
-L = 1 + progen.n_pieces()  # prompt tokens: BOS + statements + `q?`
+L = 1 + progen.n_pieces()  # prompt tokens: BOS INIT s0 14 slots ?
 
 
 def _npz(split):
@@ -52,109 +52,64 @@ def _text(codec, row):
     return "".join(codec["to_piece"][int(t)] for t in row)
 
 
-# ---------------------------------------------------------------- generator
-def test_generator_deterministic_depth_and_answers():
+# ---------------------------------------------------------------- generator (v2: permutation composition)
+def _compose(p):
+    s = p["s0"]
+    for o in p["slots"]:
+        if o >= 0:
+            s = progen.DERANGEMENTS[o][s]
+    return s
+
+
+def test_derangements_and_pieces():
+    D_ = progen.DERANGEMENTS
+    assert len(D_) == 44 == len(set(D_)) and all(all(p[i] != i for i in range(5)) for p in D_)
+    assert sorted(D_[0]) == list(range(5))
+    assert len(progen.PIECES) == len(set(progen.PIECES)) == 5 + 44 + 3
+
+
+def test_generator_deterministic_answers_and_targets():
     a, b = progen.generate(7, 600, (1, 12), balanced=True), progen.generate(7, 600, (1, 12), balanced=True)
     assert a == b and a != progen.generate(8, 600, (1, 12), balanced=True)
     assert [p["k"] for p in a[:12]] == list(range(1, 13))
     for p in a:
         q = progen.parse(progen.to_text(p))
-        assert q["stmts"] == p["stmts"] and q["query"] == p["query"]
-        assert progen.depths(q["stmts"])[q["query"]] == p["k"]
-        assert progen.evaluate(q["stmts"])[q["query"]] == p["answer"] and 0 <= p["answer"] <= 99
-        assert len(progen.pieces(p)) == progen.n_pieces() and len(p["stmts"]) == progen.DIFFICULTY["n_stmt"]
-        assert sum(s[1] == "c" for s in p["stmts"]) == progen.DIFFICULTY["n_const"]
-        assert len({s[0] for s in p["stmts"]}) == len(p["stmts"])          # single assignment
+        assert q["s0"] == p["s0"] and q["slots"] == p["slots"] and q["k"] == p["k"] == sum(o >= 0 for o in p["slots"])
+        assert p["answer"] == _compose(p) and 0 <= p["answer"] < 5
+        pc, tg = progen.pieces(p), progen.targets(p)
+        assert len(pc) == len(tg) == progen.n_pieces() and pc[0] == progen.INIT and pc[-1] == progen.QUERY
+        assert tg[-1] == str(p["answer"]) and tg[0] is None and tg[1] is None
+        st = p["s0"]
+        for o, t in zip(p["slots"], tg[2:-1]):
+            if o < 0:
+                assert t is None
+            else:
+                st = progen.DERANGEMENTS[o][st]
+                assert t == str(st)                                   # dense target = state after this operator
+        assert p["h_own_const"] == p["s0"]
 
 
-def test_depth_on_hand_made_programs():
-    cases = {"a=5;a?": (0, 5), "a=5;b=a+3;c=b-9;c?": (2, 99), "a=1;b=a+1;c=b+a;c?": (2, 3),
-             "x=7;a=5;b=a+x;c=b+x;d=x+1;c?": (2, 19), "x=7;a=5;d=x+1;b=a+x;c=b+x;d?": (1, 8),
-             "a=50;b=a+1;c=b+1;d=c+1;e=a-d;e?": (4, 97), "a=2;z=9;y=z-1;x=y+a;w=x-a;w?": (3, 8)}
-    for text, (k, ans) in cases.items():
-        p = progen.parse(text)
-        assert progen.depths(p["stmts"])[p["query"]] == k, text
-        assert progen.evaluate(p["stmts"])[p["query"]] == ans, text
+def test_hand_made_records():
+    D_ = progen.DERANGEMENTS
+    i, j = 0, 5
+    p = {"s0": 2, "slots": [-1] * 3 + [i] + [-1] * 5 + [j] + [-1] * 4, "k": 2}
+    assert progen.answer(p) == D_[j][D_[i][2]]
+    assert progen.answer({"s0": 3, "slots": [i] + [-1] * 13, "k": 1}) == D_[i][3] != 3
 
 
-def _chain(p):
-    st = {s[0]: s for s in p["stmts"]}
-    out = [p["query"]]
-    while st[out[-1]][1] != "c":
-        out.append(st[out[-1]][2])
-    return set(out)
-
-
-def test_training_programs_have_no_statement_deeper_than_six():
-    import random
-    rng = random.Random(0)
-    for _ in range(50_000):
-        p = progen.make_program(rng, rng.randint(*progen.TRAIN_K))
-        assert max(progen.depths(p["stmts"]).values()) <= progen.TRAIN_K[1]
-    for _ in range(10_000):                  # every split: only the queried chain may be deeper than 6
-        p = progen.make_program(rng, rng.randint(1, 12))
-        dep, ch = progen.depths(p["stmts"]), _chain(p)
-        assert max(v for x, v in dep.items() if x not in ch) <= progen.DIFFICULTY["distractor_max_depth"]
-        assert not any(p["query"] in (s[2], s[3]) for s in p["stmts"])      # nothing reads the queried variable
-
-
-def _tv(a, b):
-    ca, cb = np.bincount(a, minlength=32) / len(a), np.bincount(b, minlength=32) / len(b)
-    return 0.5 * np.abs(ca - cb).sum()
-
-
-def _cues(p):
-    st = p["stmts"]
-    pos = {s[0]: i for i, s in enumerate(st)}
-    root = [x for x in _chain(p) if st[pos[x]][1] == "c"][0]
-    return pos[p["query"]], pos[root], int(isinstance(st[pos[p["query"]]][3], str)), \
-        sum(isinstance(s[3], str) for s in st if s[1] != "c")
-
-
-def test_query_position_and_format_do_not_reveal_depth():
-    """Per-k histograms (k 1..10, 3000 programs each) of the queried statement's index, the chain root's index,
-    whether the query reads a variable, and the number of v=u±w statements: max total-variation distance over all
-    pairs of k stays at sampling-noise level. (Inherent, not matched: for k=1 the query reads a constant statement;
-    deeper chains leave fewer distractors in a fixed-length program.)"""
-    feats = {k: np.array([_cues(p) for p in progen.generate(500 + k, 3000, (k, k))]) for k in range(1, 11)}
-    for f, lim in ((0, 0.05), (1, 0.06), (2, 0.06), (3, 0.08)):
-        worst = max(_tv(feats[a][:, f], feats[b][:, f]) for a in range(1, 11) for b in range(a + 1, 11))
-        assert worst <= lim, (f, worst)
-    assert {int(q) for k in feats for q in feats[k][:, 0]} == set(range(progen.DIFFICULTY["query_min"], 14))
-
-
-def test_query_position_matched_in_prepared_data(codec):
-    by = {}
-    for split in ("validation", "holdout"):
-        d = _npz(split)
-        for i in range(len(d["group"])):
-            if d["group"][i] < 2:
-                p = progen.parse(str(d["text"][i]))
-                by.setdefault(int(d["group"][i]), []).append([s[0] for s in p["stmts"]].index(p["query"]))
-    assert _tv(np.array(by[0]), np.array(by[1])) <= 0.04          # ID vs DEPTH, 4000 items each
+def test_active_positions_do_not_depend_on_depth():
+    """Active slots are a uniform random subset for every k: their mean position is ~6.5 at every depth."""
+    for k in range(1, 13):
+        pos = [j for p in progen.generate(900 + k, 2000, (k, k)) for j, o in enumerate(p["slots"]) if o >= 0]
+        assert abs(np.mean(pos) - 6.5) < 0.25, (k, np.mean(pos))
 
 
 def test_counterfactual_twins_change_the_answer():
     import random
     rng = random.Random(0)
-    n_none = 0
     for p in progen.generate(11, 1000, (1, 10), balanced=True):
         c = progen.counterfactual(p, rng)
-        if c is None:
-            n_none += 1
-            continue
-        assert c["answer"] != p["answer"] and c["k"] == p["k"] and c["query"] == p["query"]
-        diff = [(x, y) for x, y in zip(p["stmts"], c["stmts"]) if x != y]
-        assert len(diff) == 1 and diff[0][0][1] == "c"                 # exactly one constant changed
-    p = progen.parse("a=5;b=a+3;c=b-a;c?")                           # the root cancels: no valid twin
-    assert progen.counterfactual(progen.annotate({**p, "k": 2}), rng) is None
-    assert n_none < 400
-
-
-def test_normalized_hash_is_alpha_invariant():
-    p = progen.parse("a=5;b=a+3;c=b-9;c?")
-    assert progen.norm_hash(p) == progen.norm_hash(progen.parse("x=5;q=x+3;m=q-9;m?"))
-    assert progen.norm_hash(p) != progen.norm_hash(progen.parse("a=5;b=a+3;c=b-8;c?"))
+        assert c is not None and c["answer"] != p["answer"] and c["slots"] == p["slots"] and c["s0"] != p["s0"]
 
 
 # ---------------------------------------------------------------- data: splits, depth labels, disjointness
@@ -165,7 +120,7 @@ def test_splits_sized_and_depth_ranges(info):
     for split in ("validation", "holdout"):
         d = _npz(split)
         assert sp[split] == n["id"] + n["depth"] == 4000
-        assert d["tokens"].shape == (len(d["group"]), L)
+        assert d["tokens"].shape == (len(d["group"]), L) and L == info["program_tokens"] == 18
         for g, (lo, hi), cnt in ((0, progen.ID_K, n["id"]), (1, progen.DEPTH_K, n["depth"]), (2, progen.EXT_K, n["ext"])):
             k = d["k"][d["group"] == g]
             assert len(k) == cnt and k.min() == lo and k.max() == hi
@@ -175,9 +130,9 @@ def test_splits_sized_and_depth_ranges(info):
         assert cf.sum() == n["cf"] and (d["group"][orig] < 2).all()
         assert (d["value"][cf] != d["value"][orig]).all()                  # every twin changes the answer
         assert np.bincount(d["k"][orig], minlength=11)[1:11].tolist() == [n["cf"] // 10] * 10   # 50 per k 1..10
-        assert len(set(orig.tolist())) == len(orig) and sorted(orig.tolist()) != list(orig)   # random, not strided
-    tk = np.load(f"{D}/audit/train_k.npy")
-    assert len(tk) == info["n_train_programs"] and tk.min() == progen.TRAIN_K[0] and tk.max() == progen.TRAIN_K[1]
+    for k in range(progen.TRAIN_K[0], progen.TRAIN_K[1] + 1):
+        for f in ("programs", "targets"):
+            assert os.path.getsize(f"{D}/train/{f}_k{k}.bin") == info["n_train_per_k"] * L * 2
 
 
 def test_eval_programs_decode_to_their_labels(codec):
@@ -186,41 +141,37 @@ def test_eval_programs_decode_to_their_labels(codec):
         for i in range(0, len(d["group"]), 7):
             row = d["tokens"][i]
             assert row[0] == codec["bos"]
-            text = _text(codec, row[1:])
+            text = " ".join(codec["to_piece"][int(t)] for t in row[1:])
             assert text == str(d["text"][i])
             p = progen.parse(text)
-            assert progen.depths(p["stmts"])[p["query"]] == d["k"][i]
-            if d["group"][i] == 0:                                           # ID items: the training distribution
-                assert max(progen.depths(p["stmts"]).values()) <= progen.TRAIN_K[1]
-            assert progen.evaluate(p["stmts"])[p["query"]] == d["value"][i]
+            assert p["k"] == d["k"][i] and _compose(p) == d["value"][i]
             assert codec["to_piece"][int(d["answer"][i])] == str(d["value"][i])   # one-token answer
             assert progen.norm_hash(p) == int(d["hash"][i])
 
 
-def test_splits_hash_disjoint_and_train_never_contains_eval(codec):
-    hashes, prompts = [], set()
+def test_train_records_dense_targets_and_no_eval_prompts(codec, info):
+    prompts = set()
+    hashes = []
     for split in ("validation", "holdout"):
         d = _npz(split)
         hashes.append(set(d["hash"].tolist()))
         assert len(hashes[-1]) == len(d["hash"])                  # unique within the split
         prompts |= {r.tobytes() for r in d["tokens"].astype(np.uint16)}
     assert not hashes[0] & hashes[1]
-    progs = np.memmap(f"{D}/train/programs.bin", dtype=np.uint16, mode="r")
-    starts = np.load(f"{D}/train/program_starts.npy")
-    stride = int(starts[1] - starts[0])
-    assert stride == L + 1 and len(progs) == len(starts) * stride
-    train = np.asarray(progs).reshape(-1, stride)
-    assert (train[:, 0] == codec["bos"]).all()
-    assert not {r.tobytes() for r in train[:, :L]} & prompts        # exact prompts: none shared
-    tk = np.load(f"{D}/audit/train_k.npy")
-    ev = hashes[0] | hashes[1]
-    for j in np.random.default_rng(0).choice(len(train), 20_000, replace=False):   # normalized hash on a sample
-        text = _text(codec, train[j, 1:L])
-        p = progen.parse(text)
-        assert progen.norm_hash(p) not in ev
-        dep = progen.depths(p["stmts"])
-        assert dep[p["query"]] == tk[j] and max(dep.values()) <= progen.TRAIN_K[1]     # no statement deeper than 6
-        assert codec["to_piece"][int(train[j, L])] == str(progen.evaluate(p["stmts"])[p["query"]])
+    states = {str(s) for s in range(5)}
+    ign = info["ignore"]
+    for k in range(progen.TRAIN_K[0], progen.TRAIN_K[1] + 1):
+        x = np.memmap(f"{D}/train/programs_k{k}.bin", dtype=np.uint16, mode="r").reshape(-1, L)
+        y = np.memmap(f"{D}/train/targets_k{k}.bin", dtype=np.uint16, mode="r").reshape(-1, L)
+        assert (x[:, 0] == codec["bos"]).all()
+        assert not {r.tobytes() for r in np.asarray(x)} & prompts               # exact prompts: none shared with eval
+        for j in np.random.default_rng(k).choice(len(x), 3000, replace=False):
+            pcs = [codec["to_piece"][int(t)] for t in x[j, 1:]]
+            p = progen.parse(" ".join(pcs))
+            assert p["k"] == k and all(c in progen.OPS or c == progen.NOP for c in pcs[2:-1])   # no states in inputs
+            want = [None] + progen.targets(p)
+            got = [None if int(t) == ign else codec["to_piece"][int(t)] for t in y[j]]
+            assert got == want and got[-1] in states
 
 
 def test_relabelling_is_a_consistent_permutation(codec):
@@ -244,20 +195,22 @@ def test_relabelling_is_a_consistent_permutation(codec):
     assert not {r.tobytes() for r in v[:, :64]} & {r.tobytes() for r in h[:, :64]}
 
 
-def test_heuristic_floors_are_low(info):
+def test_heuristic_floors_are_reported_and_bounded(info):
+    """5 states: chance 0.2. 'first/last operator only' equals the answer at k=1 (1/12 of ID+DEPTH), so its floor
+    is ~0.27; the evaluator reports every floor next to the accuracies."""
     for split in ("validation", "holdout"):
         d = _npz(split)
         main = d["group"] < 2
         val = d["value"][main]
         for h in ("h_last_const", "h_own_const", "h_root"):
-            assert (d[h][main] == val).mean() <= 0.10, (split, h)
-        assert np.bincount(val).max() / len(val) <= 0.10
-        assert info["floors"][split]["modal"] <= 0.10
+            assert (d[h][main] == val).mean() <= 0.33, (split, h)
+        assert np.bincount(val).max() / len(val) <= 0.25
+        assert info["floors"][split]["modal"] <= 0.25
 
 
 # ---------------------------------------------------------------- RUN cannot see eval programs or the generator
 def test_run_cannot_see_private_data_or_generator():
-    assert sorted(os.listdir(f"{D}/train")) == ["program_starts.npy", "programs.bin", "tokens.bin"]
+    assert sorted(os.listdir(f"{D}/train")) == sorted([f"{f}_k{k}.bin" for f in ("programs", "targets") for k in range(1, 7)] + ["tokens.bin"])
     for split in ("validation", "holdout"):
         assert sorted(os.listdir(f"{D}/{split}")) == ["private"]      # no public/: RUN gets no eval inputs at all
     files = sorted(os.listdir(FROZEN))
