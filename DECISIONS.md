@@ -103,3 +103,7 @@
   (b) sol's fallback (train k1..3, depth k4..7);
   (c) a longer training budget.
   The pack, data and controls stay in the repo.
+- 2026-10-01 plastic-agent v1 caveat checks, done as post-hoc measurements of the v1 winner (no new campaign):
+  - (3) ICL reference on the v1 holdout (data 849c, seeds 101–103): success 0.603 on every seed (deterministic, no training), prefill ~3,045 tokens. The winner's 0.80 beats notes-in-view on the same worlds by ~0.20.
+  - (2) the per-component forgetting numbers were already in the holdout metrics. Winner gsm8k_drop is 0.04 / 0.03 / 0.065 against the baseline's 0.005 / −0.02 / −0.035, so ~6 points of extra GSM8K forgetting. Guard-world ICL improved under both arms.
+  - (1) a new "novel" split (fauxos style "novel", data c3295b02): 4 operation types the recognizer never saw (bump, pin, count_tag, oldest_at) and reworded observations/goals for every op. Standard worlds are verified byte-identical to v1. Running: none, ICL (1 seed each), winner 0008 and baseline (3 seeds each). This is a robustness measurement, not a campaign: the winner was never told about this distribution.

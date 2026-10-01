@@ -3,6 +3,7 @@
 # campaign, holding the arlab GPU lock so it never overlaps an arlab GPU campaign. Needs the prepared data (run
 # `arlab check --static ideas/plastic-agent` first). No vLLM: everything runs in the pack image with HF transformers.
 #   pilot.sh <arm> <out-dir> [seed] [split]     arm = baseline (surface/) | none | icl | placebo (frozen/run/ref_<arm>)
+#                                               | custom (SRC_DIR=<dir with adapt.py>, e.g. a campaign's winner)
 #   pilot.sh gate <root>                        data-prep gate: runs none + icl on validation seed 1, prints GO / NO-GO
 #   ADAPT=180 GEN_TOKENS=400000 TRAIN_TOKENS=1500000 pilot.sh ...   override the per-world adapt budget (calibration)
 # Suggested order: gate -> baseline -> placebo (then timing: adapt_s per world in run.log, RUN/EVAL seconds below).
@@ -34,6 +35,7 @@ ARM=$1; OUT=$2; SEED=${3:-1}; SPLIT=${4:-validation}
 case $ARM in
   baseline) SRC=$P/surface ;;
   none|icl|placebo) SRC=$P/frozen/run/ref_$ARM ;;
+  custom) SRC=${SRC_DIR:?custom arm needs SRC_DIR=<dir with adapt.py>} ;;
   *) echo "unknown arm $ARM"; exit 2 ;;
 esac
 ADAPT=${ADAPT:-180}; GEN_TOKENS=${GEN_TOKENS:-400000}; TRAIN_TOKENS=${TRAIN_TOKENS:-1500000}
