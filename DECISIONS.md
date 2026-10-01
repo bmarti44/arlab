@@ -112,3 +112,11 @@
   - baseline 0.155 / 0.147 / 0.148;
   - winner 0008 0.063 / 0.070 / 0.066, BELOW none.
   The winner fails even on standard ops once they are reworded (archive 0.0, move 0.0, swap 0.02), while ICL shows the information is in the transcript. The v1 "supported" verdict stands under its pre-registered rules, but the README now says the gain is wording-specific and does not transfer. The v2 campaign design follows: score the holdout on novel-style worlds, with wording never disclosed to the agent, so only general consolidation methods can win.
+- 2026-10-01 plastic-agent v2 design adopted from gpt-6.1-sol (ideas/plastic-agent/V2-DESIGN-sol.md):
+  - per-world randomized wording families, validation and holdout from disjoint banks;
+  - holdout 16×60 with 4 reserved op types (bump, pin, count_tag, oldest_at; never shown to any agent), validation with its own dev-only op types;
+  - balanced 6 tasks per op; primary = mean over worlds of per-op macro accuracy, reserved/familiar strata reported, reserved gain > 0 required at finalize;
+  - separate gsm8k_drop and guardworld_drop guards;
+  - program.md forbids benchmark-specific recognizers and goal templates, checked by diff review plus supervisor logs of gen/train data;
+  - adapt cap 160 s per pass; power check also needs world-bootstrap SE ≤ 0.024.
+  The existing "novel" split stays as a regression test. Build order: wording.py + fauxos rendering split, then prepare, evaluate, harness logging, tests, docs, then astra review → pilot (none/icl/baseline gate, timing) → calibrate → campaign v2.
