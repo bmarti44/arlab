@@ -256,6 +256,23 @@ def test_fixture_tree_run_kill_resume_finalize(runs_root, tmp_path):
     base_code = subprocess.run(["git", "show", "baseline:model.py"], cwd=d2 / "work", capture_output=True, text=True).stdout
     assert '"lr": 0.1' in base_code or '"lr": 0.2' in base_code
     assert st2["root_from"] == f"_fixture/t1:{ch['node']}" and t2.used() == 2
+    # DREAM-PROTOCOL block: two arms grown from t1's first batch (shared opening), then paired block-eval
+    for arm, pol in (("bD", "stop_first_win"), ("bP", "parallel_refine")):
+        r = run_arlab(runs_root, "tree", "run", pack, "--tag", arm, "--policy", pol, "--budget", "4", "--workers", "2",
+                      "--opening-from", "_fixture/t1", "--calib-from", "_fixture/t1", "--script", SCRIPTS / "tree.yaml")
+        assert r.returncode == 0, r.stderr
+        sa, ta, da = tree_state(runs_root, arm)
+        assert [n["id"] for n in ta.nodes[1:3]] == ["n0001", "n0002"] and all(n.get("opening") == "_fixture/t1" for n in ta.nodes[1:3])
+        assert ta.nodes[1]["commit"] == by["n0001"]["commit"] and ta.used() <= 4
+        assert subprocess.run(["git", "cat-file", "-e", by["n0001"]["commit"]], cwd=da / "work").returncode == 0
+    _, tP, _ = tree_state(runs_root, "bP")
+    assert tP.used() == 4 and {n["parent"] for n in tP.nodes[3:]} == {"n0001", "n0002"}
+    out = tmp_path / "block1"
+    r = run_arlab(runs_root, "tree", "block-eval", pack, "--arm", "D=bD", "P=bP", "--seeds", "201", "202", "--out", out)
+    assert r.returncode == 0, r.stderr
+    blk = json.loads((out / "block.json").read_text())
+    assert set(blk["root"]) == {"201", "202"} and set(blk["arms"]) == {"D", "P"}
+    assert all(isinstance(a["q"], float) and a["nodes"] <= 4 for a in blk["arms"].values())
 
 
 def test_root_from_allows_code_neutral_pack_changes(tmp_path):
@@ -274,3 +291,25 @@ def test_root_from_allows_code_neutral_pack_changes(tmp_path):
     assert not _same_code(base, mk("e", "{screen: 1, holdout: [101, 102, 103]}", data="d2"))
     assert _same_code(base, mk("f", "{screen: 1, holdout: [101]}", extra="guards: [{name: t, max: 1}]\nagent: {model: m}\n"))
     assert not _same_code(base, mk("g", "{screen: 1, holdout: [101]}", extra="run: {command: other}\n"))
+
+
+def test_protocol_decision_rule():
+    from arlab.tree.blocks import analyze
+    import random
+    def blocks(tmp, dq, dcalls, n=24, sd=0.3):
+        r, files = random.Random(0), []
+        for b in range(n):
+            base = r.gauss(0.5, 0.5)
+            arms = {"P": {"q": base + r.gauss(0, sd), "nodes": 12, "calls": 12},
+                    "G": {"q": base + r.gauss(0, sd), "nodes": 12, "calls": 12},
+                    "D": {"q": base + dq + r.gauss(0, sd), "nodes": 12 + dcalls, "calls": 12 + dcalls}}
+            f = tmp / f"b{b}.json"; f.write_text(json.dumps({"arms": arms})); files.append(f)
+        return files
+    import tempfile
+    with tempfile.TemporaryDirectory() as t:
+        t = Path(t)
+        (t / "a").mkdir(); (t / "b").mkdir(); (t / "c").mkdir(); (t / "d").mkdir()
+        assert analyze(blocks(t / "a", 1.0, -6))["verdict"] == "proven"
+        assert analyze(blocks(t / "b", 1.0, +2))["verdict"] != "proven"     # better but costlier: not proven
+        assert analyze(blocks(t / "c", -0.3, -6))["verdict"] == "denied"
+        assert analyze(blocks(t / "d", 0.25, -6, n=4))["verdict"] == "inconclusive"

@@ -33,7 +33,7 @@ TOP_K = 3
 class TreeCampaign(Campaign):
     def __init__(self, pack_dir: Path, tag: str, policy: str | None = None, budget: int = 48, workers: int = 4,
                  script: Path | None = None, runs_root: Path | None = None, root_from: str | None = None,
-                 calib_from: str | None = None):
+                 calib_from: str | None = None, opening_from: str | None = None):
         super().__init__(pack_dir, tag, script, runs_root)
         self.tree_path = self.dir / "tree.json"
         self.tree = Tree.load(self.tree_path)
@@ -43,7 +43,7 @@ class TreeCampaign(Campaign):
             self.new_policy = pol
             self.tree = Tree(self.tree_path, {"pack": self.name, "tag": tag, "policy": pol.stem, "policy_sha": sha(pol),
                                               "budget": budget, "W": workers, "root_from": root_from, "calib_from": calib_from,
-                                              "created": now()})
+                                              "opening_from": opening_from, "created": now()})
         self.git_lock, self.trial_lock, self.file_lock = threading.Lock(), threading.Lock(), threading.Lock()
         self.local = threading.local()
 
@@ -60,6 +60,7 @@ class TreeCampaign(Campaign):
             self.tree.save()
             self.new_policy = None
         if (self.work / ".git").exists() and self.state.get("baseline_commit"):
+            self._copy_opening()
             return
         shutil.rmtree(self.work, ignore_errors=True)  # a half-initialized work/ (killed during init) is rebuilt
         shutil.copytree(self.sealed / "surface", self.work)
@@ -78,6 +79,33 @@ class TreeCampaign(Campaign):
         self.git("commit", "-q", "-m", f"baseline{' (root from ' + rf + ')' if rf else ''}")
         self.git("tag", "baseline")
         self.save(baseline_commit=self.git("rev-parse", "HEAD"), baseline_tree=self.git("rev-parse", "HEAD^{tree}"), mode="tree", root_from=rf)
+        self._copy_opening()
+
+    def _copy_opening(self):
+        """--opening-from <pack>/<tag>: start with that tree's first batch (root children, recorded order), commits and
+        node dirs included. They count against this run's budget (a shared opening is charged to every arm)."""
+        spec = self.tree.meta.get("opening_from")
+        if not spec or len(self.tree.nodes) > 1:
+            return
+        pack, tag = spec.split("/")
+        src = Campaign(self.pack_dir.parent / pack, tag, runs_root=self.dir.parent.parent)
+        st = Tree.load(src.dir / "tree.json")
+        if st is None or src.state.get("baseline_tree") != self.state.get("baseline_tree"):
+            raise ConfigError(f"--opening-from {spec}: no tree, or its root differs from this run's")
+        first = sorted([n for n in st.nodes if n["parent"] == "root" and n["status"] not in DROPPED], key=lambda n: n["order"])
+        first = first[:self.tree.meta["W"]]
+        if not first or any(n["status"] == "pending" for n in first):
+            raise ConfigError(f"--opening-from {spec}: its first batch is missing or unfinished")
+        for n in first:
+            if n.get("commit"):
+                self.git("fetch", "-q", str(src.work), f"refs/tags/node/{n['id']}:refs/tags/node/{n['id']}")
+            if (src.dir / "nodes" / n["id"]).exists() and not (self.dir / "nodes" / n["id"]).exists():
+                shutil.copytree(src.dir / "nodes" / n["id"], self.dir / "nodes" / n["id"], symlinks=True)
+            self.tree.nodes.append({**n, "opening": spec})
+        self.tree.meta["batches"] = 1
+        self.tree.meta.setdefault("selections", []).append(["root"] * len(first))
+        self.tree.save()
+        self.log(f"OPENING {len(first)} nodes from {spec}: {[n['id'] for n in first]}")
 
     def _source(self, spec: str) -> tuple[Campaign, str]:
         """'<pack>/<tag>:<id>' → (source campaign, commit). id = a greedy keep id or a tree node id."""

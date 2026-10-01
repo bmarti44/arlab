@@ -12,7 +12,7 @@ import torch
 
 VOCAB = 8192
 SEQ_LEN = 1024
-TEXT_ROWS, PROG_ROWS = 48, 16          # rows per 64 x 1024 training batch (programs ~9 % of tokens)
+TEXT_ROWS, PROG_ROWS = 58, 6          # rows per 64 x 1024 training batch (programs ~9 % of tokens)
 GRACE_S = 30                          # the supervisor kills the trainer at budget + GRACE_S (budget.limit = 330 + 30)
 MAX_CKPT_TENSORS = 100_000
 

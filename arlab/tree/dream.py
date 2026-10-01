@@ -67,12 +67,13 @@ def import_campaign(spec: str) -> Path:
     return t.path
 
 
-def evaluate(policy: Path, trees: list[Tree], sandbox=SandboxPolicy) -> list[dict]:
+def evaluate(policy: Path, trees: list[Tree], sandbox=SandboxPolicy, horizon: int | None = None) -> list[dict]:
     out = []
     for t in trees:
         try:
             with sandbox(policy) as pol:
-                r = replay(pol, t.nodes, t.meta.get("W", 4), t.meta.get("budget") or len(t.nodes) - 1)
+                rec = t.meta.get("budget") or len(t.nodes) - 1
+                r = replay(pol, t.nodes, t.meta.get("W", 4), min(rec, horizon) if horizon else rec)
         except PolicyError as e:
             r = {"error": str(e)[-1500:], "V": {"0.0": -1.0, "0.5": -1.0, "1.0": -1.0}, "N": 0, "best": 0.0}
         out.append({"tree": f"{t.meta['pack']}/{t.meta['tag']}", **r})
@@ -97,7 +98,7 @@ def replay_md(res: list[dict]) -> str:
 
 
 def dream(policy: str, train: list[str], heldout: list[str], name: str, M: int = 8, model: str = "gpt-6.1-sol",
-          effort: str = "high", backend=None, sandbox=SandboxPolicy) -> dict:
+          effort: str = "high", backend=None, sandbox=SandboxPolicy, horizon: int | None = None) -> dict:
     out = tree_root() / "dream" / name
     out.mkdir(parents=True, exist_ok=True)
     lock = FileLock(out / ".lock")
@@ -109,7 +110,7 @@ def dream(policy: str, train: list[str], heldout: list[str], name: str, M: int =
         raise ValueError(f"held-out trees overlap the training trees: {sorted(overlap)}")
     cur = resolve(policy)
     shutil.copy2(cur, out / "policy-0.py")
-    cur_train = evaluate(out / "policy-0.py", tr, sandbox)
+    cur_train = evaluate(out / "policy-0.py", tr, sandbox, horizon)
     best = {"path": out / "policy-0.py", "train": cur_train, "V": mean_v(cur_train), "rev": 0, "description": "current policy"}
     attempts = [dict(rev=0, description="current policy", V_train=best["V"])]
     backend = backend or CodexBackend(model, effort, 1800)
@@ -137,14 +138,14 @@ def dream(policy: str, train: list[str], heldout: list[str], name: str, M: int =
         if prop.action != "edit" or sha(cand) == sha(best["path"]):
             attempts.append(dict(rev=i, description=f"no change ({prop.description})", V_train=best["V"]))
             continue
-        res = evaluate(cand, tr, sandbox)
+        res = evaluate(cand, tr, sandbox, horizon)
         v = mean_v(res)
         err = next((r["error"] for r in res if r.get("error")), None)
         attempts.append(dict(rev=i, description=prop.description, V_train=v, error=err, tokens=prop.tokens))
         if v > best["V"] and not err:
             best = {"path": cand, "train": res, "V": v, "rev": i, "description": prop.description}
-    base_ho = evaluate(out / "policy-0.py", ho, sandbox) if ho else []
-    best_ho = evaluate(best["path"], ho, sandbox) if ho and best["rev"] else base_ho
+    base_ho = evaluate(out / "policy-0.py", ho, sandbox, horizon) if ho else []
+    best_ho = evaluate(best["path"], ho, sandbox, horizon) if ho and best["rev"] else base_ho
     improved = best["rev"] > 0
     ho_err = any(r.get("error") for r in base_ho + best_ho)
     accepted = improved and not ho_err and (not ho or mean_v(best_ho) >= mean_v(base_ho))
@@ -152,7 +153,7 @@ def dream(policy: str, train: list[str], heldout: list[str], name: str, M: int =
            "best_rev": best["rev"], "V_train": {"current": mean_v(cur_train), "best": best["V"]},
            "V_heldout": {"current": mean_v(base_ho) if ho else None, "best": mean_v(best_ho) if ho else None},
            "accepted": accepted, "heldout_errors": ho_err, "best_sha": sha(best["path"]),
-           "guard": "held-out V >= current" if ho else "UNGUARDED (no held-out trees)", "finished": now()}
+           "guard": "held-out V >= current" if ho else "UNGUARDED (no held-out trees)", "horizon": horizon, "finished": now()}
     if accepted:
         pol = tree_root() / "policies" / f"{name}.py"
         pol.parent.mkdir(parents=True, exist_ok=True)
