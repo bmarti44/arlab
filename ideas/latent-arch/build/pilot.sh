@@ -2,13 +2,14 @@
 # Manual GPU pilot (owner/orchestrator only; needs an idle GPU): the frozen harness + evaluator for one arm on one
 # split, outside a campaign, holding the arlab GPU lock. Needs the prepared data (arlab check --static) and the image.
 #   pilot.sh <arm> <out-dir> [train-seconds=330] [seed=1] [split=validation]
-#   arms: baseline (surface/), depth12 (frozen/run/ref_depth12), loop_naive (build/loop_naive)
+#   arms: baseline (surface/), depth12 (frozen/run/ref_depth12), loop_naive (build/loop_naive),
+#         deltaproduct (build/deltaproduct: positive control, FIX-sol-v2.2.md)
 #   depth12_2x = depth12 with train-seconds 660 (then budget.json exceeds 360: fine outside a campaign)
 set -eu
 ARM=$1; OUT=$2; TS=${3:-330}; SEED=${4:-1}; SPLIT=${5:-validation}
 P=/home/bmarti44/arlab/ideas/latent-arch
 case $ARM in
-  baseline) SRC=$P/surface ;; depth12) SRC=$P/frozen/run/ref_depth12 ;; loop_naive) SRC=$P/build/loop_naive ;;
+  baseline) SRC=$P/surface ;; depth12) SRC=$P/frozen/run/ref_depth12 ;; loop_naive) SRC=$P/build/loop_naive ;; deltaproduct) SRC=$P/build/deltaproduct ;;
   *) echo "unknown arm $ARM"; exit 2 ;;
 esac
 DATA=${DATA:-$(ls -td /home/bmarti44/arlab-data/latent-arch/*/ | grep -v tmp | head -1)}
